@@ -249,53 +249,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         emit Trade(msg.sender, false, noIn, yesOut);
     }
 
-    /* ───────── ZAPS (COLLATERAL <-> YES) ───────── */
-    function buyYes(uint256 collateralIn, uint256 minYesOut)
-        external
-        nonReentrant
-        marketOpen
-        seededOnly
-    {
-        require(collateralIn > 0, "Zero input");
-
-        collateral.safeTransferFrom(msg.sender, address(this), collateralIn);
-
-        // Mint complete sets to user, then swap their NO for YES.
-        yesToken.mint(msg.sender, collateralIn);
-        noToken.mint(msg.sender, collateralIn);
-
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), collateralIn);
-        uint256 yesOut = _swapNoForYesFromPool(collateralIn, minYesOut, msg.sender);
-
-        emit CompleteSetsMinted(msg.sender, collateralIn);
-        emit Trade(msg.sender, false, collateralIn, yesOut);
-    }
-
-    function sellYes(uint256 yesIn, uint256 minCollateralOut)
-        external
-        nonReentrant
-        marketOpen
-        seededOnly
-    {
-        require(yesIn > 0, "Zero input");
-
-        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesIn);
-        uint256 noOut = _swapYesForNoFromPool(yesIn, 0, address(this));
-
-        require(yesIn >= noOut, "Insufficient YES");
-        require(noOut >= minCollateralOut, "Slippage exceeded");
-
-        yesToken.burn(address(this), noOut);
-        noToken.burn(address(this), noOut);
-        yesReserve -= noOut;
-        noReserve -= noOut;
-
-        collateral.safeTransfer(msg.sender, noOut);
-
-        emit Trade(msg.sender, true, yesIn, noOut);
-        emit CompleteSetsRedeemed(msg.sender, noOut);
-    }
-
+   
     function _swapYesForNoFromPool(uint256 yesIn, uint256 minNoOut, address recipient)
         internal
         returns (uint256 netOut)
