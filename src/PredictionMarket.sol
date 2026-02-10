@@ -237,18 +237,19 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /* ───────── SWAPS (YES <-> NO) ───────── */
     function swapYesForNo(uint256 yesIn, uint256 minNoOut) external nonReentrant marketOpen seededOnly {
         require(yesIn > 0, "Zero input");
-        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesIn);
 
         uint256 noOut = _swapYesForNoFromPool(yesIn, minNoOut, msg.sender);
+        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesIn);
 
         emit Trade(msg.sender, true, yesIn, noOut);
     }
 
     function swapNoForYes(uint256 noIn, uint256 minYesOut) external nonReentrant marketOpen seededOnly {
         require(noIn > 0, "Zero input");
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noIn);
 
         uint256 yesOut = _swapNoForYesFromPool(noIn, minYesOut, msg.sender);
+        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noIn);
+
 
         emit Trade(msg.sender, false, noIn, yesOut);
     }
