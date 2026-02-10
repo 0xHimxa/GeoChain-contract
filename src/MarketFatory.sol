@@ -36,9 +36,8 @@ contract MarketFactory is Ownable {
     ) external onlyOwner returns (address market) {
         require(initialLiquidity > 0, "Zero liquidity");
 
-        PredictionMarket m = new PredictionMarket(
-            question, address(collateral), closeTime, resolutionTime, feeBps, address(this)
-        );
+        PredictionMarket m =
+            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, feeBps, address(this));
 
         // seed liquidity in the new market, then hand ownership to the creator
         collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);

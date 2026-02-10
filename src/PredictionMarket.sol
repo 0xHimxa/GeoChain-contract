@@ -5,10 +5,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {OutcomeToken} from "./outcomeToken.sol";
 
-contract PredictionMarket is Ownable, ReentrancyGuard {
+contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     enum State {
@@ -17,11 +18,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         Resolved
     }
 
-    string public question;
-    IERC20 public immutable collateral;
+    string public s_question;
+    string public s_Proof_Url;
+    IERC20 public immutable i_collateral;
 
-    OutcomeToken public yesToken;
-    OutcomeToken public noToken;
+    OutcomeToken public immutable yesToken;
+    OutcomeToken public immutable noToken;
 
     uint256 public immutable closeTime;
     uint256 public immutable resolutionTime;
@@ -36,9 +38,17 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
 
     State public state;
 
-    event Trade(address indexed user, bool yesForNo, uint256 amountIn, uint256 amountOut);
+    enum Resolution {
+        Unset,
+        Yes,
+        No,
+        Invalid
+    }
 
-    event Resolved(bool outcome);    bool public outcome; // true = YES
+    Resolution public resolution;
+
+    event Trade(address indexed user, bool yesForNo, uint256 amountIn, uint256 amountOut);
+    event Resolved(Resolution outcome);
 
     event Redeemed(address indexed user, uint256 amount);
     event CompleteSetsMinted(address indexed user, uint256 amount);
@@ -59,8 +69,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         require(_closeTime < _resolutionTime, "Bad times");
         require(_feeBps <= 1_000, "Fee too high");
 
-        question = _question;
-        collateral = IERC20(_collateral);
+        s_question = _question;
+        i_collateral = IERC20(_collateral);
         closeTime = _closeTime;
         resolutionTime = _resolutionTime;
         feeBps = _feeBps;
@@ -75,6 +85,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
     modifier marketOpen() {
         _updateState();
         require(state == State.Open, "Market closed");
+        require(!paused(), "Paused");
         _;
     }
 
@@ -95,12 +106,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
     }
 
     /* ───────── LIQUIDITY ───────── */
-    function seedLiquidity(uint256 amount) external onlyOwner {
+    function seedLiquidity(uint256 amount) external onlyOwner whenNotPaused {
         require(!seeded, "Already seeded");
         require(amount > 0, "Zero amount");
         require(state == State.Open, "Market closed");
 
-        require(collateral.balanceOf(address(this)) >= amount, "Insufficient collateral");
+        require(i_collateral.balanceOf(address(this)) >= amount, "Insufficient collateral");
         yesToken.mint(address(this), amount);
         noToken.mint(address(this), amount);
 
@@ -123,10 +134,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
     {
         require(yesAmount > 0 && noAmount > 0, "Zero amount");
         require(collateralAmount > 0, "Zero collateral");
+        require(yesAmount == noAmount, "YES/NO mismatch");
+        require(yesAmount == collateralAmount, "Collateral mismatch");
 
         IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesAmount);
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noAmount);
-        collateral.safeTransferFrom(msg.sender, address(this), collateralAmount);
+        i_collateral.safeTransferFrom(msg.sender, address(this), collateralAmount);
 
         uint256 yesShare = (yesAmount * totalShares) / yesReserve;
         uint256 noShare = (noAmount * totalShares) / noReserve;
@@ -153,7 +166,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
             IERC20(address(noToken)).safeTransfer(msg.sender, noAmount - usedNo);
         }
         if (collateralAmount > shares) {
-            collateral.safeTransfer(msg.sender, collateralAmount - shares);
+            i_collateral.safeTransfer(msg.sender, collateralAmount - shares);
         }
 
         emit LiquidityAdded(msg.sender, usedYes, usedNo, shares);
@@ -164,6 +177,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         nonReentrant
         notResolved
         seededOnly
+        whenNotPaused
     {
         require(shares > 0, "Zero shares");
         require(lpShares[msg.sender] >= shares, "Insufficient shares");
@@ -183,12 +197,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
 
         IERC20(address(yesToken)).safeTransfer(msg.sender, yesOut);
         IERC20(address(noToken)).safeTransfer(msg.sender, noOut);
-        collateral.safeTransfer(msg.sender, collateralOut);
+        i_collateral.safeTransfer(msg.sender, collateralOut);
 
         emit LiquidityRemoved(msg.sender, yesOut, noOut, shares);
     }
 
-    function transferShares(address to, uint256 shares) external {
+    function transferShares(address to, uint256 shares) external whenNotPaused {
         require(to != address(0), "Bad recipient");
         require(lpShares[msg.sender] >= shares, "Insufficient shares");
 
@@ -202,31 +216,26 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
     function mintCompleteSets(uint256 amount) external nonReentrant marketOpen {
         require(amount > 0, "Zero amount");
 
-        collateral.safeTransferFrom(msg.sender, address(this), amount);
+        i_collateral.safeTransferFrom(msg.sender, address(this), amount);
         yesToken.mint(msg.sender, amount);
         noToken.mint(msg.sender, amount);
 
         emit CompleteSetsMinted(msg.sender, amount);
     }
 
-    function redeemCompleteSets(uint256 amount) external nonReentrant {
+    function redeemCompleteSets(uint256 amount) external nonReentrant whenNotPaused {
         require(state != State.Resolved, "Resolved");
         require(amount > 0, "Zero amount");
 
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
-        collateral.safeTransfer(msg.sender, amount);
+        i_collateral.safeTransfer(msg.sender, amount);
 
         emit CompleteSetsRedeemed(msg.sender, amount);
     }
 
     /* ───────── SWAPS (YES <-> NO) ───────── */
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut)
-        external
-        nonReentrant
-        marketOpen
-        seededOnly
-    {
+    function swapYesForNo(uint256 yesIn, uint256 minNoOut) external nonReentrant marketOpen seededOnly {
         require(yesIn > 0, "Zero input");
         IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesIn);
 
@@ -235,12 +244,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         emit Trade(msg.sender, true, yesIn, noOut);
     }
 
-    function swapNoForYes(uint256 noIn, uint256 minYesOut)
-        external
-        nonReentrant
-        marketOpen
-        seededOnly
-    {
+    function swapNoForYes(uint256 noIn, uint256 minYesOut) external nonReentrant marketOpen seededOnly {
         require(noIn > 0, "Zero input");
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noIn);
 
@@ -249,7 +253,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
         emit Trade(msg.sender, false, noIn, yesOut);
     }
 
-   
     function _swapYesForNoFromPool(uint256 yesIn, uint256 minNoOut, address recipient)
         internal
         returns (uint256 netOut)
@@ -289,35 +292,85 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
 
         IERC20(address(yesToken)).safeTransfer(recipient, netOut);
     }
-    
-    /* ───────── RESOLUTION ───────── */
 
+    /* ───────── RESOLUTION ───────── */
+    // will fix this
     function resolve(bool _outcome) external onlyOwner {
         _updateState();
         require(block.timestamp >= resolutionTime, "Too early");
         require(state != State.Resolved, "Already resolved");
         require(state == State.Closed, "Market still open");
 
-        outcome = _outcome;
+        // outcome = _outcome;
         state = State.Resolved;
 
-        emit Resolved(_outcome);
+        // emit Resolved(_outcome);
     }
 
     /* ───────── REDEEM ───────── */
 
-    function redeem(uint256 amount) external nonReentrant {
+    function redeem(uint256 amount) external nonReentrant whenNotPaused {
         require(state == State.Resolved, "Not resolved");
         require(amount > 0, "Zero amount");
 
-        if (outcome) {
+        if (resolution == Resolution.Yes) {
             yesToken.burn(msg.sender, amount);
-        } else {
+            i_collateral.safeTransfer(msg.sender, amount);
+        } else if (resolution == Resolution.No) {
             noToken.burn(msg.sender, amount);
+            i_collateral.safeTransfer(msg.sender, amount);
+        } else if (resolution == Resolution.Invalid) {
+            revert("Use redeemInvalid");
+        } else {
+            revert("Invalid resolution");
         }
 
-        collateral.safeTransfer(msg.sender, amount);
-
         emit Redeemed(msg.sender, amount);
+    }
+
+    // function redeemInvalid(bool redeemYes, uint256 amount) external nonReentrant whenNotPaused {
+    //     require(state == State.Resolved, "Not resolved");
+    //     require(resolution == Resolution.Invalid, "Not invalid");
+    //     require(amount > 0, "Zero amount");
+
+    //     if (redeemYes) {
+    //         yesToken.burn(msg.sender, amount);
+    //     } else {
+    //         noToken.burn(msg.sender, amount);
+    //     }
+
+    //     i_collateral.safeTransfer(msg.sender, amount / 2);
+
+    //     emit Redeemed(msg.sender, amount / 2);
+    // }
+
+    /* ───────── PREVIEW ───────── */
+    function getYesForNoQuote(uint256 yesIn) external view returns (uint256 netOut, uint256 fee) {
+        require(yesIn > 0, "Zero input");
+        uint256 k = yesReserve * noReserve;
+        uint256 newYes = yesReserve + yesIn;
+        uint256 newNo = k / newYes;
+        uint256 grossOut = noReserve - newNo;
+        fee = (grossOut * feeBps) / 10_000;
+        netOut = grossOut - fee;
+    }
+
+    function getNoForYesQuote(uint256 noIn) external view returns (uint256 netOut, uint256 fee) {
+        require(noIn > 0, "Zero input");
+        uint256 k = yesReserve * noReserve;
+        uint256 newNo = noReserve + noIn;
+        uint256 newYes = k / newNo;
+        uint256 grossOut = yesReserve - newYes;
+        fee = (grossOut * feeBps) / 10_000;
+        netOut = grossOut - fee;
+    }
+
+    /* ───────── PAUSE CONTROL ───────── */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 }
