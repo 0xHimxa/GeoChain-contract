@@ -28,6 +28,10 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     uint256 public immutable closeTime;
     uint256 public immutable resolutionTime;
     uint256 public immutable feeBps;
+    uint256 private constant SWAP_FEE_BPS = 400;
+    uint256 private constant MINT_COMPLETE_SETS_FEE_BPS = 300;
+    uint256 private constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
+    uint256 private constant FEE_PRESECION_BPS = 10_000;
 
     uint256 public yesReserve;
     uint256 public noReserve;
@@ -217,10 +221,15 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         require(amount > 0, "Zero amount");
 
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);
-        yesToken.mint(msg.sender, amount);
-        noToken.mint(msg.sender, amount);
+        uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 netAmount = amount - fee;
+        require(netAmount > 0, "Zero output");
+        collateralReserve += fee;
 
-        emit CompleteSetsMinted(msg.sender, amount);
+        yesToken.mint(msg.sender, netAmount);
+        noToken.mint(msg.sender, netAmount);
+
+        emit CompleteSetsMinted(msg.sender, netAmount);
     }
 
     function redeemCompleteSets(uint256 amount) external nonReentrant whenNotPaused {
@@ -229,9 +238,14 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
-        i_collateral.safeTransfer(msg.sender, amount);
+        uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 netAmount = amount - fee;
+        require(netAmount > 0, "Zero output");
+        collateralReserve += fee;
 
-        emit CompleteSetsRedeemed(msg.sender, amount);
+        i_collateral.safeTransfer(msg.sender, netAmount);
+
+        emit CompleteSetsRedeemed(msg.sender, netAmount);
     }
 
     /* ───────── SWAPS (YES <-> NO) ───────── */
@@ -262,7 +276,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 newYes = yesReserve + yesIn;
         uint256 newNo = k / newYes;
         uint256 grossOut = noReserve - newNo;
-        uint256 fee = (grossOut * feeBps) / 10_000;
+        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
 
         require(netOut >= minNoOut, "Slippage exceeded");
@@ -282,7 +296,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 newNo = noReserve + noIn;
         uint256 newYes = k / newNo;
         uint256 grossOut = yesReserve - newYes;
-        uint256 fee = (grossOut * feeBps) / 10_000;
+        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
 
         require(netOut >= minYesOut, "Slippage exceeded");
@@ -352,7 +366,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 newYes = yesReserve + yesIn;
         uint256 newNo = k / newYes;
         uint256 grossOut = noReserve - newNo;
-        fee = (grossOut * feeBps) / 10_000;
+        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
     }
 
@@ -362,7 +376,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 newNo = noReserve + noIn;
         uint256 newYes = k / newNo;
         uint256 grossOut = yesReserve - newYes;
-        fee = (grossOut * feeBps) / 10_000;
+        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
     }
 
