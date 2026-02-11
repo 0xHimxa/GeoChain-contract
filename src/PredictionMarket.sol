@@ -27,7 +27,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     uint256 public immutable closeTime;
     uint256 public immutable resolutionTime;
-    uint256 public immutable feeBps;
     uint256 private constant SWAP_FEE_BPS = 400;
     uint256 private constant MINT_COMPLETE_SETS_FEE_BPS = 300;
     uint256 private constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
@@ -62,22 +61,46 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     event LiquidityRemoved(address indexed user, uint256 yesAmount, uint256 noAmount, uint256 shares);
     event SharesTransferred(address indexed from, address indexed to, uint256 shares);
 
+
+error PredictionMarket__CloseTimeGreaterThanResolutionTime();
+error PredictionMarket__InvalidArguments_PassedInConstructor();
+error PredictionMarket__Isclosed();
+error PredictionMarket__IsPaused();
+error PredictionMarket__InitailConstantLiquidityNotSetYet();
+error PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
+error PredictionMarket__InitailConstantLiquidityAlreadySet();
+error PredictionMarket__FundingInitailAountGreaterThanAmountSent();
+error PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
+error PredictionMarket__AddLiquidity_CollateralCantBeZero();
+error PredictionMarket__AddLiquidity_YesAndNoCantBeDifferent();
+error PredictionMarket__AddLiquidity_Yes_No_AndCollateralCantBeDifferent();
+error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
+
+
+
+
+
+
     constructor(
         string memory _question,
         address _collateral,
         uint256 _closeTime,
         uint256 _resolutionTime,
-        uint256 _feeBps,
         address owner_
     ) Ownable(msg.sender) {
-        require(_closeTime < _resolutionTime, "Bad times");
-        require(_feeBps <= 1_000, "Fee too high");
+        if(_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) revert PredictionMarket__InvalidArguments_PassedInConstructor();
+        
+        if(_closeTime > _resolutionTime) revert PredictionMarket__CloseTimeGreaterThanResolutionTime();
+
 
         s_question = _question;
+
+
+
         i_collateral = IERC20(_collateral);
         closeTime = _closeTime;
         resolutionTime = _resolutionTime;
-        feeBps = _feeBps;
+     
 
         yesToken = new OutcomeToken("YES", "YES", address(this));
         noToken = new OutcomeToken("NO", "NO", address(this));
@@ -89,19 +112,17 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     modifier marketOpen() {
         _updateState();
         require(state == State.Open, "Market closed");
-        require(!paused(), "Paused");
+        if(state == State.Closed) revert PredictionMarket__Isclosed();
+        if(paused()) revert PredictionMarket__IsPaused();
         _;
     }
 
     modifier seededOnly() {
-        require(seeded, "Not seeded");
+        if(!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
         _;
     }
 
-    modifier notResolved() {
-        require(state != State.Resolved, "Resolved");
-        _;
-    }
+    
 
     function _updateState() internal {
         if (state == State.Open && block.timestamp >= closeTime) {
@@ -111,20 +132,27 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /* ───────── LIQUIDITY ───────── */
     function seedLiquidity(uint256 amount) external onlyOwner whenNotPaused {
-        require(!seeded, "Already seeded");
-        require(amount > 0, "Zero amount");
-        require(state == State.Open, "Market closed");
 
-        require(i_collateral.balanceOf(address(this)) >= amount, "Insufficient collateral");
-        yesToken.mint(address(this), amount);
-        noToken.mint(address(this), amount);
+       
+        if(seeded) revert PredictionMarket__InitailConstantLiquidityAlreadySet();
+        if(amount == 0) revert PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
 
+
+      uint256 contractBalance = i_collateral.balanceOf(address(this));
+
+        if(contractBalance < amount) revert PredictionMarket__FundingInitailAountGreaterThanAmountSent();
+
+       
         yesReserve = amount;
         noReserve = amount;
         seeded = true;
         totalShares = amount;
         lpShares[msg.sender] = amount;
         collateralReserve = amount;
+
+         yesToken.mint(address(this), amount);
+        noToken.mint(address(this), amount);
+
 
         emit LiquiditySeeded(amount);
     }
@@ -136,20 +164,23 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         marketOpen
         seededOnly
     {
-        require(yesAmount > 0 && noAmount > 0, "Zero amount");
-        require(collateralAmount > 0, "Zero collateral");
-        require(yesAmount == noAmount, "YES/NO mismatch");
+       
+        if(yesAmount == 0  && noAmount == 0) revert PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
+        if(collateralAmount == 0) revert PredictionMarket__AddLiquidity_CollateralCantBeZero();
+         if(yesAmount != noAmount) revert PredictionMarket__AddLiquidity_YesAndNoCantBeDifferent();
+        if(yesAmount != collateralAmount) revert PredictionMarket__AddLiquidity_Yes_No_AndCollateralCantBeDifferent();
+       
         require(yesAmount == collateralAmount, "Collateral mismatch");
 
-        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesAmount);
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noAmount);
-        i_collateral.safeTransferFrom(msg.sender, address(this), collateralAmount);
-
+    
         uint256 yesShare = (yesAmount * totalShares) / yesReserve;
         uint256 noShare = (noAmount * totalShares) / noReserve;
         uint256 shares = yesShare < noShare ? yesShare : noShare;
 
         require(shares >= minShares, "Slippage exceeded");
+        if(shares < minShares) revert PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
+
+
         require(shares > 0, "Zero shares");
         require(collateralAmount >= shares, "Insufficient collateral");
 
@@ -162,6 +193,11 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         totalShares += shares;
         lpShares[msg.sender] += shares;
         collateralReserve += shares;
+
+            IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesAmount);
+        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noAmount);
+        i_collateral.safeTransferFrom(msg.sender, address(this), collateralAmount);
+
 
         if (yesAmount > usedYes) {
             IERC20(address(yesToken)).safeTransfer(msg.sender, yesAmount - usedYes);
@@ -179,7 +215,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut)
         external
         nonReentrant
-        notResolved
         seededOnly
         whenNotPaused
     {
@@ -263,7 +298,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         uint256 yesOut = _swapNoForYesFromPool(noIn, minYesOut, msg.sender);
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noIn);
-
 
         emit Trade(msg.sender, false, noIn, yesOut);
     }
