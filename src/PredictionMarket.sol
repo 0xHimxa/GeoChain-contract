@@ -187,7 +187,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         whenNotPaused
     {
         uint256 userShares = lpShares[msg.sender];
-        require(shares > 0, "Zero shares");
         if (shares == 0) revert PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
         if (userShares < shares) revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
 
