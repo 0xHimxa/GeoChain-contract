@@ -234,6 +234,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         external
         nonReentrant
         seededOnly
+        marketOpen
         whenNotPaused
     {
         uint256 userShares = lpShares[msg.sender];
@@ -259,7 +260,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (completeSets * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
 
         uint256 netCollaterals = completeSets - fee;
-       protocolCollateralFees += fee;
+        if (netCollaterals < minCollateralOut) revert PredictionMarket__WithDrawLiquidity_SlippageExceeded();
+        protocolCollateralFees += fee;
 
 
     
@@ -310,10 +312,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
       
         if(amount ==0) revert PredictionMarket__AmountCantBeZero();
 
-     uint256  userNoBalance = noToken.balanceOf(msg.sender);
-     uint256  userYesBalance = yesToken.balanceOf(msg.sender);
+     uint256  userCollateralBalance = i_collateral.balanceOf(msg.sender);
 
-     if (userNoBalance < amount || userYesBalance < amount) revert PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
+     if (userCollateralBalance < amount) revert PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
 
         uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
@@ -321,10 +322,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         protocolCollateralFees += fee;
         require(netAmount > 0, "Zero output");
 
+        i_collateral.safeTransferFrom(msg.sender, address(this), amount);
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
-
-        i_collateral.safeTransferFrom(msg.sender, address(this), netAmount);
 
         emit CompleteSetsMinted(msg.sender, netAmount);
     }
@@ -420,10 +420,10 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         require(state != State.Resolved, "Already resolved");
         require(state == State.Closed, "Market still open");
 
-        // outcome = _outcome;
+        resolution = _outcome ? Resolution.Yes : Resolution.No;
         state = State.Resolved;
 
-        // emit Resolved(_outcome);
+        emit Resolved(resolution);
     }
 
     /* ───────── REDEEM ───────── */
