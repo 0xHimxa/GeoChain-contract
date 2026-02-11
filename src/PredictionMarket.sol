@@ -37,7 +37,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     bool public seeded;
     uint256 public totalShares;
     mapping(address => uint256) public lpShares;
-    
 
     State public state;
 
@@ -134,7 +133,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         seeded = true;
         totalShares = amount;
         lpShares[msg.sender] = amount;
-    
 
         yesToken.mint(address(this), amount);
         noToken.mint(address(this), amount);
@@ -196,7 +194,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         // Calculate outputs based on the total reserves BEFORE updating
         uint256 yesOut = (yesReserve * shares) / totalShares;
         uint256 noOut = (noReserve * shares) / totalShares;
-      
 
         require(yesOut >= minYesOut && noOut >= minNoOut, "Slippage exceeded");
         if (yesOut < minYesOut || noOut < minNoOut) revert PredictionMarket__WithDrawLiquidity_SlippageExceeded();
@@ -214,6 +211,49 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         IERC20(address(noToken)).safeTransfer(msg.sender, noOut);
 
         emit LiquidityRemoved(msg.sender, yesOut, noOut, shares);
+    }
+
+    function removeLiquidityAndRedeemCollateral(uint256 shares, uint256 minCollateralOut)
+        external
+        nonReentrant
+        seededOnly
+        whenNotPaused
+    {
+        uint256 userShares = lpShares[msg.sender];
+        if (shares == 0) revert PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
+        if (userShares < shares) revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
+
+     
+        uint256 yesOut = (yesReserve * shares) / totalShares;
+        uint256 noOut = (noReserve * shares) / totalShares;
+
+        // 2 Update LP balances and pool reserves
+        lpShares[msg.sender] = userShares - shares;
+        totalShares -= shares;
+        yesReserve -= yesOut;
+        noReserve -= noOut;
+
+        emit LiquidityRemoved(msg.sender, yesOut, noOut, shares);
+
+        // 3 Burn YES/NO tokens and apply redeem fee
+        uint256 feeYes = (yesOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 feeNo = (noOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+
+        uint256 netYes = yesOut - feeYes;
+        uint256 netNo = noOut - feeNo;
+
+        // The collateral user receives is the sum of net YES + net NO
+        uint256 totalCollateralOut = netYes + netNo;
+        require(totalCollateralOut >= minCollateralOut, "Slippage exceeded");
+
+        // Burn the YES/NO tokens (from the contract balance)
+        yesToken.burn(address(this), yesOut);
+        noToken.burn(address(this), noOut);
+
+        // Transfer collateral to user
+        i_collateral.safeTransfer(msg.sender, totalCollateralOut);
+
+        emit CompleteSetsRedeemed(msg.sender, totalCollateralOut);
     }
 
     function transferShares(address to, uint256 shares) external whenNotPaused {
@@ -234,7 +274,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
         require(netAmount > 0, "Zero output");
-      
 
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
@@ -251,7 +290,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
         require(netAmount > 0, "Zero output");
-       
 
         i_collateral.safeTransfer(msg.sender, netAmount);
 
