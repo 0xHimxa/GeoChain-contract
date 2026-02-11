@@ -31,7 +31,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     uint256 private constant MINT_COMPLETE_SETS_FEE_BPS = 300;
     uint256 private constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
     uint256 private constant FEE_PRESECION_BPS = 10_000;
-
+    uint256 private constant MINIMU_ADDLIQUIDITYSHARE = 50;
     uint256 public yesReserve;
     uint256 public noReserve;
     bool public seeded;
@@ -61,25 +61,21 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     event LiquidityRemoved(address indexed user, uint256 yesAmount, uint256 noAmount, uint256 shares);
     event SharesTransferred(address indexed from, address indexed to, uint256 shares);
 
-
-error PredictionMarket__CloseTimeGreaterThanResolutionTime();
-error PredictionMarket__InvalidArguments_PassedInConstructor();
-error PredictionMarket__Isclosed();
-error PredictionMarket__IsPaused();
-error PredictionMarket__InitailConstantLiquidityNotSetYet();
-error PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
-error PredictionMarket__InitailConstantLiquidityAlreadySet();
-error PredictionMarket__FundingInitailAountGreaterThanAmountSent();
-error PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
-error PredictionMarket__AddLiquidity_CollateralCantBeZero();
-error PredictionMarket__AddLiquidity_YesAndNoCantBeDifferent();
-error PredictionMarket__AddLiquidity_Yes_No_AndCollateralCantBeDifferent();
-error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
-
-
-
-
-
+    error PredictionMarket__CloseTimeGreaterThanResolutionTime();
+    error PredictionMarket__InvalidArguments_PassedInConstructor();
+    error PredictionMarket__Isclosed();
+    error PredictionMarket__IsPaused();
+    error PredictionMarket__InitailConstantLiquidityNotSetYet();
+    error PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
+    error PredictionMarket__InitailConstantLiquidityAlreadySet();
+    error PredictionMarket__FundingInitailAountGreaterThanAmountSent();
+    error PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
+    error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
+    error PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum();
+    error PredictionMarket__AddLiquidity_InsuffientTokenBalance();
+    error PredictionMarket__WithDrawLiquidity_SlippageExceeded();
+    error PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
+    error PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
 
     constructor(
         string memory _question,
@@ -88,19 +84,15 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
         uint256 _resolutionTime,
         address owner_
     ) Ownable(msg.sender) {
-        if(_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) revert PredictionMarket__InvalidArguments_PassedInConstructor();
-        
-        if(_closeTime > _resolutionTime) revert PredictionMarket__CloseTimeGreaterThanResolutionTime();
+        if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) revert PredictionMarket__InvalidArguments_PassedInConstructor();
 
+        if (_closeTime > _resolutionTime) revert PredictionMarket__CloseTimeGreaterThanResolutionTime();
 
         s_question = _question;
-
-
 
         i_collateral = IERC20(_collateral);
         closeTime = _closeTime;
         resolutionTime = _resolutionTime;
-     
 
         yesToken = new OutcomeToken("YES", "YES", address(this));
         noToken = new OutcomeToken("NO", "NO", address(this));
@@ -112,17 +104,15 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
     modifier marketOpen() {
         _updateState();
         require(state == State.Open, "Market closed");
-        if(state == State.Closed) revert PredictionMarket__Isclosed();
-        if(paused()) revert PredictionMarket__IsPaused();
+        if (state == State.Closed) revert PredictionMarket__Isclosed();
+        if (paused()) revert PredictionMarket__IsPaused();
         _;
     }
 
     modifier seededOnly() {
-        if(!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+        if (!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
         _;
     }
-
-    
 
     function _updateState() internal {
         if (state == State.Open && block.timestamp >= closeTime) {
@@ -132,17 +122,13 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
 
     /* ───────── LIQUIDITY ───────── */
     function seedLiquidity(uint256 amount) external onlyOwner whenNotPaused {
+        if (seeded) revert PredictionMarket__InitailConstantLiquidityAlreadySet();
+        if (amount == 0) revert PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
 
-       
-        if(seeded) revert PredictionMarket__InitailConstantLiquidityAlreadySet();
-        if(amount == 0) revert PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
+        uint256 contractBalance = i_collateral.balanceOf(address(this));
 
+        if (contractBalance < amount) revert PredictionMarket__FundingInitailAountGreaterThanAmountSent();
 
-      uint256 contractBalance = i_collateral.balanceOf(address(this));
-
-        if(contractBalance < amount) revert PredictionMarket__FundingInitailAountGreaterThanAmountSent();
-
-       
         yesReserve = amount;
         noReserve = amount;
         seeded = true;
@@ -150,39 +136,36 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
         lpShares[msg.sender] = amount;
         collateralReserve = amount;
 
-         yesToken.mint(address(this), amount);
+        yesToken.mint(address(this), amount);
         noToken.mint(address(this), amount);
-
 
         emit LiquiditySeeded(amount);
     }
 
     /* ───────── LP SHARES ───────── */
-    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 collateralAmount, uint256 minShares)
+    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares)
         external
         nonReentrant
         marketOpen
         seededOnly
     {
-       
-        if(yesAmount == 0  && noAmount == 0) revert PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
-        if(collateralAmount == 0) revert PredictionMarket__AddLiquidity_CollateralCantBeZero();
-         if(yesAmount != noAmount) revert PredictionMarket__AddLiquidity_YesAndNoCantBeDifferent();
-        if(yesAmount != collateralAmount) revert PredictionMarket__AddLiquidity_Yes_No_AndCollateralCantBeDifferent();
-       
-        require(yesAmount == collateralAmount, "Collateral mismatch");
+        if (yesAmount == 0 && noAmount == 0) revert PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
+        if (yesAmount < MINIMU_ADDLIQUIDITYSHARE || noAmount < MINIMU_ADDLIQUIDITYSHARE) {
+            revert PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum();
+        }
 
-    
+        uint256 yesTokenBalance = yesToken.balanceOf(address(msg.sender));
+        uint256 noTokenBalance = noToken.balanceOf(address(msg.sender));
+        if (yesTokenBalance < yesAmount || noTokenBalance < noAmount) {
+            revert PredictionMarket__AddLiquidity_InsuffientTokenBalance();
+        }
+
         uint256 yesShare = (yesAmount * totalShares) / yesReserve;
         uint256 noShare = (noAmount * totalShares) / noReserve;
         uint256 shares = yesShare < noShare ? yesShare : noShare;
 
         require(shares >= minShares, "Slippage exceeded");
-        if(shares < minShares) revert PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
-
-
-        require(shares > 0, "Zero shares");
-        require(collateralAmount >= shares, "Insufficient collateral");
+        if (shares < minShares) revert PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
 
         uint256 usedYes = (shares * yesReserve) / totalShares;
         uint256 usedNo = (shares * noReserve) / totalShares;
@@ -192,22 +175,9 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
 
         totalShares += shares;
         lpShares[msg.sender] += shares;
-        collateralReserve += shares;
 
-            IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesAmount);
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noAmount);
-        i_collateral.safeTransferFrom(msg.sender, address(this), collateralAmount);
-
-
-        if (yesAmount > usedYes) {
-            IERC20(address(yesToken)).safeTransfer(msg.sender, yesAmount - usedYes);
-        }
-        if (noAmount > usedNo) {
-            IERC20(address(noToken)).safeTransfer(msg.sender, noAmount - usedNo);
-        }
-        if (collateralAmount > shares) {
-            i_collateral.safeTransfer(msg.sender, collateralAmount - shares);
-        }
+        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), usedYes);
+        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), usedNo);
 
         emit LiquidityAdded(msg.sender, usedYes, usedNo, shares);
     }
@@ -218,25 +188,30 @@ error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
         seededOnly
         whenNotPaused
     {
+        uint256 userShares = lpShares[msg.sender];
         require(shares > 0, "Zero shares");
-        require(lpShares[msg.sender] >= shares, "Insufficient shares");
+        if (shares == 0) revert PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
+        if (userShares < shares) revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
 
+        // Calculate outputs based on the total reserves BEFORE updating
         uint256 yesOut = (yesReserve * shares) / totalShares;
         uint256 noOut = (noReserve * shares) / totalShares;
         uint256 collateralOut = (collateralReserve * shares) / totalShares;
 
         require(yesOut >= minYesOut && noOut >= minNoOut, "Slippage exceeded");
+        if (yesOut < minYesOut || noOut < minNoOut) revert PredictionMarket__WithDrawLiquidity_SlippageExceeded();
 
-        lpShares[msg.sender] -= shares;
+        // Update LP info
+        lpShares[msg.sender] = userShares - shares;
         totalShares -= shares;
 
+        // Update reserves AFTER calculating output
         yesReserve -= yesOut;
         noReserve -= noOut;
-        collateralReserve -= collateralOut;
 
+        // Transfer tokens
         IERC20(address(yesToken)).safeTransfer(msg.sender, yesOut);
         IERC20(address(noToken)).safeTransfer(msg.sender, noOut);
-        i_collateral.safeTransfer(msg.sender, collateralOut);
 
         emit LiquidityRemoved(msg.sender, yesOut, noOut, shares);
     }

@@ -27,16 +27,15 @@ contract MarketFactory is Ownable {
         collateral = IERC20(_collateral);
     }
 
-    function createMarket(
-        string calldata question,
-        uint256 closeTime,
-        uint256 resolutionTime,
-        uint256 initialLiquidity
-    ) external onlyOwner returns (address market) {
+    function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
+        external
+        onlyOwner
+        returns (address market)
+    {
         require(initialLiquidity > 0, "Zero liquidity");
 
         PredictionMarket m =
-            new PredictionMarket(question, address(collateral), closeTime, resolutionTime,  address(this));
+            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, address(this));
 
         // seed liquidity in the new market, then hand ownership to the creator
         collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);
