@@ -37,7 +37,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     bool public seeded;
     uint256 public totalShares;
     mapping(address => uint256) public lpShares;
-    uint256 public collateralReserve;
+    
 
     State public state;
 
@@ -134,7 +134,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         seeded = true;
         totalShares = amount;
         lpShares[msg.sender] = amount;
-        collateralReserve = amount;
+    
 
         yesToken.mint(address(this), amount);
         noToken.mint(address(this), amount);
@@ -196,7 +196,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         // Calculate outputs based on the total reserves BEFORE updating
         uint256 yesOut = (yesReserve * shares) / totalShares;
         uint256 noOut = (noReserve * shares) / totalShares;
-        uint256 collateralOut = (collateralReserve * shares) / totalShares;
+      
 
         require(yesOut >= minYesOut && noOut >= minNoOut, "Slippage exceeded");
         if (yesOut < minYesOut || noOut < minNoOut) revert PredictionMarket__WithDrawLiquidity_SlippageExceeded();
@@ -234,7 +234,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
         require(netAmount > 0, "Zero output");
-        collateralReserve += fee;
+      
 
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
@@ -251,7 +251,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
         require(netAmount > 0, "Zero output");
-        collateralReserve += fee;
+       
 
         i_collateral.safeTransfer(msg.sender, netAmount);
 
