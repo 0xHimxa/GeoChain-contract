@@ -32,6 +32,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     uint256 private constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
     uint256 private constant FEE_PRESECION_BPS = 10_000;
     uint256 private constant MINIMU_ADDLIQUIDITYSHARE = 50;
+    uint256 public protocolCollateralFees;
+
     uint256 public yesReserve;
     uint256 public noReserve;
     bool public seeded;
@@ -75,6 +77,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     error PredictionMarket__WithDrawLiquidity_SlippageExceeded();
     error PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
     error PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
+ error PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
+    error PredictionMarket__TransferShares_InsufficientShares();
+    error PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
+ error PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
+    error PredictionMarket__AmountCantBeZero();
+
 
     constructor(
         string memory _question,
@@ -158,6 +166,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__AddLiquidity_InsuffientTokenBalance();
         }
 
+        _pause();
+
         uint256 yesShare = (yesAmount * totalShares) / yesReserve;
         uint256 noShare = (noAmount * totalShares) / noReserve;
         uint256 shares = yesShare < noShare ? yesShare : noShare;
@@ -177,6 +187,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), usedYes);
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), usedNo);
 
+        _unpause();
+
         emit LiquidityAdded(msg.sender, usedYes, usedNo, shares);
     }
 
@@ -184,6 +196,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         external
         nonReentrant
         seededOnly
+        marketOpen
         whenNotPaused
     {
         uint256 userShares = lpShares[msg.sender];
@@ -194,7 +207,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 yesOut = (yesReserve * shares) / totalShares;
         uint256 noOut = (noReserve * shares) / totalShares;
 
-        require(yesOut >= minYesOut && noOut >= minNoOut, "Slippage exceeded");
         if (yesOut < minYesOut || noOut < minNoOut) revert PredictionMarket__WithDrawLiquidity_SlippageExceeded();
 
         // Update LP info
@@ -235,29 +247,51 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         emit LiquidityRemoved(msg.sender, yesOut, noOut, shares);
 
         // 3 Burn YES/NO tokens and apply redeem fee
-        uint256 feeYes = (yesOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
-        uint256 feeNo = (noOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+                uint256 completeSets = yesOut < noOut ? yesOut : noOut;
+          require(completeSets > 0, "No complete sets");
 
-        uint256 netYes = yesOut - feeYes;
-        uint256 netNo = noOut - feeNo;
+        uint256 fee = (completeSets * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
 
-        // The collateral user receives is the sum of net YES + net NO
-        uint256 totalCollateralOut = netYes + netNo;
-        require(totalCollateralOut >= minCollateralOut, "Slippage exceeded");
+        uint256 netCollaterals = completeSets - fee;
+       protocolCollateralFees += fee;
 
+
+    
         // Burn the YES/NO tokens (from the contract balance)
-        yesToken.burn(address(this), yesOut);
-        noToken.burn(address(this), noOut);
+        yesToken.burn(address(this), completeSets);
+        noToken.burn(address(this), completeSets);
+
+
+
+    // --------------------------------------------------
+    //  Return leftover YES/NO (if imbalance exists)
+    // --------------------------------------------------
+    uint256 leftoverYes = yesOut - completeSets;
+    uint256 leftoverNo  = noOut  - completeSets;
+
+    if (leftoverYes > 0) {
+        IERC20(address(yesToken)).safeTransfer(msg.sender, leftoverYes);
+    }
+
+    if (leftoverNo > 0) {
+        IERC20(address(noToken)).safeTransfer(msg.sender, leftoverNo);
+    }
+
+
+
 
         // Transfer collateral to user
-        i_collateral.safeTransfer(msg.sender, totalCollateralOut);
+        i_collateral.safeTransfer(msg.sender, netCollaterals);
 
-        emit CompleteSetsRedeemed(msg.sender, totalCollateralOut);
+        emit CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
     function transferShares(address to, uint256 shares) external whenNotPaused {
-        require(to != address(0), "Bad recipient");
-        require(lpShares[msg.sender] >= shares, "Insufficient shares");
+
+        
+        if(to == address(0)) revert PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
+        if(lpShares[msg.sender] < shares) revert PredictionMarket__TransferShares_InsufficientShares();
+
 
         lpShares[msg.sender] -= shares;
         lpShares[to] += shares;
@@ -267,28 +301,46 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /* ───────── COMPLETE SETS ───────── */
     function mintCompleteSets(uint256 amount) external nonReentrant marketOpen {
-        require(amount > 0, "Zero amount");
+      
+        if(amount ==0) revert PredictionMarket__AmountCantBeZero();
 
-        i_collateral.safeTransferFrom(msg.sender, address(this), amount);
+     uint256  userNoBalance = noToken.balanceOf(msg.sender);
+     uint256  userYesBalance = yesToken.balanceOf(msg.sender);
+
+     if (userNoBalance < amount || userYesBalance < amount) revert PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
+
         uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
+
+        protocolCollateralFees += fee;
         require(netAmount > 0, "Zero output");
 
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
 
+        i_collateral.safeTransferFrom(msg.sender, address(this), netAmount);
+
         emit CompleteSetsMinted(msg.sender, netAmount);
     }
 
-    function redeemCompleteSets(uint256 amount) external nonReentrant whenNotPaused {
-        require(state != State.Resolved, "Resolved");
-        require(amount > 0, "Zero amount");
+    function redeemCompleteSets(uint256 amount) external nonReentrant marketOpen whenNotPaused {
+     
+     
+
+        if(amount ==0) revert PredictionMarket__AmountCantBeZero();
+
+     uint256  userNoBalance = noToken.balanceOf(msg.sender);
+     uint256  userYesBalance = yesToken.balanceOf(msg.sender);
+
+     if (userNoBalance < amount || userYesBalance < amount) revert PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
+     
 
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
         uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
         uint256 netAmount = amount - fee;
-        require(netAmount > 0, "Zero output");
+          protocolCollateralFees += fee;
+       
 
         i_collateral.safeTransfer(msg.sender, netAmount);
 
@@ -296,7 +348,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     }
 
     /* ───────── SWAPS (YES <-> NO) ───────── */
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut) external nonReentrant marketOpen seededOnly {
+    function swapYesForNo(uint256 yesIn, uint256 minNoOut) external nonReentrant marketOpen seededOnly whenNotPaused {
         require(yesIn > 0, "Zero input");
 
         uint256 noOut = _swapYesForNoFromPool(yesIn, minNoOut, msg.sender);
@@ -305,7 +357,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         emit Trade(msg.sender, true, yesIn, noOut);
     }
 
-    function swapNoForYes(uint256 noIn, uint256 minYesOut) external nonReentrant marketOpen seededOnly {
+    function swapNoForYes(uint256 noIn, uint256 minYesOut) external nonReentrant marketOpen seededOnly whenNotPaused {
         require(noIn > 0, "Zero input");
 
         uint256 yesOut = _swapNoForYesFromPool(noIn, minYesOut, msg.sender);
@@ -407,21 +459,28 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /* ───────── PREVIEW ───────── */
     function getYesForNoQuote(uint256 yesIn) external view returns (uint256 netOut, uint256 fee) {
-        require(yesIn > 0, "Zero input");
-        uint256 k = yesReserve * noReserve;
+        if(yesIn ==0) revert PredictionMarket__AmountCantBeZero();
+      
+        uint256 noReserved = noReserve;
+
+        uint256 k = yesReserve * noReserved;
+
         uint256 newYes = yesReserve + yesIn;
         uint256 newNo = k / newYes;
-        uint256 grossOut = noReserve - newNo;
+        uint256 grossOut = noReserved - newNo;
         fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
     }
 
     function getNoForYesQuote(uint256 noIn) external view returns (uint256 netOut, uint256 fee) {
-        require(noIn > 0, "Zero input");
-        uint256 k = yesReserve * noReserve;
+            if(noIn ==0) revert PredictionMarket__AmountCantBeZero();
+        uint256 yesReserved = yesReserve;
+      
+        uint256 k = yesReserved * noReserve;
+
         uint256 newNo = noReserve + noIn;
         uint256 newYes = k / newNo;
-        uint256 grossOut = yesReserve - newYes;
+        uint256 grossOut = yesReserved - newYes;
         fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
         netOut = grossOut - fee;
     }
