@@ -141,6 +141,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Current market resolution outcome
     Resolution public resolution;
 
+// MINIMUM_AMOUNT buy and sell amount
+
+ uint256 private constant MINIMUM_AMOUNT = 1e6;
+
+ uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
+
 
 
 //uint256 private constant  MIN_SWAPAmount
@@ -240,6 +246,16 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /* ─────────── General Errors ─────────── */
     error PredictionMarket__AmountCantBeZero();
 
+
+    error PredictionMarket__AmountLessThanMinSwapAllwed();
+    error PredictionMarket__AmountLessThanMinimu();
+    error PredictionMarket__SwapingExceedSlippage();
+    error PredictionMarket__SwapYesFoNo_YesExeedBalannce();
+    error PredictionMarket__SwapNoFoYes_NoExeedBalannce();
+    error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
+    error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
+    error PredictionMarket__AmountLessThanMinAllwed();
+    
     // ========================================
     // CONSTRUCTOR
     // ========================================
