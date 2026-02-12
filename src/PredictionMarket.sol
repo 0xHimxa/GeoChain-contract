@@ -248,7 +248,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
 
     error PredictionMarket__AmountLessThanMinSwapAllwed();
-    error PredictionMarket__AmountLessThanMinimu();
     error PredictionMarket__SwapingExceedSlippage();
     error PredictionMarket__SwapYesFoNo_YesExeedBalannce();
     error PredictionMarket__SwapNoFoYes_NoExeedBalannce();
