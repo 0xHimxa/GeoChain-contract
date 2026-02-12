@@ -11,17 +11,6 @@ import {
     SafeERC20
 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-// OpenZeppelin upgradeable contracts (NOTE: Currently not used but imported)
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    UUPSUpgradeable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-
 // OpenZeppelin security and access control utilities
 import {
     ReentrancyGuard
@@ -30,7 +19,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 // Custom outcome token for YES/NO positions
-import {OutcomeToken} from "./outcomeToken.sol";
+import {OutcomeToken} from "./OutcomeToken.sol";
 
 /**
  * @title PredictionMarket
@@ -108,10 +97,10 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     uint256 private constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
 
     /// @notice Basis points precision (10,000 = 100%)
-    uint256 private constant FEE_PRESECION_BPS = 10_000;
+    uint256 private constant FEE_PRECISION_BPS = 10_000;
 
     /// @notice Minimum amount required to add liquidity (prevents dust)
-    uint256 private constant MINIMU_ADDLIQUIDITYSHARE = 50;
+    uint256 private constant MINIMUM_ADD_LIQUIDITY_SHARE = 50;
 
     /// @notice Accumulated protocol fees from all operations
     uint256 public protocolCollateralFees;
@@ -141,20 +130,13 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Current market resolution outcome
     Resolution public resolution;
 
-// MINIMUM_AMOUNT buy and sell amount
+    /* ─────────── Minimum Amounts ─────────── */
 
- uint256 private constant MINIMUM_AMOUNT = 1e6;
+    /// @notice Minimum amount for minting/redeeming complete sets (1 USDC with 6 decimals)
+    uint256 private constant MINIMUM_AMOUNT = 1e6;
 
- uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
-
-
-
-//uint256 private constant  MIN_SWAPAmount
-
-
-
-
-
+    /// @notice Minimum amount for swaps (0.97 USDC with 6 decimals)
+    uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
 
     // ========================================
     // EVENTS
@@ -246,7 +228,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /* ─────────── General Errors ─────────── */
     error PredictionMarket__AmountCantBeZero();
 
-
     error PredictionMarket__AmountLessThanMinSwapAllwed();
     error PredictionMarket__SwapingExceedSlippage();
     error PredictionMarket__SwapYesFoNo_YesExeedBalannce();
@@ -254,7 +235,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
     error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
     error PredictionMarket__AmountLessThanMinAllwed();
-    
+
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -333,9 +314,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         _;
     }
 
-
-    modifier zeroAmountCheck(uint256 amount){
-  if (amount == 0) revert PredictionMarket__AmountCantBeZero();
+    modifier zeroAmountCheck(uint256 amount) {
+        if (amount == 0) revert PredictionMarket__AmountCantBeZero();
 
         _;
     }
@@ -353,8 +333,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             state = State.Closed;
         }
     }
-
-
 
     // ========================================
     // LIQUIDITY MANAGEMENT FUNCTIONS
@@ -412,8 +390,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         if (yesAmount == 0 && noAmount == 0)
             revert PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
         if (
-            yesAmount < MINIMU_ADDLIQUIDITYSHARE ||
-            noAmount < MINIMU_ADDLIQUIDITYSHARE
+            yesAmount < MINIMUM_ADD_LIQUIDITY_SHARE ||
+            noAmount < MINIMUM_ADD_LIQUIDITY_SHARE
         ) {
             revert PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum();
         }
@@ -435,7 +413,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         uint256 shares = yesShare < noShare ? yesShare : noShare;
 
         // Ensure slippage tolerance is met
-       
+
         if (shares < minShares)
             revert PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
 
@@ -547,11 +525,10 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         // Step 3: Calculate complete sets (matched YES/NO pairs)
         // A complete set is 1 YES + 1 NO token, which equals 1 collateral
         uint256 completeSets = yesOut < noOut ? yesOut : noOut;
-       
 
         // Calculate redemption fee
         uint256 fee = (completeSets * REDEEM_COMPLETE_SETS_FEE_BPS) /
-            FEE_PRESECION_BPS;
+            FEE_PRECISION_BPS;
         uint256 netCollaterals = completeSets - fee;
 
         // Check slippage protection
@@ -615,10 +592,13 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      *      This allows users to take positions or provide liquidity
      *      Fee goes to protocol
      */
-    function mintCompleteSets(uint256 amount) external nonReentrant marketOpen zeroAmountCheck(amount){
+    function mintCompleteSets(
+        uint256 amount
+    ) external nonReentrant marketOpen zeroAmountCheck(amount) {
         // Validate input
-      
-        if(amount < MINIMUM_AMOUNT) revert PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
+
+        if (amount < MINIMUM_AMOUNT)
+            revert PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
 
         // Check user has sufficient collateral
         uint256 userCollateralBalance = i_collateral.balanceOf(msg.sender);
@@ -626,12 +606,11 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
 
         // Calculate fee and net amount
-        uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 fee = (amount * MINT_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
         uint256 netAmount = amount - fee;
 
         // Add fee to protocol reserves
         protocolCollateralFees += fee;
-      
 
         // Transfer collateral from user
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);
@@ -652,9 +631,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      */
     function redeemCompleteSets(
         uint256 amount
-    ) external nonReentrant marketOpen whenNotPaused zeroAmountCheck(amount){
-      
-  if( amount <  MINIMUM_AMOUNT) revert PredictionMarket__RedeemCompletesetLessThanMinAllowed();     
+    ) external nonReentrant marketOpen whenNotPaused zeroAmountCheck(amount) {
+        if (amount < MINIMUM_AMOUNT)
+            revert PredictionMarket__RedeemCompletesetLessThanMinAllowed();
         // Check user has sufficient YES and NO tokens
         uint256 userNoBalance = noToken.balanceOf(msg.sender);
         uint256 userYesBalance = yesToken.balanceOf(msg.sender);
@@ -668,7 +647,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         // Calculate fee and net amount
         uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) /
-            FEE_PRESECION_BPS;
+            FEE_PRECISION_BPS;
         uint256 netAmount = amount - fee;
 
         // Add fee to protocol reserves
@@ -694,9 +673,18 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     function swapYesForNo(
         uint256 yesIn,
         uint256 minNoOut
-    ) external nonReentrant marketOpen seededOnly whenNotPaused zeroAmountCheck(yesIn){
-if(yesToken.balanceOf(msg.sender) < yesIn) revert PredictionMarket__SwapYesFoNo_YesExeedBalannce();
-    if (yesIn <  MINIMUM_SWAP_AMOUNT) revert PredictionMarket__AmountLessThanMinSwapAllwed();
+    )
+        external
+        nonReentrant
+        marketOpen
+        seededOnly
+        whenNotPaused
+        zeroAmountCheck(yesIn)
+    {
+        if (yesToken.balanceOf(msg.sender) < yesIn)
+            revert PredictionMarket__SwapYesFoNo_YesExeedBalannce();
+        if (yesIn < MINIMUM_SWAP_AMOUNT)
+            revert PredictionMarket__AmountLessThanMinSwapAllwed();
 
         // Execute swap and transfer tokens
         uint256 noOut = _swapYesForNoFromPool(yesIn, minNoOut, msg.sender);
@@ -719,11 +707,18 @@ if(yesToken.balanceOf(msg.sender) < yesIn) revert PredictionMarket__SwapYesFoNo_
     function swapNoForYes(
         uint256 noIn,
         uint256 minYesOut
-    ) external nonReentrant marketOpen seededOnly whenNotPaused zeroAmountCheck(noIn){
-
-if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_NoExeedBalannce();
-    if (noIn <  MINIMUM_SWAP_AMOUNT) revert PredictionMarket__AmountLessThanMinSwapAllwed();
-
+    )
+        external
+        nonReentrant
+        marketOpen
+        seededOnly
+        whenNotPaused
+        zeroAmountCheck(noIn)
+    {
+        if (noToken.balanceOf(msg.sender) < noIn)
+            revert PredictionMarket__SwapNoFoYes_NoExeedBalannce();
+        if (noIn < MINIMUM_SWAP_AMOUNT)
+            revert PredictionMarket__AmountLessThanMinSwapAllwed();
 
         // Execute swap and transfer tokens
         uint256 yesOut = _swapNoForYesFromPool(noIn, minYesOut, msg.sender);
@@ -761,12 +756,12 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
         uint256 grossOut = noReserve - newNo;
 
         // Deduct swap fee from output
-        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
         netOut = grossOut - fee;
 
         // Validate output meets slippage requirements
-       
-        if(minNoOut >  netOut) revert PredictionMarket__SwapingExceedSlippage();
+
+        if (minNoOut > netOut) revert PredictionMarket__SwapingExceedSlippage();
 
         // Update reserves (fee stays in pool)
         yesReserve = newYes;
@@ -801,13 +796,13 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
         uint256 grossOut = yesReserve - newYes;
 
         // Deduct swap fee from output
-        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
+        uint256 fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
         netOut = grossOut - fee;
 
         // Validate output meets slippage requirements
-      
-           if(minYesOut >  netOut) revert PredictionMarket__SwapingExceedSlippage();
 
+        if (minYesOut > netOut)
+            revert PredictionMarket__SwapingExceedSlippage();
 
         // Update reserves (fee stays in pool)
         noReserve = newNo;
@@ -905,11 +900,16 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
      */
     function getYesForNoQuote(
         uint256 yesIn
-    ) external zeroAmountCheck(yesIn) view returns (uint256 netOut, uint256 fee) {
+    )
+        external
+        view
+        zeroAmountCheck(yesIn)
+        returns (uint256 netOut, uint256 fee)
+    {
         if (yesIn == 0) revert PredictionMarket__AmountCantBeZero();
-    if (yesIn <  MINIMUM_SWAP_AMOUNT) revert PredictionMarket__AmountLessThanMinAllwed();
+        if (yesIn < MINIMUM_SWAP_AMOUNT)
+            revert PredictionMarket__AmountLessThanMinAllwed();
 
- 
         uint256 noReserved = noReserve;
 
         // Calculate using constant product formula
@@ -919,7 +919,7 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
         uint256 grossOut = noReserved - newNo;
 
         // Calculate fee
-        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
+        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
         netOut = grossOut - fee;
     }
 
@@ -932,10 +932,14 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
      */
     function getNoForYesQuote(
         uint256 noIn
-    ) external zeroAmountCheck(noIn) view returns (uint256 netOut, uint256 fee)  {
-       
-    if (noIn <  MINIMUM_SWAP_AMOUNT) revert PredictionMarket__AmountLessThanMinAllwed();
-
+    )
+        external
+        view
+        zeroAmountCheck(noIn)
+        returns (uint256 netOut, uint256 fee)
+    {
+        if (noIn < MINIMUM_SWAP_AMOUNT)
+            revert PredictionMarket__AmountLessThanMinAllwed();
 
         uint256 yesReserved = yesReserve;
 
@@ -946,7 +950,7 @@ if(noToken.balanceOf(msg.sender) < noIn) revert PredictionMarket__SwapNoFoYes_No
         uint256 grossOut = yesReserved - newYes;
 
         // Calculate fee
-        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRESECION_BPS;
+        fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
         netOut = grossOut - fee;
     }
 
