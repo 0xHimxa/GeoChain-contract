@@ -4,6 +4,7 @@ pragma solidity 0.8.33;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
 
@@ -91,6 +92,7 @@ contract MarketFactory is Ownable {
     function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
         external
         onlyOwner
+        nonReentrant
         returns (address market)
     {
         // Validate initial liquidity

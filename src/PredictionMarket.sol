@@ -42,7 +42,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Market state lifecycle
     enum State {
         Open, // Market is active for trading
-        Closed, // Market closed for trading, awaiting resolution
+        Closed, // Market closed for trading, awaiting resolution,
+        Review,
         Resolved // Outcome determined, users can redeem winning tokens
     }
 
@@ -139,6 +140,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Minimum amount for swaps (0.97 USDC with 6 decimals)
     uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
 
+    bool private manualReviewNeeded;
+
     // ========================================
     // EVENTS
     // ========================================
@@ -169,6 +172,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Emitted when LP shares are transferred between addresses
     event SharesTransferred(address indexed from, address indexed to, uint256 shares);
+    event WithDrawnLiquidity(address indexed user, uint256 amount, uint256 shares);
 
     // ========================================
     // ERRORS
@@ -223,6 +227,11 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     error PredictionMarket__MarketNotClosed();
     error PredictionMarket__NotResolved();
     error PredictionMarket__ProofUrlCantBeEmpty();
+    error PredictionMarket__IsUnderManualReview();
+    error PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+    error PredictionMarket__InvalidFinalOutcome();
+    error PredictionMarket__ManualReviewNeeded();
+    error PredictionMarket__MarketNotInReview();
 
     // ========================================
     // CONSTRUCTOR
@@ -283,6 +292,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         _updateState();
         if (state == State.Resolved) revert PredictionMarket__AlreadyResolved();
         if (state == State.Closed) revert PredictionMarket__Isclosed();
+        if (state == State.Review) revert PredictionMarket__IsUnderManualReview();
 
         if (paused()) revert PredictionMarket__IsPaused();
         _;
@@ -551,6 +561,67 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         emit CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
+    function withdrawLiquidityCollateral(uint256 shares) external nonReentrant {
+        if (state != State.Resolved) {
+            revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+        }
+
+        uint256 userShares = lpShares[msg.sender];
+
+        // Validate inputs
+        if (shares == 0) {
+            revert PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
+        }
+        if (userShares < shares) {
+            revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
+        }
+        uint256 resolutionOut = uint256(resolution);
+        if (resolutionOut == uint256(Resolution.Yes)) {
+            uint256 yesOut = (yesReserve * shares) / totalShares;
+
+            lpShares[msg.sender] = userShares - shares;
+            totalShares -= shares;
+            yesReserve -= yesOut;
+
+            uint256 fee = (yesOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
+            uint256 netCollaterals = yesOut - fee;
+
+            // Add fee to protocol reserves
+            protocolCollateralFees += fee;
+
+            // Burn the matched YES pair from contract balance
+            yesToken.burn(address(this), netCollaterals);
+
+            // Step 5: Transfer net collateral to user
+            i_collateral.safeTransfer(msg.sender, netCollaterals);
+
+            emit WithDrawnLiquidity(msg.sender, netCollaterals, shares);
+        }
+
+        if (resolutionOut == uint256(Resolution.No)) {
+            uint256 noOut = (noReserve * shares) / totalShares;
+
+            lpShares[msg.sender] = userShares - shares;
+            totalShares -= shares;
+            noReserve -= noOut;
+
+            // Burn the matched NO pair from contract balance
+
+            noToken.burn(address(this), noOut);
+
+            uint256 fee = (noOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
+            uint256 netCollaterals = noOut - fee;
+
+            // Add fee to protocol reserves
+            protocolCollateralFees += fee;
+
+            // Step 5: Transfer net collateral to user
+            i_collateral.safeTransfer(msg.sender, netCollaterals);
+
+            emit WithDrawnLiquidity(msg.sender, netCollaterals, shares);
+        }
+    }
+
     /**
      * @notice Transfers LP shares to another address
      * @param to Recipient address
@@ -814,7 +885,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__MarketNotClosed();
         }
 
-        if (_outcome == Resolution.Inconclusive) {}
+        if (_outcome == Resolution.Inconclusive) {
+            manualReviewNeeded = true;
+            state = State.Review;
+            resolution = Resolution.Inconclusive;
+            return;
+        }
 
         resolution = _outcome;
         s_Proof_Url = proofUrl;
@@ -848,6 +924,32 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         }
 
         emit Redeemed(msg.sender, amount);
+    }
+
+    function ManualResolvedMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+        if (bytes(proofUrl).length == 0) {
+            revert PredictionMarket__ProofUrlCantBeEmpty();
+        }
+
+        if (state != State.Review) {
+            revert PredictionMarket__MarketNotInReview();
+        }
+
+        if (!manualReviewNeeded) {
+            revert PredictionMarket__ManualReviewNeeded();
+        }
+
+        if (_outcome == Resolution.Inconclusive) {
+            revert PredictionMarket__InvalidFinalOutcome();
+        }
+
+        resolution = _outcome;
+        s_Proof_Url = proofUrl;
+
+        manualReviewNeeded = false;
+        state = State.Resolved;
+
+        emit Resolved(resolution);
     }
 
     // ========================================
