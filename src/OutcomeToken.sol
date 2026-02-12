@@ -57,11 +57,7 @@ contract OutcomeToken is ERC20 {
      * @param market_ Address of the prediction market contract
      * @dev The market address is immutable and cannot be changed after deployment
      */
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        address market_
-    ) ERC20(name_, symbol_) {
+    constructor(string memory name_, string memory symbol_, address market_) ERC20(name_, symbol_) {
         if (market_ == address(0)) revert OutcomeToken__InvalidMarketAddress();
         market = market_;
     }

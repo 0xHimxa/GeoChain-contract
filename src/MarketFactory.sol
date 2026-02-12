@@ -3,9 +3,7 @@ pragma solidity 0.8.33;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
 
@@ -90,24 +88,18 @@ contract MarketFactory is Ownable {
      *      Caller must approve this factory to spend initialLiquidity amount of collateral
      *      The factory seeds the market, mints LP shares, and transfers ownership to caller
      */
-    function createMarket(
-        string calldata question,
-        uint256 closeTime,
-        uint256 resolutionTime,
-        uint256 initialLiquidity
-    ) external onlyOwner returns (address market) {
+    function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
+        external
+        onlyOwner
+        returns (address market)
+    {
         // Validate initial liquidity
         if (initialLiquidity == 0) revert MarketFactory__ZeroLiquidity();
 
         // Deploy new prediction market contract
         // Market is initially owned by this factory for setup
-        PredictionMarket m = new PredictionMarket(
-            question,
-            address(collateral),
-            closeTime,
-            resolutionTime,
-            address(this)
-        );
+        PredictionMarket m =
+            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, address(this));
 
         // Transfer collateral from caller to the new market
         collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);
@@ -128,14 +120,7 @@ contract MarketFactory is Ownable {
         marketCount++;
         markets[marketCount] = address(m);
 
-        emit MarketCreated(
-            marketCount,
-            address(m),
-            question,
-            closeTime,
-            resolutionTime,
-            initialLiquidity
-        );
+        emit MarketCreated(marketCount, address(m), question, closeTime, resolutionTime, initialLiquidity);
 
         return address(m);
     }
