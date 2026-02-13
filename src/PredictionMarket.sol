@@ -22,6 +22,7 @@ import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "./
 import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
+import {ReceiverTemplate} from "src/ReceivrTemplate.sol";
 /**
  * @title PredictionMarket
  * @author 0xHimxa
@@ -37,7 +38,7 @@ import {MarketFactory} from "src/MarketFactory.sol";
  * - Owner-controlled resolution with binary outcome
  * - Fee collection on swaps and complete set operations
  */
-contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
+contract PredictionMarket is Ownable, ReentrancyGuard, Pausable,ReceiverTemplate {
     using SafeERC20 for IERC20;
 
     // ========================================
