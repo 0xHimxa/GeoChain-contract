@@ -133,7 +133,7 @@ contract MarketFactory is Ownable {
 
         markets[marketCount] = address(m);
         activeMarkets.push(address(m));
-        marketToIndex[address(m)] = marketToIndex.length - 1;
+        marketToIndex[address(m)] = activeMarkets.length - 1;
 
 
         emit MarketCreated(marketCount, address(m), question, closeTime, resolutionTime, initialLiquidity);

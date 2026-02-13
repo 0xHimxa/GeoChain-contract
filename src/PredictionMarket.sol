@@ -21,7 +21,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
 import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "./libraries/MarketTypes.sol";
 import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
-import {MarketFactory} from "MarketFactory.sol";
+import {MarketFactory} from "src/MarketFactory.sol";
 /**
  * @title PredictionMarket
  * @author 0xHimxa
@@ -113,7 +113,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      * @param _collateral Address of the ERC20 collateral token
      * @param _closeTime Timestamp when market closes for trading
      * @param _resolutionTime Timestamp when market can be resolved
-     * @param marketfactory_ Address of market facory the contract
+     * @param _marketfactory Address of market facory the contract
      * @dev Creates YES and NO outcome tokens and sets initial state to Open
      */
     constructor(
@@ -147,9 +147,11 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         state = State.Open;
 
         marketFactory = MarketFactory(_marketfactory);
+// come back here later
+
 
         // Transfer ownership to designated owner
-        _transferOwnership(owner_);
+        //_transferOwnership(owner_);
     }
 
     // ========================================
@@ -708,6 +710,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             manualReviewNeeded = true;
             state = State.Review;
             resolution = Resolution.Inconclusive;
+        marketFactory.removeResolvedMarket(address(this));
+
             emit MarketEvents.IsUnderManualReview(_outcome);
             return;
         }
@@ -786,14 +790,39 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         manualReviewNeeded = false;
         state = State.Resolved;
-        marketFactory.removeResolvedMarket(address(this));
+       
 
         emit MarketEvents.Resolved(resolution);
     }
 
+
+// chainlink cre  will be using the return value to check if it time to reslove the market
+
+function checkResultionTime() external returns (bool resolveReady) {
+      _updateState();    
+       resolveReady = block.timestamp >  closeTime && block.timestamp >= resolutionTime;
+      }
+
+
+
+
+
+
+
+
     // ========================================
     // QUOTE/PREVIEW FUNCTIONS (READ-ONLY)
     // ========================================
+
+
+
+
+
+
+
+
+
+
 
     /**
      * @notice Previews the output of swapping YES for NO without executing
