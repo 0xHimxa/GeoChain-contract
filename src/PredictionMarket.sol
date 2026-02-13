@@ -103,6 +103,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Accumulated protocol fees from all operations
     uint256 public protocolCollateralFees;
 
+    uint256  private constant PRICE_PRECISION = 1e6
+
     /* ─────────── AMM Liquidity Pool State ─────────── */
 
     /// @notice Reserve of YES tokens in the AMM pool
@@ -1008,8 +1010,30 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         // Calculate fee
         fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
+      
         netOut = grossOut - fee;
     }
+
+
+
+function getYesPriceProbability() external view returns (uint256) {
+    if (!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+
+    uint256 total = yesReserve + noReserve;
+    return (noReserve * PRICE_PRECISION) / total;
+}
+
+function getNoPriceProbability() external view returns (uint256) {
+    if (!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+
+    uint256 total = yesReserve + noReserve;
+    return (yesReserve * PRICE_PRECISION) / total;
+}
+
+
+
+
+
 
     // ========================================
     // ADMIN/EMERGENCY FUNCTIONS
@@ -1056,4 +1080,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
 
     }
+
+
+
+
 }
