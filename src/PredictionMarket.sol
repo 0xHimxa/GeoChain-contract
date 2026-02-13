@@ -55,7 +55,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         Inconclusive // Outcome is inconclusive
     }
 
-
     // ========================================
     // STATE VARIABLES
     // ========================================
@@ -99,11 +98,18 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Minimum amount required to add liquidity (prevents dust)
     uint256 private constant MINIMUM_ADD_LIQUIDITY_SHARE = 50;
-  uint256 private constant REDEEM_FEE_BPS = 200;
+
+    /// @notice Minimum amount for minting/redeeming complete sets (1 USDC with 6 decimals)
+    uint256 private constant MINIMUM_AMOUNT = 1e6;
+
+    /// @notice Minimum amount for swaps (0.97 USDC with 6 decimals)
+    uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
+
+    /// @notice Fee precision for price calculations (1e6 = 100%)
+    uint256 private constant PRICE_PRECISION = 1e6;
+
     /// @notice Accumulated protocol fees from all operations
     uint256 public protocolCollateralFees;
-
-    uint256  private constant PRICE_PRECISION = 1e6
 
     /* ─────────── AMM Liquidity Pool State ─────────── */
 
@@ -124,20 +130,13 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /* ─────────── Market State ─────────── */
 
-    /// @notice Current market state (Open/Closed/Resolved)
+    /// @notice Current market state (Open/Closed/Review/Resolved)
     State public state;
 
     /// @notice Current market resolution outcome
     Resolution public resolution;
 
-    /* ─────────── Minimum Amounts ─────────── */
-
-    /// @notice Minimum amount for minting/redeeming complete sets (1 USDC with 6 decimals)
-    uint256 private constant MINIMUM_AMOUNT = 1e6;
-
-    /// @notice Minimum amount for swaps (0.97 USDC with 6 decimals)
-    uint256 private constant MINIMUM_SWAP_AMOUNT = 970_000;
-
+    /// @notice Flag indicating if market requires manual resolution review
     bool private manualReviewNeeded;
 
     // ========================================
@@ -172,7 +171,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     event SharesTransferred(address indexed from, address indexed to, uint256 shares);
     event WithDrawnLiquidity(address indexed user, uint256 amount, uint256 shares);
     event IsUnderManualReview(Resolution indexed outcome);
-
 
     // ========================================
     // ERRORS
@@ -232,7 +230,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     error PredictionMarket__InvalidFinalOutcome();
     error PredictionMarket__ManualReviewNeeded();
     error PredictionMarket__MarketNotInReview();
-  error  PredictionMarket__WithDrawLiquidity_Insufficientfee();
+    error PredictionMarket__WithDrawLiquidity_Insufficientfee();
+
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -292,7 +291,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         _updateState();
         if (state == State.Resolved) revert PredictionMarket__AlreadyResolved();
         if (state == State.Closed) revert PredictionMarket__Isclosed();
-        if (state == State.Review) revert PredictionMarket__IsUnderManualReview();
+        if (state == State.Review) {
+            revert PredictionMarket__IsUnderManualReview();
+        }
 
         if (paused()) revert PredictionMarket__IsPaused();
         _;
@@ -401,8 +402,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__AddLiquidity_InsuffientTokenBalance();
         }
 
-       
-
         // Calculate proportional shares based on current pool ratios
         // Take the minimum to ensure both reserves increase proportionally
         uint256 yesShare = (yesAmount * totalShares) / yesReserve;
@@ -430,8 +429,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         // Transfer tokens from user to pool
         IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), usedYes);
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), usedNo);
-
-        
 
         emit LiquidityAdded(msg.sender, usedYes, usedNo, shares);
     }
@@ -560,6 +557,17 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         emit CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
+    /**
+     * @notice Withdraws collateral for liquidity providers after market resolution
+     * @param shares Number of LP shares to burn for collateral redemption
+     * @dev This function can only be called after the market is resolved to YES or NO (not Inconclusive)
+     *      LPs receive collateral based on the winning outcome:
+     *      - If YES won: LPs receive collateral proportional to their YES reserve share
+     *      - If NO won: LPs receive collateral proportional to their NO reserve share
+     *      The losing outcome tokens are worthless and remain in the pool
+     *      No fees are charged on this withdrawal
+     * @notice This differs from removeLiquidityAndRedeemCollateral which works during Open state
+     */
     function withdrawLiquidityCollateral(uint256 shares) external nonReentrant whenNotPaused {
         if (state != State.Resolved) {
             revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
@@ -581,11 +589,10 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
         }
 
-
         if (resolutionOut == uint256(Resolution.Yes)) {
             uint256 winningOut = (yesReserve * shares) / totalShares;
-        totalShares -= shares;
-        lpShares[msg.sender] = userShares - shares;
+            totalShares -= shares;
+            lpShares[msg.sender] = userShares - shares;
 
             yesReserve -= winningOut;
 
@@ -600,8 +607,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         if (resolutionOut == uint256(Resolution.No)) {
             uint256 noOut = (noReserve * shares) / totalShares;
-        totalShares -= shares;
-        lpShares[msg.sender] = userShares - shares;
+            totalShares -= shares;
+            lpShares[msg.sender] = userShares - shares;
 
             noReserve -= noOut;
 
@@ -622,7 +629,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      * @param shares Number of shares to transfer
      * @dev Allows users to transfer their LP position without removing liquidity
      */
-    function transferShares(address to, uint256 shares) external whenNotPaused  {
+    function transferShares(address to, uint256 shares) external whenNotPaused {
         // Validate inputs
         if (to == address(0)) {
             revert PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
@@ -869,7 +876,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     function resolve(Resolution _outcome, string calldata proofUrl) external onlyOwner {
         _updateState();
-        if (bytes(proofUrl).length == 0) revert PredictionMarket__ProofUrlCantBeEmpty();
+        if (bytes(proofUrl).length == 0) {
+            revert PredictionMarket__ProofUrlCantBeEmpty();
+        }
 
         if (block.timestamp < resolutionTime) {
             revert PredictionMarket__ResolveTimeNotReached();
@@ -907,27 +916,38 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         if (state != State.Resolved) {
             revert PredictionMarket__NotResolved();
         }
-             uint256 fee = (amount *    REDEEM_FEE_BPS) / FEE_PRECISION_BPS;
+
+        // Calculate redemption fee
+        uint256 fee = (amount * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
         uint256 netAmount = amount - fee;
- // Add fee to protocol reserves
+
+        // Add fee to protocol reserves
         protocolCollateralFees += fee;
 
+        // Burn winning tokens and transfer collateral
         if (resolution == Resolution.Yes) {
-        
-       
             yesToken.burn(msg.sender, amount);
             i_collateral.safeTransfer(msg.sender, netAmount);
         } else if (resolution == Resolution.No) {
-            {
             noToken.burn(msg.sender, amount);
             i_collateral.safeTransfer(msg.sender, netAmount);
         }
 
         emit Redeemed(msg.sender, amount);
     }
-    }
 
-    function ManualResolvedMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+    /**
+     * @notice Resolves the market after initial resolution was inconclusive and manual review
+     * @param _outcome The final outcome determination (must be Yes or No, cannot be Inconclusive)
+     * @param proofUrl URL to evidence/proof supporting the resolution decision
+     * @dev This function can only be called by the owner after:
+     *      1. The initial resolve() call set the outcome to Inconclusive
+     *      2. The market state is Review
+     *      3. manualReviewNeeded flag is true
+     *      This provides a two-step resolution process for disputed or unclear outcomes
+     *      Once manually resolved, the market moves to Resolved state and users can redeem
+     */
+    function manualResolveMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
         if (bytes(proofUrl).length == 0) {
             revert PredictionMarket__ProofUrlCantBeEmpty();
         }
@@ -1010,30 +1030,52 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         // Calculate fee
         fee = (grossOut * SWAP_FEE_BPS) / FEE_PRECISION_BPS;
-      
+
         netOut = grossOut - fee;
     }
 
+    /**
+     * @notice Calculates the implied probability for the YES outcome based on current reserves
+     * @return Implied probability scaled by PRICE_PRECISION (1e6 = 100%)
+     * @dev Uses the formula: P(YES) = noReserve / (yesReserve + noReserve)
+     *      In a constant product AMM, the price reflects market sentiment:
+     *      - Higher noReserve relative to yesReserve = higher YES probability
+     *      - This is because more NO tokens available means YES is scarcer/more valuable
+     *      Result is scaled to 1e6 where:
+     *      - 1,000,000 = 100% probability
+     *      - 500,000 = 50% probability
+     *      - 250,000 = 25% probability
+     */
+    function getYesPriceProbability() external view returns (uint256) {
+        if (!seeded) {
+            revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
 
+        uint256 total = yesReserve + noReserve;
+        return (noReserve * PRICE_PRECISION) / total;
+    }
 
-function getYesPriceProbability() external view returns (uint256) {
-    if (!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+    /**
+     * @notice Calculates the implied probability for the NO outcome based on current reserves
+     * @return Implied probability scaled by PRICE_PRECISION (1e6 = 100%)
+     * @dev Uses the formula: P(NO) = yesReserve / (yesReserve + noReserve)
+     *      In a constant product AMM, the price reflects market sentiment:
+     *      - Higher yesReserve relative to noReserve = higher NO probability
+     *      - This is because more YES tokens available means NO is scarcer/more valuable
+     *      Result is scaled to 1e6 where:
+     *      - 1,000,000 = 100% probability
+     *      - 500,000 = 50% probability
+     *      - 250,000 = 25% probability
+     *      Note: P(YES) + P(NO) should always equal ~100% (accounting for rounding)
+     */
+    function getNoPriceProbability() external view returns (uint256) {
+        if (!seeded) {
+            revert PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
 
-    uint256 total = yesReserve + noReserve;
-    return (noReserve * PRICE_PRECISION) / total;
-}
-
-function getNoPriceProbability() external view returns (uint256) {
-    if (!seeded) revert PredictionMarket__InitailConstantLiquidityNotSetYet();
-
-    uint256 total = yesReserve + noReserve;
-    return (yesReserve * PRICE_PRECISION) / total;
-}
-
-
-
-
-
+        uint256 total = yesReserve + noReserve;
+        return (yesReserve * PRICE_PRECISION) / total;
+    }
 
     // ========================================
     // ADMIN/EMERGENCY FUNCTIONS
@@ -1055,33 +1097,33 @@ function getNoPriceProbability() external view returns (uint256) {
         _unpause();
     }
 
+    /**
+     * @notice Withdraws accumulated protocol fees (owner only)
+     * @param amount Amount of collateral fees to withdraw
+     * @dev Can only be called after market is resolved
+     *      Protocol fees accumulate from:
+     *      - Swap fees (portion kept in reserves)
+     *      - Complete set minting fees
+     *      - Complete set redemption fees
+     *      - Winning token redemption fees
+     *      Owner must ensure sufficient balance exists before withdrawal
+     */
+    function withdrawProtocolFees(uint256 amount) external zeroAmountCheck(amount) onlyOwner {
+        if (state != State.Resolved) {
+            revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+        }
 
+        uint256 contractBalance = i_collateral.balanceOf(address(this));
 
-    function withdrawProtocolFees(uint256 amount) external zeroAmountCheck(amount) onlyOwner{
-    if(state != State.Resolved) revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+        if (protocolCollateralFees < amount) {
+            revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
+        }
 
-    uint256 contractBalance = i_collateral.balanceOf(address(this));
+        if (contractBalance < amount) {
+            revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
+        }
 
-   if(protocolCollateralFees < amount) revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
-
-    if(contractBalance < amount){
-        revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
+        i_collateral.safeTransfer(owner(), amount);
+        protocolCollateralFees -= amount;
     }
-
-    i_collateral.safeTransfer(owner(), amount);
-    protocolCollateralFees -= amount;
-     
-
-    
-        
-
-
-
-
-
-    }
-
-
-
-
 }
