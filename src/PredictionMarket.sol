@@ -905,7 +905,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         if (state != State.Resolved) {
             revert PredictionMarket__NotResolved();
         }
-             uint256 fee = (amount *    REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
+             uint256 fee = (amount *    REDEEM_FEE_BPS) / FEE_PRECISION_BPS;
         uint256 netAmount = amount - fee;
  // Add fee to protocol reserves
         protocolCollateralFees += fee;
