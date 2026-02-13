@@ -66,14 +66,13 @@ contract MarketFactory is Ownable {
 
     /**
      * @notice Initializes the factory with a collateral token
-     * @dev _collateral Address of the ERC20 token to use as collateral for all markets
+     * @param _collateral Address of the ERC20 token to use as collateral for all markets
      * @dev The collateral token is immutable and applies to all markets created by this factory
      */
-    constructor() Ownable(msg.sender) {
-        // param =address _collateral
-        //collateral = IERC20(_collateral);
+    constructor(  address _collateral) Ownable(msg.sender) {
+        collateral = IERC20(_collateral);
         // this address is for the one on polygon
-        collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
+       // collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
     }
 
     // ========================================
