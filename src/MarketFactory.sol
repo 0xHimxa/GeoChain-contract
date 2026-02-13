@@ -4,7 +4,6 @@ pragma solidity 0.8.33;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
 
@@ -67,11 +66,14 @@ contract MarketFactory is Ownable {
 
     /**
      * @notice Initializes the factory with a collateral token
-     * @param _collateral Address of the ERC20 token to use as collateral for all markets
+     * @dev _collateral Address of the ERC20 token to use as collateral for all markets
      * @dev The collateral token is immutable and applies to all markets created by this factory
      */
-    constructor(address _collateral) Ownable(msg.sender) {
-        collateral = IERC20(_collateral);
+    constructor() Ownable(msg.sender) {
+        // param =address _collateral
+        //collateral = IERC20(_collateral);
+        // this address is for the one on polygon
+        collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
     }
 
     // ========================================
