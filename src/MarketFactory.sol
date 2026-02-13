@@ -7,6 +7,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
+import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
+
 
 /**
  * @title MarketFactory
@@ -16,7 +18,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
  *      All markets use the same collateral token (e.g., USDC)
  *      Only the owner can create new markets to ensure quality control
  */
-contract MarketFactory is Ownable {
+contract MarketFactory is ReceiverTemplate {
     using SafeERC20 for IERC20;
 
     // ========================================
@@ -35,6 +37,8 @@ contract MarketFactory is Ownable {
    //active market adress
    address[] public activeMarkets;
    mapping(address => uint256) public marketToIndex;
+
+   address public forwarder;
 
     // ========================================
     // EVENTS
@@ -74,8 +78,11 @@ contract MarketFactory is Ownable {
      * @dev _collateral Address of the ERC20 token to use as collateral for all markets
      * @dev The collateral token is immutable and applies to all markets created by this factory
      */
-    constructor( address _collateral) Ownable(msg.sender) {
+    constructor( address _collateral,address _forwarder) ReceiverTemplate(_forwarder){
        collateral = IERC20(_collateral);
+       forwarder = _forwarder;
+       
+
         // this address is for the one on polygon
        // collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
 
@@ -111,7 +118,7 @@ contract MarketFactory is Ownable {
         // Deploy new prediction market contract
         // Market is initially owned by this factory for setup
         PredictionMarket m =
-            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, address(this));
+            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, address(this),forwarder);
 
         // Transfer collateral from caller to the new market
         collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);
@@ -155,6 +162,20 @@ function removeResolvedMarket(address market) external {
             delete marketToIndex[market];  
 
     }
+
+
+
+
+     /// @notice Internal hook to process settlement reports from the receiver template.
+    /// @dev Decodes ABI-encoded data and calls reslove().
+    /// @param report ABI-encoded (marketId, outcome(uint8), confidenceBps, responseId).
+    function _processReport(bytes calldata report) internal override {
+      //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
+           // abi.decode(report, (uint256, uint8, uint16, string));
+        //settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
+    }
+
+
 
 
 }

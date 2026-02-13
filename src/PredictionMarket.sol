@@ -22,7 +22,7 @@ import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "./
 import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
-import {ReceiverTemplate} from "src/ReceivrTemplate.sol";
+import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
 /**
  * @title PredictionMarket
  * @author 0xHimxa
@@ -38,7 +38,7 @@ import {ReceiverTemplate} from "src/ReceivrTemplate.sol";
  * - Owner-controlled resolution with binary outcome
  * - Fee collection on swaps and complete set operations
  */
-contract PredictionMarket is Ownable, ReentrancyGuard, Pausable,ReceiverTemplate {
+contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
     using SafeERC20 for IERC20;
 
     // ========================================
@@ -122,8 +122,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable,ReceiverTemplate
         address _collateral,
         uint256 _closeTime,
         uint256 _resolutionTime,
-        address _marketfactory
-    ) Ownable(msg.sender) {
+        address _marketfactory,
+        address _forwarderAddress
+    ) ReceiverTemplate(_forwarderAddress){
         // Validate constructor arguments
         if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
@@ -795,6 +796,22 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable,ReceiverTemplate
 
         emit MarketEvents.Resolved(resolution);
     }
+
+
+
+    /// @notice Internal hook to process settlement reports from the receiver template.
+    /// @dev Decodes ABI-encoded data and calls reslove().
+    /// @param report ABI-encoded (marketId, outcome(uint8), confidenceBps, responseId).
+    function _processReport(bytes calldata report) internal override {
+      //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
+           // abi.decode(report, (uint256, uint8, uint16, string));
+        //settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
+    }
+
+
+
+
+
 
 
 // chainlink cre  will be using the return value to check if it time to reslove the market
