@@ -55,10 +55,6 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         Inconclusive // Outcome is inconclusive
     }
 
-    struct Proof {
-        string question;
-        string proofUrl;
-    }
 
     // ========================================
     // STATE VARIABLES
@@ -103,7 +99,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Minimum amount required to add liquidity (prevents dust)
     uint256 private constant MINIMUM_ADD_LIQUIDITY_SHARE = 50;
-
+  uint256 private constant REDEEM_FEE_BPS = 200;
     /// @notice Accumulated protocol fees from all operations
     uint256 public protocolCollateralFees;
 
@@ -173,6 +169,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Emitted when LP shares are transferred between addresses
     event SharesTransferred(address indexed from, address indexed to, uint256 shares);
     event WithDrawnLiquidity(address indexed user, uint256 amount, uint256 shares);
+    event IsUnderManualReview(Resolution indexed outcome);
+
 
     // ========================================
     // ERRORS
@@ -232,7 +230,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     error PredictionMarket__InvalidFinalOutcome();
     error PredictionMarket__ManualReviewNeeded();
     error PredictionMarket__MarketNotInReview();
-
+  error  PredictionMarket__WithDrawLiquidity_Insufficientfee();
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -581,11 +579,11 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
         }
 
-        lpShares[msg.sender] = userShares - shares;
-        totalShares -= shares;
 
         if (resolutionOut == uint256(Resolution.Yes)) {
             uint256 winningOut = (yesReserve * shares) / totalShares;
+        totalShares -= shares;
+        lpShares[msg.sender] = userShares - shares;
 
             yesReserve -= winningOut;
 
@@ -600,6 +598,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         if (resolutionOut == uint256(Resolution.No)) {
             uint256 noOut = (noReserve * shares) / totalShares;
+        totalShares -= shares;
+        lpShares[msg.sender] = userShares - shares;
 
             noReserve -= noOut;
 
@@ -620,7 +620,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      * @param shares Number of shares to transfer
      * @dev Allows users to transfer their LP position without removing liquidity
      */
-    function transferShares(address to, uint256 shares) external  {
+    function transferShares(address to, uint256 shares) external whenNotPaused  {
         // Validate inputs
         if (to == address(0)) {
             revert PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
@@ -881,6 +881,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             manualReviewNeeded = true;
             state = State.Review;
             resolution = Resolution.Inconclusive;
+            emit IsUnderManualReview(_outcome);
             return;
         }
 
@@ -904,18 +905,24 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         if (state != State.Resolved) {
             revert PredictionMarket__NotResolved();
         }
+             uint256 fee = (amount *    REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
+        uint256 netAmount = amount - fee;
+ // Add fee to protocol reserves
+        protocolCollateralFees += fee;
 
         if (resolution == Resolution.Yes) {
+        
+       
             yesToken.burn(msg.sender, amount);
-            i_collateral.safeTransfer(msg.sender, amount);
+            i_collateral.safeTransfer(msg.sender, netAmount);
         } else if (resolution == Resolution.No) {
+            {
             noToken.burn(msg.sender, amount);
-            i_collateral.safeTransfer(msg.sender, amount);
-        } else if (resolution == Resolution.Inconclusive) {} else {
-            revert PredictionMarket__NotResolved();
+            i_collateral.safeTransfer(msg.sender, netAmount);
         }
 
         emit Redeemed(msg.sender, amount);
+    }
     }
 
     function ManualResolvedMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
@@ -1022,5 +1029,31 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      */
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+
+
+    function withdrawProtocolFees(uint256 amount) external zeroAmountCheck(amount) onlyOwner{
+    if(state != State.Resolved) revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+
+    uint256 contractBalance = i_collateral.balanceOf(address(this));
+
+   if(protocolCollateralFees < amount) revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
+
+    if(contractBalance < amount){
+        revert PredictionMarket__WithDrawLiquidity_Insufficientfee();
+    }
+
+    i_collateral.safeTransfer(owner(), amount);
+    protocolCollateralFees -= amount;
+     
+
+    
+        
+
+
+
+
+
     }
 }
