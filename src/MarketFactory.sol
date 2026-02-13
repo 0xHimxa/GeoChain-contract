@@ -92,7 +92,6 @@ contract MarketFactory is Ownable {
     function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
         external
         onlyOwner
-        nonReentrant
         returns (address market)
     {
         // Validate initial liquidity

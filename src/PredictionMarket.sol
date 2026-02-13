@@ -605,15 +605,16 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             totalShares -= shares;
             noReserve -= noOut;
 
-            // Burn the matched NO pair from contract balance
 
-            noToken.burn(address(this), noOut);
 
             uint256 fee = (noOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
             uint256 netCollaterals = noOut - fee;
 
             // Add fee to protocol reserves
             protocolCollateralFees += fee;
+            // Burn the matched NO pair from contract balance
+
+            noToken.burn(address(this), noOut);
 
             // Step 5: Transfer net collateral to user
             i_collateral.safeTransfer(msg.sender, netCollaterals);
