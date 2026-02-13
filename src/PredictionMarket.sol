@@ -566,6 +566,12 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
         }
 
+        uint256 resolutionOut = uint256(resolution);
+
+        if (resolutionOut != uint256(Resolution.Yes) && resolutionOut != uint256(Resolution.No)) {
+            revert PredictionMarket__InvalidFinalOutcome();
+        }
+
         uint256 userShares = lpShares[msg.sender];
 
         // Validate inputs
@@ -575,51 +581,37 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         if (userShares < shares) {
             revert PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
         }
-        uint256 resolutionOut = uint256(resolution);
+
+        lpShares[msg.sender] = userShares - shares;
+        totalShares -= shares;
+
         if (resolutionOut == uint256(Resolution.Yes)) {
-            uint256 yesOut = (yesReserve * shares) / totalShares;
+            uint256 winningOut = (yesReserve * shares) / totalShares;
 
-            lpShares[msg.sender] = userShares - shares;
-            totalShares -= shares;
-            yesReserve -= yesOut;
-
-            uint256 fee = (yesOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
-            uint256 netCollaterals = yesOut - fee;
-
-            // Add fee to protocol reserves
-            protocolCollateralFees += fee;
+            yesReserve -= winningOut;
 
             // Burn the matched YES pair from contract balance
-            yesToken.burn(address(this), netCollaterals);
+            yesToken.burn(address(this), winningOut);
 
             // Step 5: Transfer net collateral to user
-            i_collateral.safeTransfer(msg.sender, netCollaterals);
+            i_collateral.safeTransfer(msg.sender, winningOut);
 
-            emit WithDrawnLiquidity(msg.sender, netCollaterals, shares);
+            emit WithDrawnLiquidity(msg.sender, winningOut, shares);
         }
 
         if (resolutionOut == uint256(Resolution.No)) {
             uint256 noOut = (noReserve * shares) / totalShares;
 
-            lpShares[msg.sender] = userShares - shares;
-            totalShares -= shares;
             noReserve -= noOut;
 
-
-
-            uint256 fee = (noOut * REDEEM_COMPLETE_SETS_FEE_BPS) / FEE_PRECISION_BPS;
-            uint256 netCollaterals = noOut - fee;
-
-            // Add fee to protocol reserves
-            protocolCollateralFees += fee;
             // Burn the matched NO pair from contract balance
 
             noToken.burn(address(this), noOut);
 
             // Step 5: Transfer net collateral to user
-            i_collateral.safeTransfer(msg.sender, netCollaterals);
+            i_collateral.safeTransfer(msg.sender, noOut);
 
-            emit WithDrawnLiquidity(msg.sender, netCollaterals, shares);
+            emit WithDrawnLiquidity(msg.sender, noOut, shares);
         }
     }
 
