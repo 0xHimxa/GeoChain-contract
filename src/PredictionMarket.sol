@@ -384,6 +384,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         nonReentrant
         marketOpen
         seededOnly
+        whenNotPaused
     {
         // Validate inputs
         if (yesAmount == 0 && noAmount == 0) {
@@ -400,8 +401,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
             revert PredictionMarket__AddLiquidity_InsuffientTokenBalance();
         }
 
-        // Pause contract to prevent reentrancy/state changes
-        _pause();
+       
 
         // Calculate proportional shares based on current pool ratios
         // Take the minimum to ensure both reserves increase proportionally
@@ -431,8 +431,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), usedYes);
         IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), usedNo);
 
-        // Unpause contract
-        _unpause();
+        
 
         emit LiquidityAdded(msg.sender, usedYes, usedNo, shares);
     }
@@ -561,7 +560,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         emit CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
-    function withdrawLiquidityCollateral(uint256 shares) external nonReentrant {
+    function withdrawLiquidityCollateral(uint256 shares) external nonReentrant whenNotPaused {
         if (state != State.Resolved) {
             revert PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
         }
@@ -621,7 +620,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      * @param shares Number of shares to transfer
      * @dev Allows users to transfer their LP position without removing liquidity
      */
-    function transferShares(address to, uint256 shares) external whenNotPaused {
+    function transferShares(address to, uint256 shares) external  {
         // Validate inputs
         if (to == address(0)) {
             revert PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
