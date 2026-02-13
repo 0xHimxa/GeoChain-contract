@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
+import {OutcomeToken} from "./OutcomeToken.sol";
 
 /**
  * @title MarketFactory
@@ -30,6 +31,10 @@ contract MarketFactory is Ownable {
 
     /// @notice Mapping from market ID to market contract address
     mapping(uint256 => address) public markets;
+   
+   //active market adress
+   address[] public activeMarkets;
+   mapping(address => uint256) public marketToIndex;
 
     // ========================================
     // EVENTS
@@ -66,13 +71,18 @@ contract MarketFactory is Ownable {
 
     /**
      * @notice Initializes the factory with a collateral token
-     * @param _collateral Address of the ERC20 token to use as collateral for all markets
+     * @dev _collateral Address of the ERC20 token to use as collateral for all markets
      * @dev The collateral token is immutable and applies to all markets created by this factory
      */
-    constructor(  address _collateral) Ownable(msg.sender) {
-        collateral = IERC20(_collateral);
+    constructor( address _collateral) Ownable(msg.sender) {
+       collateral = IERC20(_collateral);
         // this address is for the one on polygon
        // collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
+
+     //  collateral = new OutcomeToken("USDC", "USDC", msg.sender);
+     
+       
+      
     }
 
     // ========================================
@@ -120,10 +130,31 @@ contract MarketFactory is Ownable {
 
         // Register the market in factory tracking
         marketCount++;
+
         markets[marketCount] = address(m);
+        activeMarkets.push(address(m));
+        marketToIndex[address(m)] = marketToIndex.length - 1;
+
 
         emit MarketCreated(marketCount, address(m), question, closeTime, resolutionTime, initialLiquidity);
 
         return address(m);
     }
+
+
+// called when the prediction market is resolved to remove it from the active list
+function removeResolvedMarket(address market) external {
+        uint256 index = marketToIndex[market];
+        address lastMarket = activeMarkets[activeMarkets.length - 1];
+        
+        activeMarkets[index] = lastMarket; // Swap with last
+        marketToIndex[lastMarket] = index;
+        activeMarkets.pop(); // Remove from tracking
+        marketCount = marketCount - 1;
+
+            delete marketToIndex[market];  
+
+    }
+
+
 }

@@ -21,7 +21,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
 import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "./libraries/MarketTypes.sol";
 import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
-
+import {MarketFactory} from "MarketFactory.sol";
 /**
  * @title PredictionMarket
  * @author 0xHimxa
@@ -100,6 +100,9 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     /// @notice Flag indicating if market requires manual resolution review
     bool private manualReviewNeeded;
 
+    MarketFactory private marketFactory;
+
+
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -110,7 +113,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
      * @param _collateral Address of the ERC20 collateral token
      * @param _closeTime Timestamp when market closes for trading
      * @param _resolutionTime Timestamp when market can be resolved
-     * @param owner_ Address that will own the contract
+     * @param marketfactory_ Address of market facory the contract
      * @dev Creates YES and NO outcome tokens and sets initial state to Open
      */
     constructor(
@@ -118,7 +121,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         address _collateral,
         uint256 _closeTime,
         uint256 _resolutionTime,
-        address owner_
+        address _marketfactory
     ) Ownable(msg.sender) {
         // Validate constructor arguments
         if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) {
@@ -142,6 +145,8 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         // Initialize market as Open
         state = State.Open;
+
+        marketFactory = MarketFactory(_marketfactory);
 
         // Transfer ownership to designated owner
         _transferOwnership(owner_);
@@ -711,6 +716,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
         s_Proof_Url = proofUrl;
 
         state = State.Resolved;
+        marketFactory.removeResolvedMarket(address(this));
 
         emit MarketEvents.Resolved(resolution);
     }
@@ -780,6 +786,7 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
 
         manualReviewNeeded = false;
         state = State.Resolved;
+        marketFactory.removeResolvedMarket(address(this));
 
         emit MarketEvents.Resolved(resolution);
     }
