@@ -1,33 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
-import {OutcomeToken} from "./OutcomeToken.sol";
-import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
-
+import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
 
 /**
  * @title MarketFactory
  * @author 0xHimxa
  * @notice Factory contract for deploying new prediction markets with initial liquidity
- * @dev Uses the factory pattern to create and track prediction market instances
- *      All markets use the same collateral token (e.g., USDC)
- *      Only the owner can create new markets to ensure quality control
+ * @dev UUPS upgradeable factory. Uses initialize() instead of constructor.
  */
-contract MarketFactory is ReceiverTemplate {
+contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
-
 
     // ========================================
     // STATE VARIABLES
     // ========================================
 
     /// @notice The ERC20 token used as collateral for all markets (e.g., USDC)
-    IERC20 public immutable collateral;
+    IERC20 public collateral;
 
     /// @notice Total number of markets created by this factory
     uint256 public marketCount;
@@ -35,31 +31,20 @@ contract MarketFactory is ReceiverTemplate {
     /// @notice Mapping from market ID to market contract address
     mapping(uint256 => address) public markets;
 
-    // 1. Storage for verified status
+    // Storage for verified status
     mapping(address => bool) public isVerified;
 
-    // 2. Prevent the same "Human" from verifying multiple wallets
+    // Prevent the same "Human" from verifying multiple wallets
     mapping(uint256 => bool) internal nullifierHashes;
-   
-   //active market adress
-   address[] public activeMarkets;
-   mapping(address => uint256) public marketToIndex;
 
-   address public forwarder;
+    // Active market tracking
+    address[] public activeMarkets;
+    mapping(address => uint256) public marketToIndex;
 
     // ========================================
     // EVENTS
     // ========================================
 
-    /**
-     * @notice Emitted when a new prediction market is created
-     * @param marketId Unique identifier for the market
-     * @param market Address of the deployed market contract
-     * @param question Prediction question for the market
-     * @param closeTime Timestamp when market closes for trading
-     * @param resolutionTime Timestamp when market can be resolved
-     * @param initialLiquidity Amount of collateral used to seed the market
-     */
     event MarketCreated(
         uint256 indexed marketId,
         address market,
@@ -73,125 +58,87 @@ contract MarketFactory is ReceiverTemplate {
     // ERRORS
     // ========================================
 
-    /// @notice Thrown when initial liquidity is zero
     error MarketFactory__ZeroLiquidity();
+    error MarketFactory__ZeroAddress();
 
-    // ========================================
-    // CONSTRUCTOR
-    // ========================================
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     /**
-     * @notice Initializes the factory with a collateral token
-     * @dev _collateral Address of the ERC20 token to use as collateral for all markets
-     * @dev The collateral token is immutable and applies to all markets created by this factory
+     * @notice Initializes the factory for proxy usage.
+     * @param _collateral Address of collateral token
+     * @param _forwarder Address passed to each newly created market
+     * @param _initialOwner Owner of the proxy
      */
-    constructor( address _collateral,address _forwarder) 
-         ReceiverTemplate(_forwarder){
-       collateral = IERC20(_collateral);
-       forwarder = _forwarder;
-       
+    function initialize(address _collateral, address _forwarder, address _initialOwner) external initializer {
+        if (_collateral == address(0) || _forwarder == address(0) || _initialOwner == address(0)) {
+            revert MarketFactory__ZeroAddress();
+        }
 
-
-        // this address is for the one on polygon
-       // collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
-
-     //  collateral = new OutcomeToken("USDC", "USDC", msg.sender);
-      
+        __ReceiverTemplateUpgradeable_init(_forwarder, _initialOwner);
+        collateral = IERC20(_collateral);
     }
 
 
 
+     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+        if (newImplementation == address(0)) revert MarketFactory__ZeroAddress();
+    }
 
-
-
-
-
-
-
-    // ========================================
-    // EXTERNAL FUNCTIONS
-    // ========================================
+    
 
     /**
      * @notice Creates a new prediction market with initial liquidity
-     * @param question The prediction question (e.g., "Will ETH be above $5000 on Dec 31, 2024?")
-     * @param closeTime Timestamp when market closes for trading
-     * @param resolutionTime Timestamp when market can be resolved (must be after closeTime)
-     * @param initialLiquidity Amount of collateral to seed the market with
-     * @return market Address of the newly deployed market contract
-     * @dev Only callable by owner to ensure market quality
-     *      Caller must approve this factory to spend initialLiquidity amount of collateral
-     *      The factory seeds the market, mints LP shares, and transfers ownership to caller
      */
     function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
         external
         onlyOwner
         returns (address market)
     {
-        // Validate initial liquidity
         if (initialLiquidity == 0) revert MarketFactory__ZeroLiquidity();
 
-        // Deploy new prediction market contract
-        // Market is initially owned by this factory for setup
         PredictionMarket m =
-            new PredictionMarket(question, address(collateral), closeTime, resolutionTime, address(this),forwarder);
+            new PredictionMarket(
+                question, address(collateral), closeTime, resolutionTime, address(this), _getForwarderAddress()
+            );
 
-        // Transfer collateral from caller to the new market
         collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);
 
-        // Seed the market with initial liquidity
-        // This creates equal YES and NO reserves and mints LP shares
         m.seedLiquidity(initialLiquidity);
-
-        // Transfer LP shares to the market creator
-        // Creator now owns all initial liquidity provider shares
         m.transferShares(msg.sender, initialLiquidity);
-
-        // Transfer market ownership to creator
-        // Creator can now resolve the market and manage admin functions
         m.transferOwnership(msg.sender);
 
-        // Register the market in factory tracking
         marketCount++;
-
         markets[marketCount] = address(m);
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
-
 
         emit MarketCreated(marketCount, address(m), question, closeTime, resolutionTime, initialLiquidity);
 
         return address(m);
     }
 
-
-// called when the prediction market is resolved to remove it from the active list
-function removeResolvedMarket(address market) external {
+    // Called when a prediction market resolves to remove it from active list
+    function removeResolvedMarket(address market) external {
         uint256 index = marketToIndex[market];
         address lastMarket = activeMarkets[activeMarkets.length - 1];
-        
-        activeMarkets[index] = lastMarket; // Swap with last
+
+        activeMarkets[index] = lastMarket;
         marketToIndex[lastMarket] = index;
-        activeMarkets.pop(); // Remove from tracking
-        marketCount = marketCount - 1;
+        activeMarkets.pop();
 
-            delete marketToIndex[market];  
+        if (marketCount > 0) {
+            marketCount = marketCount - 1;
+        }
 
+        delete marketToIndex[market];
     }
 
+   
 
-
-
-     /// @notice Internal hook to process settlement reports from the receiver template.
-    /// @dev Decodes ABI-encoded data and calls reslove().
-    /// @param report ABI-encoded (marketId, outcome(uint8), confidenceBps, responseId).
     function _processReport(bytes calldata report) internal override {
-      //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
-           // abi.decode(report, (uint256, uint8, uint16, string));
-        //settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
+        report;
     }
-
-
-
-
 }
