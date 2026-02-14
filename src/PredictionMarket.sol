@@ -89,7 +89,7 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
 
     /// @notice Mapping of LP addresses to their share balances
     mapping(address => uint256) public lpShares;
-
+  mapping(address => uint256) public userRiskExposure;
     /* ─────────── Market State ─────────── */
 
     /// @notice Current market state (Open/Closed/Review/Resolved)
@@ -102,6 +102,7 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
     bool private manualReviewNeeded;
 
     MarketFactory private marketFactory;
+
 
 
     // ========================================
@@ -542,12 +543,22 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
             revert MarketErrors.PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
         }
 
+        //check user exposure
+        uint256 exposure = userRiskExposure[msg.sender];
+        
+        if(exposure + amount > MarketConstants.MAX_RISK_EXPOSURE){
+            revert PredictionMarket__RiskExposureExceeded();
+        }
+
+
         // Calculate fee and net amount using FeeLib
         (uint256 netAmount, uint256 fee) =
             FeeLib.deductFee(amount, MarketConstants.MINT_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
 
         // Add fee to protocol reserves
         protocolCollateralFees += fee;
+        userRiskExposure[msg.sender] += amount;
+
 
         // Transfer collateral from user
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);

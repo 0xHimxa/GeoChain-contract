@@ -57,6 +57,7 @@ library MarketConstants {
 
     /// @notice Fee precision for price calculations (1e6 = 100%)
     uint256 internal constant PRICE_PRECISION = 1e6;
+    uint256 internal constant  MAX_RISK_EXPOSURE = 10000e6;
 }
 
 // ========================================
@@ -149,6 +150,7 @@ library MarketErrors {
     error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
     error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
     error PredictionMarket__AmountLessThanMinAllwed();
+    error PredictionMarket__RiskExposureExceeded();
 
     /* ─────────── Resolution Errors ─────────── */
     error PredictionMarket__ResolveTimeNotReached();
