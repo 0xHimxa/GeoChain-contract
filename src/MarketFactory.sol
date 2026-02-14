@@ -8,8 +8,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
 import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
-import { IWorldID} from "src/libraries/IWorldID.sol";
-import { ByteHasher} from "src/helper/BytesHasher.sol";
 
 
 /**
@@ -94,53 +92,13 @@ contract MarketFactory is ReceiverTemplate {
        collateral = IERC20(_collateral);
        forwarder = _forwarder;
        
-// pram in put
-
-//0x11cA311957A1559daCc816bb48721E362da20200, // WorldID Router
-  //  "app_444ad69e63a41c51da38ff187e664a66",      // Your App ID
-    //"register-prediction"                       // Your Action ID
-
 
 
         // this address is for the one on polygon
        // collateral = IERC20(0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359);
 
      //  collateral = new OutcomeToken("USDC", "USDC", msg.sender);
-     
-       worldId = _worldId;
-        
-        // The externalNullifier is a unique ID for this specific app+action
-        externalNullifier = abi.encodePacked(
-            abi.encodePacked(_appId).hashToField(), 
-            _actionId
-        ).hashToField();
       
-    }
-
-
-
-
-function registerHuman(
-        address signal,          // The wallet address to verify (msg.sender)
-        uint256 root,            // Merkle root from World ID
-        uint256 nullifierHash,   // Unique human ID for this app
-        uint256[8] calldata proof // ZK-proof from World ID
-    ) public {
-        // First, check if this human has already registered a wallet
-        require(!nullifierHashes[nullifierHash], "This human is already registered");
-
-        // Verify the proof with the World ID Router
-        worldId.verifyProof(
-            root,
-            abi.encodePacked(signal).hashToField(), 
-            nullifierHash,
-            externalNullifier,
-            proof
-        );
-
-        // Record the verification
-        nullifierHashes[nullifierHash] = true; // "Burn" the human's ability to register again
-        isVerified[signal] = true;             // Mark this specific wallet as verified
     }
 
 
