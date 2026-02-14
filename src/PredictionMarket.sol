@@ -547,7 +547,7 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
         uint256 exposure = userRiskExposure[msg.sender];
         
         if(exposure + amount > MarketConstants.MAX_RISK_EXPOSURE){
-            revert PredictionMarket__RiskExposureExceeded();
+            revert MarketErrors.PredictionMarket__RiskExposureExceeded();
         }
 
 

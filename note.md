@@ -1,0 +1,1 @@
+send verified nullifie and adddress to contracts
