@@ -109,6 +109,21 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Used to notify the factory when this market resolves (removes itself from activeMarkets list)
     MarketFactory private marketFactory;
 
+    /// @notice Optional controller allowed to push hub state (CCIP receiver on spoke chains)
+    address public crossChainController;
+
+    /// @notice Last hub-synced canonical YES price in 1e6 precision
+    uint256 public canonicalYesPriceE6;
+
+    /// @notice Last hub-synced canonical NO price in 1e6 precision
+    uint256 public canonicalNoPriceE6;
+
+    /// @notice Timestamp until canonical prices should be treated as fresh
+    uint256 public canonicalPriceValidUntil;
+
+    /// @notice Monotonic nonce used to guard against stale/replayed price updates
+    uint64 public canonicalPriceNonce;
+
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -161,6 +176,12 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     // MODIFIERS
     // ========================================
 
+    error PredictionMarket__OnlyCrossChainController();
+    error PredictionMarket__InvalidCanonicalPrice();
+    error PredictionMarket__StaleSyncMessage();
+    error PredictionMarket__CanonicalPriceStale();
+    error PredictionMarket__InsufficientSpokeInventory();
+
     /**
      * @notice Ensures market is open for trading
      * @dev Updates state based on current timestamp before checking
@@ -199,6 +220,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         _;
     }
 
+    modifier onlyCrossChainController() {
+        if (msg.sender != crossChainController) {
+            revert PredictionMarket__OnlyCrossChainController();
+        }
+        _;
+    }
+
     // ========================================
     // INTERNAL FUNCTIONS
     // ========================================
@@ -211,6 +239,36 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         if (state == State.Open && block.timestamp >= closeTime) {
             state = State.Closed;
         }
+    }
+
+    function _isCanonicalPricingMode() internal view returns (bool) {
+        return crossChainController != address(0);
+    }
+
+    function _ensureCanonicalPriceFresh() internal view {
+        if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
+            revert PredictionMarket__CanonicalPriceStale();
+        }
+    }
+
+    function _quoteCanonicalYesForNo(uint256 yesIn) internal view returns (uint256 netOut, uint256 fee) {
+        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
+
+        uint256 grossOut = (yesIn * canonicalYesPriceE6) / canonicalNoPriceE6;
+        fee = (grossOut * MarketConstants.SWAP_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        netOut = grossOut - fee;
+    }
+
+    function _quoteCanonicalNoForYes(uint256 noIn) internal view returns (uint256 netOut, uint256 fee) {
+        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
+
+        uint256 grossOut = (noIn * canonicalNoPriceE6) / canonicalYesPriceE6;
+        fee = (grossOut * MarketConstants.SWAP_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        netOut = grossOut - fee;
     }
 
     // ========================================
@@ -629,10 +687,25 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed();
         }
 
-        // Calculate swap output using AMMLib
-        (uint256 noOut,, uint256 newYesReserve, uint256 newNoReserve) = AMMLib.getAmountOut(
-            yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-        );
+        uint256 noOut;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            (noOut,) = _quoteCanonicalYesForNo(yesIn);
+            if (noOut > noReserve) {
+                revert PredictionMarket__InsufficientSpokeInventory();
+            }
+
+            newYesReserve = yesReserve + yesIn;
+            newNoReserve = noReserve - noOut;
+        } else {
+            // Calculate swap output using AMMLib
+            (noOut,, newYesReserve, newNoReserve) = AMMLib.getAmountOut(
+                yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+            );
+        }
 
         // Validate output meets slippage requirements
         if (minNoOut > noOut) {
@@ -672,10 +745,25 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed();
         }
 
-        // Calculate swap output using AMMLib
-        (uint256 yesOut,, uint256 newNoReserve, uint256 newYesReserve) = AMMLib.getAmountOut(
-            noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-        );
+        uint256 yesOut;
+        uint256 newNoReserve;
+        uint256 newYesReserve;
+
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            (yesOut,) = _quoteCanonicalNoForYes(noIn);
+            if (yesOut > yesReserve) {
+                revert PredictionMarket__InsufficientSpokeInventory();
+            }
+
+            newNoReserve = noReserve + noIn;
+            newYesReserve = yesReserve - yesOut;
+        } else {
+            // Calculate swap output using AMMLib
+            (yesOut,, newNoReserve, newYesReserve) = AMMLib.getAmountOut(
+                noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+            );
+        }
 
         // Validate output meets slippage requirements
         if (minYesOut > yesOut) {
@@ -805,6 +893,50 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         emit MarketEvents.Resolved(resolution);
     }
 
+    /// @notice Sets the trusted contract that may push hub updates into this market
+    function setCrossChainController(address controller) external onlyOwner {
+        crossChainController = controller;
+    }
+
+    /// @notice Applies hub resolution on spoke markets (CCIP path)
+    function resolveFromHub(Resolution _outcome, string calldata proofUrl) external onlyCrossChainController {
+        if (bytes(proofUrl).length == 0) {
+            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+        }
+        if (_outcome == Resolution.Unset || _outcome == Resolution.Inconclusive) {
+            revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
+        }
+        if (state == State.Resolved) {
+            revert MarketErrors.PredictionMarket__AlreadyResolved();
+        }
+
+        resolution = _outcome;
+        s_Proof_Url = proofUrl;
+        manualReviewNeeded = false;
+        state = State.Resolved;
+        marketFactory.removeResolvedMarket(address(this));
+
+        emit MarketEvents.Resolved(resolution);
+    }
+
+    /// @notice Applies hub canonical prices to this market (used by UIs/quoting guards on spokes)
+    function syncCanonicalPriceFromHub(uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil, uint64 nonce)
+        external
+        onlyCrossChainController
+    {
+        if (yesPriceE6 + noPriceE6 != MarketConstants.PRICE_PRECISION) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
+        if (nonce <= canonicalPriceNonce) {
+            revert PredictionMarket__StaleSyncMessage();
+        }
+
+        canonicalYesPriceE6 = yesPriceE6;
+        canonicalNoPriceE6 = noPriceE6;
+        canonicalPriceValidUntil = validUntil;
+        canonicalPriceNonce = nonce;
+    }
+
     /// @notice Internal hook invoked by Chainlink CRE forwarder when a settlement report arrives
     /// @dev Currently a no-op placeholder. When Chainlink CRE integration is fully wired,
     ///      this will decode the report and call resolve() automatically.
@@ -849,9 +981,14 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
         }
 
-        (netOut, fee,,) = AMMLib.getAmountOut(
-            yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-        );
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            (netOut, fee) = _quoteCanonicalYesForNo(yesIn);
+            return (netOut, fee);
+        }
+
+        (netOut, fee,,) =
+            AMMLib.getAmountOut(yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
     }
 
     /**
@@ -866,9 +1003,14 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
         }
 
-        (netOut, fee,,) = AMMLib.getAmountOut(
-            noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-        );
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            (netOut, fee) = _quoteCanonicalNoForYes(noIn);
+            return (netOut, fee);
+        }
+
+        (netOut, fee,,) =
+            AMMLib.getAmountOut(noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
     }
 
     /**
@@ -879,6 +1021,11 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     function getYesPriceProbability() external view returns (uint256) {
         if (!seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
+
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            return canonicalYesPriceE6;
         }
 
         return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
@@ -892,6 +1039,11 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     function getNoPriceProbability() external view returns (uint256) {
         if (!seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
+
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            return canonicalNoPriceE6;
         }
 
         return AMMLib.getNoProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);

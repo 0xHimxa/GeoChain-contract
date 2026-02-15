@@ -9,8 +9,11 @@ import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {MarketDeployer} from "./MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors} from "./libraries/MarketTypes.sol";
+import {MarketErrors, Resolution} from "./libraries/MarketTypes.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
+import {Client} from "./ccip/Client.sol";
+import {IRouterClient} from "./ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "./ccip/IAny2EVMMessageReceiver.sol";
 
 /**
  * @title MarketFactory
@@ -18,7 +21,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
  * @notice Factory contract for deploying new prediction markets with initial liquidity
  * @dev UUPS upgradeable factory. Uses initialize() instead of constructor.
  */
-contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgradeable {
+contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgradeable, IAny2EVMMessageReceiver {
     using SafeERC20 for IERC20;
 
     // ========================================
@@ -52,6 +55,59 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @dev Separating deployment bytecode keeps MarketFactory under the 24 KB contract size limit
     MarketDeployer private marketDeployer;
 
+    /// @notice Chainlink CCIP router used for cross-chain messaging
+    address public ccipRouter;
+
+    /// @notice ERC20 token used to pay CCIP fees (typically LINK)
+    address public ccipFeeToken;
+
+    /// @notice Whether this deployment is the canonical hub factory (Ethereum main deployment)
+    bool public isHubFactory;
+
+    /// @notice Monotonic nonce used for outbound CCIP sync messages
+    uint64 public ccipNonce;
+
+    /// @notice Ordered list of configured spoke chain selectors
+    uint64[] private s_spokeSelectors;
+
+    /// @notice Tracks if a chain selector has already been inserted into s_spokeSelectors
+    mapping(uint64 => bool) private s_spokeSelectorExists;
+
+    /// @notice Trusted remote factory sender per chain selector (encoded as abi.encode(address))
+    mapping(uint64 => bytes) public trustedRemoteBySelector;
+
+    /// @notice Replay protection for inbound CCIP messages
+    mapping(bytes32 => bool) public processedCcipMessages;
+
+    /// @notice Global market ID registry
+    mapping(uint256 => address) public marketById;
+
+    /// @notice Reverse lookup from market address to market ID
+    mapping(address => uint256) public marketIdByAddress;
+
+    /// @notice Highest applied hub resolution nonce per market
+    mapping(uint256 => uint64) public resolutionNonceByMarketId;
+
+    enum SyncMessageType {
+        Price,
+        Resolution
+    }
+
+    struct CanonicalPriceSync {
+        uint256 marketId;
+        uint256 yesPriceE6;
+        uint256 noPriceE6;
+        uint256 validUntil;
+        uint64 nonce;
+    }
+
+    struct ResolutionSync {
+        uint256 marketId;
+        uint8 outcome;
+        string proofUrl;
+        uint64 nonce;
+    }
+
     // ========================================
     // EVENTS
     // ========================================
@@ -60,6 +116,12 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     /// @notice Emitted when testnet USDC is minted into the factory via addLiquidityToFactory()
     event MarketFactory__LiquidityAdded(uint256 indexed amount);
+    event CcipConfigUpdated(address indexed router, address indexed feeToken, bool indexed isHubFactory);
+    event TrustedRemoteUpdated(uint64 indexed chainSelector, address indexed remoteFactory);
+    event TrustedRemoteRemoved(uint64 indexed chainSelector);
+    event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
+    event CanonicalPriceMessageReceived(uint256 indexed marketId, uint256 yesPriceE6, uint256 noPriceE6, uint64 nonce);
+    event ResolutionMessageReceived(uint256 indexed marketId, Resolution indexed outcome, uint64 nonce);
 
     // ========================================
     // ERRORS
@@ -67,6 +129,16 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     error MarketFactory__ZeroLiquidity();
     error MarketFactory__ZeroAddress();
+    error MarketFactory__NotHubFactory();
+    error MarketFactory__CcipRouterNotSet();
+    error MarketFactory__CcipFeeTokenNotSet();
+    error MarketFactory__InvalidRemoteSender();
+    error MarketFactory__SourceChainNotAllowed();
+    error MarketFactory__MessageAlreadyProcessed();
+    error MarketFactory__UnknownSyncMessageType();
+    error MarketFactory__MarketNotFound();
+    error MarketFactory__InvalidResolutionOutcome();
+    error MarketFactory__StaleResolutionNonce();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -160,6 +232,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         m.transferOwnership(msg.sender);
 
         marketCount++;
+        marketById[marketCount] = address(m);
+        marketIdByAddress[address(m)] = marketCount;
 
         // Register the market in the active list for Chainlink CRE to iterate over
         activeMarkets.push(address(m));
@@ -168,6 +242,113 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         emit MarketCreated(marketCount, address(m), initialLiquidity);
 
         return address(m);
+    }
+
+    /// @notice Configures CCIP router, fee token, and mode (hub/spoke)
+    function setCcipConfig(address _ccipRouter, address _ccipFeeToken, bool _isHubFactory) external onlyOwner {
+        if (_ccipRouter == address(0) || _ccipFeeToken == address(0)) revert MarketFactory__ZeroAddress();
+        ccipRouter = _ccipRouter;
+        ccipFeeToken = _ccipFeeToken;
+        isHubFactory = _isHubFactory;
+        emit CcipConfigUpdated(_ccipRouter, _ccipFeeToken, _isHubFactory);
+    }
+
+    /// @notice Adds or updates a trusted remote factory for a given chain selector
+    function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
+        if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
+
+        trustedRemoteBySelector[chainSelector] = abi.encode(remoteFactory);
+        if (!s_spokeSelectorExists[chainSelector]) {
+            s_spokeSelectorExists[chainSelector] = true;
+            s_spokeSelectors.push(chainSelector);
+        }
+
+        emit TrustedRemoteUpdated(chainSelector, remoteFactory);
+    }
+
+    /// @notice Removes a trusted remote configuration for a selector
+    function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
+        delete trustedRemoteBySelector[chainSelector];
+
+        if (s_spokeSelectorExists[chainSelector]) {
+            s_spokeSelectorExists[chainSelector] = false;
+            uint256 length = s_spokeSelectors.length;
+            for (uint256 i = 0; i < length; i++) {
+                if (s_spokeSelectors[i] == chainSelector) {
+                    s_spokeSelectors[i] = s_spokeSelectors[length - 1];
+                    s_spokeSelectors.pop();
+                    break;
+                }
+            }
+        }
+
+        emit TrustedRemoteRemoved(chainSelector);
+    }
+
+    /// @notice Returns all configured spoke selectors
+    function getSpokeSelectors() external view returns (uint64[] memory selectors) {
+        return s_spokeSelectors;
+    }
+
+    /// @notice Syncs hub canonical price to all spokes via CCIP
+    function broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
+        external
+        onlyOwner
+    {
+        if (!isHubFactory) revert MarketFactory__NotHubFactory();
+        if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
+        if (ccipRouter == address(0)) revert MarketFactory__CcipRouterNotSet();
+        if (ccipFeeToken == address(0)) revert MarketFactory__CcipFeeTokenNotSet();
+
+        CanonicalPriceSync memory payload = CanonicalPriceSync({
+            marketId: marketId,
+            yesPriceE6: yesPriceE6,
+            noPriceE6: noPriceE6,
+            validUntil: validUntil,
+            nonce: ++ccipNonce
+        });
+        bytes memory encodedPayload = abi.encode(payload);
+
+        uint256 length = s_spokeSelectors.length;
+        for (uint256 i = 0; i < length; i++) {
+            bytes32 messageId = _sendCcipMessage(s_spokeSelectors[i], uint8(SyncMessageType.Price), encodedPayload);
+            emit CcipMessageSent(messageId, s_spokeSelectors[i], uint8(SyncMessageType.Price));
+        }
+    }
+
+    /// @notice Syncs final hub resolution to all spokes via CCIP
+    function broadcastResolution(uint256 marketId, Resolution outcome, string calldata proofUrl) external onlyOwner {
+        if (!isHubFactory) revert MarketFactory__NotHubFactory();
+        if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
+        if (ccipRouter == address(0)) revert MarketFactory__CcipRouterNotSet();
+        if (ccipFeeToken == address(0)) revert MarketFactory__CcipFeeTokenNotSet();
+        if (outcome == Resolution.Unset || outcome == Resolution.Inconclusive) {
+            revert MarketFactory__InvalidResolutionOutcome();
+        }
+
+        ResolutionSync memory payload =
+            ResolutionSync({marketId: marketId, outcome: uint8(outcome), proofUrl: proofUrl, nonce: ++ccipNonce});
+        bytes memory encodedPayload = abi.encode(payload);
+
+        uint256 length = s_spokeSelectors.length;
+        for (uint256 i = 0; i < length; i++) {
+            bytes32 messageId = _sendCcipMessage(s_spokeSelectors[i], uint8(SyncMessageType.Resolution), encodedPayload);
+            emit CcipMessageSent(messageId, s_spokeSelectors[i], uint8(SyncMessageType.Resolution));
+        }
+    }
+
+    /// @notice Allows owner to map mirrored market IDs on spoke deployments
+    function setMarketIdMapping(uint256 marketId, address market) external onlyOwner {
+        if (market == address(0)) revert MarketFactory__ZeroAddress();
+        marketById[marketId] = market;
+        marketIdByAddress[market] = marketId;
+    }
+
+    /// @notice Sets this factory as the cross-chain controller for a local market
+    function setMarketCrossChainController(uint256 marketId) external onlyOwner {
+        address market = marketById[marketId];
+        if (market == address(0)) revert MarketFactory__MarketNotFound();
+        PredictionMarket(market).setCrossChainController(address(this));
     }
 
     /// @notice Removes a resolved market from the activeMarkets array (swap-and-pop)
@@ -187,9 +368,70 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         delete marketToIndex[market];
     }
 
+    /// @inheritdoc IAny2EVMMessageReceiver
+    function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override {
+        if (ccipRouter == address(0) || msg.sender != ccipRouter) revert MarketFactory__InvalidRemoteSender();
+
+        bytes memory trustedSender = trustedRemoteBySelector[any2EvmMessage.sourceChainSelector];
+        if (trustedSender.length == 0) revert MarketFactory__SourceChainNotAllowed();
+        if (keccak256(trustedSender) != keccak256(any2EvmMessage.sender)) revert MarketFactory__InvalidRemoteSender();
+
+        if (processedCcipMessages[any2EvmMessage.messageId]) revert MarketFactory__MessageAlreadyProcessed();
+        processedCcipMessages[any2EvmMessage.messageId] = true;
+
+        (uint8 msgType, bytes memory payload) = abi.decode(any2EvmMessage.data, (uint8, bytes));
+
+        if (msgType == uint8(SyncMessageType.Price)) {
+            CanonicalPriceSync memory p = abi.decode(payload, (CanonicalPriceSync));
+            address market = marketById[p.marketId];
+            if (market == address(0)) revert MarketFactory__MarketNotFound();
+            PredictionMarket(market).syncCanonicalPriceFromHub(p.yesPriceE6, p.noPriceE6, p.validUntil, p.nonce);
+            emit CanonicalPriceMessageReceived(p.marketId, p.yesPriceE6, p.noPriceE6, p.nonce);
+            return;
+        }
+
+        if (msgType == uint8(SyncMessageType.Resolution)) {
+            ResolutionSync memory r = abi.decode(payload, (ResolutionSync));
+            address market = marketById[r.marketId];
+            if (market == address(0)) revert MarketFactory__MarketNotFound();
+            if (r.nonce <= resolutionNonceByMarketId[r.marketId]) revert MarketFactory__StaleResolutionNonce();
+            if (r.outcome == uint8(Resolution.Unset) || r.outcome == uint8(Resolution.Inconclusive)) {
+                revert MarketFactory__InvalidResolutionOutcome();
+            }
+
+            resolutionNonceByMarketId[r.marketId] = r.nonce;
+            PredictionMarket(market).resolveFromHub(Resolution(r.outcome), r.proofUrl);
+            emit ResolutionMessageReceived(r.marketId, Resolution(r.outcome), r.nonce);
+            return;
+        }
+
+        revert MarketFactory__UnknownSyncMessageType();
+    }
+
     /// @notice Chainlink CRE receiver hook — currently a no-op placeholder
     /// @dev Will contain factory-level settlement logic once Chainlink CRE integration is complete
     function _processReport(bytes calldata report) internal override {
         // Intentionally empty; satisfies the abstract ReceiverTemplateUpgradeable requirement
+    }
+
+    function _sendCcipMessage(uint64 destinationChainSelector, uint8 messageType, bytes memory payload)
+        internal
+        returns (bytes32 messageId)
+    {
+        bytes memory receiver = trustedRemoteBySelector[destinationChainSelector];
+        if (receiver.length == 0) revert MarketFactory__SourceChainNotAllowed();
+
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0);
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: receiver,
+            data: abi.encode(messageType, payload),
+            tokenAmounts: tokenAmounts,
+            feeToken: ccipFeeToken,
+            extraArgs: ""
+        });
+
+        uint256 fee = IRouterClient(ccipRouter).getFee(destinationChainSelector, message);
+        IERC20(ccipFeeToken).safeIncreaseAllowance(ccipRouter, fee);
+        messageId = IRouterClient(ccipRouter).ccipSend(destinationChainSelector, message);
     }
 }
