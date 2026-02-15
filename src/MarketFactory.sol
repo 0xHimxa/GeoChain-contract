@@ -8,7 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-
+import {MarketErrors} from "./libraries/MarketTypes.sol";
 /**
  * @title MarketFactory
  * @author 0xHimxa
@@ -28,8 +28,6 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Total number of markets created by this factory
     uint256 public marketCount;
 
-    /// @notice Mapping from market ID to market contract address
-    mapping(uint256 => address) public markets;
 
     // Storage for verified status
     mapping(address => bool) public isVerified;
@@ -47,11 +45,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     event MarketCreated(
         uint256 indexed marketId,
-        address market,
-        string question,
-        uint256 closeTime,
-        uint256 resolutionTime,
-        uint256 initialLiquidity
+        address indexed market,
+        uint256 indexed initialLiquidity
     );
 
     // ========================================
@@ -97,6 +92,15 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         onlyOwner
         returns (address market)
     {
+  if ( closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0) {
+            revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
+        }
+
+        // Ensure closeTime comes before resolutionTime
+        if (closeTime > resolutionTime) {
+            revert MarketErrors.PredictionMarket__CloseTimeGreaterThanResolutionTime();
+        }
+
         if (initialLiquidity == 0) revert MarketFactory__ZeroLiquidity();
 
         PredictionMarket m =
@@ -108,14 +112,14 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
         m.seedLiquidity(initialLiquidity);
         m.transferShares(msg.sender, initialLiquidity);
-        m.transferOwnership(msg.sender);
+      m.transferOwnership(msg.sender);
 
         marketCount++;
-        markets[marketCount] = address(m);
+      
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
 
-        emit MarketCreated(marketCount, address(m), question, closeTime, resolutionTime, initialLiquidity);
+        emit MarketCreated(marketCount, address(m) , initialLiquidity);
 
         return address(m);
     }
@@ -130,9 +134,6 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         marketToIndex[lastMarket] = index;
         activeMarkets.pop();
 
-        if (marketCount > 0) {
-            marketCount = marketCount - 1;
-        }
 
         delete marketToIndex[market];
     }
@@ -142,4 +143,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     function _processReport(bytes calldata report) internal override {
         report;
     }
+
+
+
 }
