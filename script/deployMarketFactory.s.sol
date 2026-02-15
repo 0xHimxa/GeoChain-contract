@@ -22,7 +22,7 @@ contract DeployMarketFactory is Script {
 
         vm.startBroadcast(initialOwner);
        collateral = new OutcomeToken("USDC", "USDC", initialOwner);
-        MarketDeployer marketDeployer = new MarketDeployer();
+        MarketDeployer marketDeployer = new MarketDeployer(initialOwner);
 
         MarketFactory implementation = new MarketFactory();
         implementationAddress = address(implementation);
@@ -31,6 +31,7 @@ contract DeployMarketFactory is Script {
 
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
+        marketDeployer.setFactory(proxyAddress);
 
  collateral.transferOwnership(proxyAddress);
 
