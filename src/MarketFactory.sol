@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PredictionMarket} from "./PredictionMarket.sol";
+import {MarketDeployer} from "./MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
 import {MarketErrors} from "./libraries/MarketTypes.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
@@ -43,6 +44,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     // Active market tracking
     address[] public activeMarkets;
     mapping(address => uint256) public marketToIndex;
+    MarketDeployer private marketDeployer;
 
     // ========================================
     // EVENTS
@@ -74,16 +76,25 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
      * @notice Initializes the factory for proxy usage.
      * @param _collateral Address of collateral token
      * @param _forwarder Address passed to each newly created market
+     * @param _marketDeployer Address of deployer helper contract
      * @param _initialOwner Owner of the proxy
      */
-    function initialize(address _collateral, address _forwarder, address _initialOwner) external initializer {
-        if (_collateral == address(0) || _forwarder == address(0) || _initialOwner == address(0)) {
+    function initialize(address _collateral, address _forwarder, address _marketDeployer, address _initialOwner)
+        external
+        initializer
+    {
+        if (_collateral == address(0) || _forwarder == address(0) || _marketDeployer == address(0) || _initialOwner == address(0)) {
             revert MarketFactory__ZeroAddress();
         }
 
         __ReceiverTemplateUpgradeable_init(_forwarder, _initialOwner);
         collateral = IERC20(_collateral);
-        
+        marketDeployer = MarketDeployer(_marketDeployer);
+    }
+
+    function setMarketDeployer(address _marketDeployer) external onlyOwner {
+        if (_marketDeployer == address(0)) revert MarketFactory__ZeroAddress();
+        marketDeployer = MarketDeployer(_marketDeployer);
     }
 
 
@@ -122,11 +133,13 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         }
 
         if (initialLiquidity == 0) revert MarketFactory__ZeroLiquidity();
+        if (address(marketDeployer) == address(0)) revert MarketFactory__ZeroAddress();
 
-        PredictionMarket m =
-            new PredictionMarket(
+        PredictionMarket m = PredictionMarket(
+            marketDeployer.deployPredictionMarket(
                 question, address(collateral), closeTime, resolutionTime, address(this), _getForwarderAddress()
-            );
+            )
+        );
 
         collateral.safeTransfer(address(m), initialLiquidity);
 

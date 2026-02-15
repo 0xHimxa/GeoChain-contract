@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
+import {MarketDeployer} from "src/MarketDeployer.sol";
 
 
 
@@ -21,10 +22,12 @@ contract DeployMarketFactory is Script {
 
         vm.startBroadcast(initialOwner);
        collateral = new OutcomeToken("USDC", "USDC", initialOwner);
+        MarketDeployer marketDeployer = new MarketDeployer();
 
         MarketFactory implementation = new MarketFactory();
         implementationAddress = address(implementation);
-        bytes memory initData = abi.encodeCall(MarketFactory.initialize, (address(collateral), forwarder, initialOwner));
+        bytes memory initData =
+            abi.encodeCall(MarketFactory.initialize, (address(collateral), forwarder, address(marketDeployer), initialOwner));
 
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
