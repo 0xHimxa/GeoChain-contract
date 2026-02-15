@@ -9,6 +9,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
 import {MarketErrors} from "./libraries/MarketTypes.sol";
+import {OutcomeToken} from "./OutcomeToken.sol";
+
 /**
  * @title MarketFactory
  * @author 0xHimxa
@@ -27,6 +29,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     /// @notice Total number of markets created by this factory
     uint256 public marketCount;
+
+// amount to  fund the factory with 100,000 USDC
+    uint256 private Amount_Funding_Factory = 100000e6;
 
 
     // Storage for verified status
@@ -48,6 +53,10 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         address indexed market,
         uint256 indexed initialLiquidity
     );
+
+
+    event MarketFactory__LiquidityAdded(uint256 indexed amount);
+
 
     // ========================================
     // ERRORS
@@ -74,12 +83,23 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
         __ReceiverTemplateUpgradeable_init(_forwarder, _initialOwner);
         collateral = IERC20(_collateral);
+        
     }
 
 
 
      function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         if (newImplementation == address(0)) revert MarketFactory__ZeroAddress();
+    }
+
+
+//in testnet the funding logic need to be change instead of minting to funding it with USDC on mainnet
+ // for know i will just be minting my own USDC
+    function addLiquidityToFactory() external onlyOwner{
+        OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
+        emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
+
+        
     }
 
     
@@ -108,10 +128,10 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
                 question, address(collateral), closeTime, resolutionTime, address(this), _getForwarderAddress()
             );
 
-        collateral.safeTransferFrom(msg.sender, address(m), initialLiquidity);
+        collateral.safeTransfer(address(m), initialLiquidity);
 
         m.seedLiquidity(initialLiquidity);
-        m.transferShares(msg.sender, initialLiquidity);
+    
       m.transferOwnership(msg.sender);
 
         marketCount++;
@@ -120,6 +140,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         marketToIndex[address(m)] = activeMarkets.length - 1;
 
         emit MarketCreated(marketCount, address(m) , initialLiquidity);
+
 
         return address(m);
     }
