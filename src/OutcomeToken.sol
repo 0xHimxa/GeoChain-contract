@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
 /**
  * @title OutcomeToken
  * @author 0xHimxa
@@ -15,12 +16,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * - Tokens are burned when users redeem complete sets or after market resolution
  * - Only the market contract has mint/burn privileges for security
  */
-contract OutcomeToken is ERC20,Ownable {
+contract OutcomeToken is ERC20, Ownable {
     // ========================================
     // STATE VARIABLES
     // ========================================
-
- 
 
     // ========================================
     // ERRORS
@@ -31,8 +30,6 @@ contract OutcomeToken is ERC20,Ownable {
 
     /// @notice Thrown when market address is zero in constructor
     error OutcomeToken__InvalidMarketAddress();
-
- 
 
     // ========================================
     // CONSTRUCTOR
@@ -45,9 +42,8 @@ contract OutcomeToken is ERC20,Ownable {
      * @param market_ Address of the prediction market contract
      * @dev The market address is immutable and cannot be changed after deployment
      */
-    constructor(string memory name_, string memory symbol_, address market_) ERC20(name_, symbol_)  Ownable(market_){
+    constructor(string memory name_, string memory symbol_, address market_) ERC20(name_, symbol_) Ownable(market_) {
         if (market_ == address(0)) revert OutcomeToken__InvalidMarketAddress();
-        
     }
 
     // ========================================
@@ -70,7 +66,7 @@ contract OutcomeToken is ERC20,Ownable {
      * @dev Can only be called by the market contract
      *      Used when users mint complete sets or via AMM operations
      */
-    function mint(address to, uint256 amount) external onlyOwner() {
+    function mint(address to, uint256 amount) external onlyOwner {
         _mint(to, amount);
     }
 

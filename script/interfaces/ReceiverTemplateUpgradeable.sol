@@ -36,7 +36,10 @@ abstract contract ReceiverTemplateUpgradeable is Initializable, IReceiver, Ownab
     event ExpectedWorkflowIdUpdated(bytes32 indexed previousId, bytes32 indexed newId);
     event SecurityWarning(string message);
 
-    function __ReceiverTemplateUpgradeable_init(address _forwarderAddress, address _initialOwner) internal onlyInitializing {
+    function __ReceiverTemplateUpgradeable_init(address _forwarderAddress, address _initialOwner)
+        internal
+        onlyInitializing
+    {
         __Ownable_init(_initialOwner);
         if (_forwarderAddress == address(0)) revert InvalidForwarderAddress();
         s_forwarderAddress = _forwarderAddress;
@@ -68,7 +71,9 @@ abstract contract ReceiverTemplateUpgradeable is Initializable, IReceiver, Ownab
             revert InvalidSender(msg.sender, s_forwarderAddress);
         }
 
-        if (s_expectedWorkflowId != bytes32(0) || s_expectedAuthor != address(0) || s_expectedWorkflowName != bytes10(0)) {
+        if (
+            s_expectedWorkflowId != bytes32(0) || s_expectedAuthor != address(0) || s_expectedWorkflowName != bytes10(0)
+        ) {
             (bytes32 workflowId, bytes10 workflowName, address workflowOwner) = _decodeMetadata(metadata);
 
             if (s_expectedWorkflowId != bytes32(0) && workflowId != s_expectedWorkflowId) {

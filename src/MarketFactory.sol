@@ -31,34 +31,35 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Total number of markets created by this factory
     uint256 public marketCount;
 
-// amount to  fund the factory with 100,000 USDC
+    /// @notice Fixed amount of testnet USDC to mint into the factory (100,000 USDC with 6 decimals)
+    /// @dev On mainnet this will be replaced with a real USDC funding flow instead of minting
     uint256 private Amount_Funding_Factory;
 
-
-    // Storage for verified status
+    /// @notice Tracks whether an address has been verified via World ID (Sybil-resistance)
     mapping(address => bool) public isVerified;
 
-    // Prevent the same "Human" from verifying multiple wallets
+    /// @notice Records used World ID nullifier hashes to prevent the same human from verifying multiple wallets
     mapping(uint256 => bool) internal nullifierHashes;
 
-    // Active market tracking
+    /// @notice Ordered list of all currently active (unresolved) market addresses
+    /// @dev Markets are appended on creation and removed via swap-and-pop when resolved
     address[] public activeMarkets;
+
+    /// @notice Maps a market address to its index in the activeMarkets array for O(1) removal
     mapping(address => uint256) public marketToIndex;
+
+    /// @notice External deployer contract that holds the PredictionMarket creation bytecode
+    /// @dev Separating deployment bytecode keeps MarketFactory under the 24 KB contract size limit
     MarketDeployer private marketDeployer;
 
     // ========================================
     // EVENTS
     // ========================================
 
-    event MarketCreated(
-        uint256 indexed marketId,
-        address indexed market,
-        uint256 indexed initialLiquidity
-    );
+    event MarketCreated(uint256 indexed marketId, address indexed market, uint256 indexed initialLiquidity);
 
-
+    /// @notice Emitted when testnet USDC is minted into the factory via addLiquidityToFactory()
     event MarketFactory__LiquidityAdded(uint256 indexed amount);
-
 
     // ========================================
     // ERRORS
@@ -83,40 +84,43 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         external
         initializer
     {
-        if (_collateral == address(0) || _forwarder == address(0) || _marketDeployer == address(0) || _initialOwner == address(0)) {
+        if (
+            _collateral == address(0) || _forwarder == address(0) || _marketDeployer == address(0)
+                || _initialOwner == address(0)
+        ) {
             revert MarketFactory__ZeroAddress();
         }
 
         __ReceiverTemplateUpgradeable_init(_forwarder, _initialOwner);
         collateral = IERC20(_collateral);
         marketDeployer = MarketDeployer(_marketDeployer);
-      Amount_Funding_Factory = 100000e6;
+        Amount_Funding_Factory = 100000e6;
     }
- 
+
+    /// @notice Updates the MarketDeployer helper contract address (owner only)
+    /// @param _marketDeployer New deployer address; reverts on zero address
+    /// @dev Use this if the deployer needs to be redeployed without redeploying the factory proxy
     function setMarketDeployer(address _marketDeployer) external onlyOwner {
         if (_marketDeployer == address(0)) revert MarketFactory__ZeroAddress();
         marketDeployer = MarketDeployer(_marketDeployer);
     }
 
-
-
-     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
-        if (newImplementation == address(0)) revert MarketFactory__ZeroAddress();
+    /// @notice UUPS upgrade authorization hook — only the owner can upgrade the implementation
+    /// @param newImplementation Address of the new implementation contract; must not be zero
+    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+        if (newImplementation == address(0)) {
+            revert MarketFactory__ZeroAddress();
+        }
     }
 
-
-//in testnet the funding logic need to be change instead of minting to funding it with USDC on mainnet
- // for know i will just be minting my own USDC
-    function addLiquidityToFactory() external onlyOwner{
-        console.log(OutcomeToken(address(collateral)).owner(),"Owner");
+    /// @notice Mints testnet USDC into the factory so it has collateral to seed new markets
+    /// @dev TESTNET ONLY — on mainnet, real USDC will be transferred in instead of minted.
+    ///      The factory must be the owner of the collateral token for mint() to succeed.
+    function addLiquidityToFactory() external onlyOwner {
+        console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
-        
         emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
-
-        
     }
-
-    
 
     /**
      * @notice Creates a new prediction market with initial liquidity
@@ -126,7 +130,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         onlyOwner
         returns (address market)
     {
-  if ( closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0) {
+        if (closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
         }
 
@@ -136,7 +140,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         }
 
         if (initialLiquidity == 0) revert MarketFactory__ZeroLiquidity();
-        if (address(marketDeployer) == address(0)) revert MarketFactory__ZeroAddress();
+        if (address(marketDeployer) == address(0)) {
+            revert MarketFactory__ZeroAddress();
+        }
 
         PredictionMarket m = PredictionMarket(
             marketDeployer.deployPredictionMarket(
@@ -144,43 +150,46 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
             )
         );
 
+        // Fund the new market with collateral from the factory's balance
         collateral.safeTransfer(address(m), initialLiquidity);
 
+        // Seed the AMM pool with equal YES/NO reserves backed by the transferred collateral
         m.seedLiquidity(initialLiquidity);
-    
-      m.transferOwnership(msg.sender);
+
+        // Transfer market ownership from the factory to the caller (deployer/admin)
+        m.transferOwnership(msg.sender);
 
         marketCount++;
-      
+
+        // Register the market in the active list for Chainlink CRE to iterate over
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
 
-        emit MarketCreated(marketCount, address(m) , initialLiquidity);
-
+        emit MarketCreated(marketCount, address(m), initialLiquidity);
 
         return address(m);
     }
 
-    // Called when a prediction market resolves to remove it from active list
-    //onlyforward should be able to call this
+    /// @notice Removes a resolved market from the activeMarkets array (swap-and-pop)
+    /// @param market Address of the market that just resolved
+    /// @dev Called by a PredictionMarket contract during its resolve() flow.
+    ///      Uses swap-and-pop for O(1) removal: moves the last element into the removed slot.
+    ///      TODO: restrict caller to only registered market contracts or the forwarder
     function removeResolvedMarket(address market) external {
         uint256 index = marketToIndex[market];
         address lastMarket = activeMarkets[activeMarkets.length - 1];
 
+        // Overwrite the removed market with the last element, then pop
         activeMarkets[index] = lastMarket;
         marketToIndex[lastMarket] = index;
         activeMarkets.pop();
 
-
         delete marketToIndex[market];
     }
 
-   
-
+    /// @notice Chainlink CRE receiver hook — currently a no-op placeholder
+    /// @dev Will contain factory-level settlement logic once Chainlink CRE integration is complete
     function _processReport(bytes calldata report) internal override {
-        report;
+        // Intentionally empty; satisfies the abstract ReceiverTemplateUpgradeable requirement
     }
-
-
-
 }

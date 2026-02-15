@@ -57,7 +57,9 @@ library MarketConstants {
 
     /// @notice Fee precision for price calculations (1e6 = 100%)
     uint256 internal constant PRICE_PRECISION = 1e6;
-    uint256 internal constant  MAX_RISK_EXPOSURE = 10000e6;
+    /// @notice Maximum collateral a single user can commit per market (10,000 USDC with 6 decimals)
+    /// @dev Enforced in mintCompleteSets() to prevent any one user from over-concentrating risk
+    uint256 internal constant MAX_RISK_EXPOSURE = 10000e6;
 }
 
 // ========================================
@@ -150,6 +152,7 @@ library MarketErrors {
     error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
     error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
     error PredictionMarket__AmountLessThanMinAllwed();
+    /// @notice Thrown when a user's cumulative collateral exposure exceeds MAX_RISK_EXPOSURE in a single market
     error PredictionMarket__RiskExposureExceeded();
 
     /* ─────────── Resolution Errors ─────────── */

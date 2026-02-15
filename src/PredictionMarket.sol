@@ -23,6 +23,7 @@ import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
 import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
+
 /**
  * @title PredictionMarket
  * @author 0xHimxa
@@ -38,7 +39,7 @@ import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
  * - Owner-controlled resolution with binary outcome
  * - Fee collection on swaps and complete set operations
  */
-contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
+contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     using SafeERC20 for IERC20;
 
     // ========================================
@@ -89,7 +90,10 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
 
     /// @notice Mapping of LP addresses to their share balances
     mapping(address => uint256) public lpShares;
-  mapping(address => uint256) public userRiskExposure;
+    /// @notice Tracks cumulative collateral exposure per user to enforce MAX_RISK_EXPOSURE cap
+    /// @dev Incremented when a user mints complete sets; prevents any single user from over-concentrating risk
+    mapping(address => uint256) public userRiskExposure;
+
     /* ─────────── Market State ─────────── */
 
     /// @notice Current market state (Open/Closed/Review/Resolved)
@@ -101,9 +105,9 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
     /// @notice Flag indicating if market requires manual resolution review
     bool private manualReviewNeeded;
 
+    /// @notice Reference to the parent MarketFactory that deployed this market
+    /// @dev Used to notify the factory when this market resolves (removes itself from activeMarkets list)
     MarketFactory private marketFactory;
-
-
 
     // ========================================
     // CONSTRUCTOR
@@ -125,7 +129,7 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
         uint256 _resolutionTime,
         address _marketfactory,
         address _forwarderAddress
-    ) ReceiverTemplate(_forwarderAddress){
+    ) ReceiverTemplate(_forwarderAddress) {
         // Validate constructor arguments
         if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
@@ -149,12 +153,8 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
         // Initialize market as Open
         state = State.Open;
 
+        // Store reference to the deploying factory so we can notify it on resolution
         marketFactory = MarketFactory(_marketfactory);
-// come back here later
-
-
-        // Transfer ownership to designated owner
-        //_transferOwnership(owner_);
     }
 
     // ========================================
@@ -543,13 +543,12 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
             revert MarketErrors.PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
         }
 
-        //check user exposure
+        // Enforce per-user risk cap: each user can only commit up to MAX_RISK_EXPOSURE (10,000 USDC)
+        // across all their mintCompleteSets calls in this market, preventing excessive concentration
         uint256 exposure = userRiskExposure[msg.sender];
-        
-        if(exposure + amount > MarketConstants.MAX_RISK_EXPOSURE){
+        if (exposure + amount > MarketConstants.MAX_RISK_EXPOSURE) {
             revert MarketErrors.PredictionMarket__RiskExposureExceeded();
         }
-
 
         // Calculate fee and net amount using FeeLib
         (uint256 netAmount, uint256 fee) =
@@ -558,7 +557,6 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
         // Add fee to protocol reserves
         protocolCollateralFees += fee;
         userRiskExposure[msg.sender] += amount;
-
 
         // Transfer collateral from user
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);
@@ -723,7 +721,7 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
             manualReviewNeeded = true;
             state = State.Review;
             resolution = Resolution.Inconclusive;
-        marketFactory.removeResolvedMarket(address(this));
+            marketFactory.removeResolvedMarket(address(this));
 
             emit MarketEvents.IsUnderManualReview(_outcome);
             return;
@@ -803,55 +801,33 @@ contract PredictionMarket is  ReentrancyGuard, Pausable,ReceiverTemplate {
 
         manualReviewNeeded = false;
         state = State.Resolved;
-       
 
         emit MarketEvents.Resolved(resolution);
     }
 
-
-
-    /// @notice Internal hook to process settlement reports from the receiver template.
-    /// @dev Decodes ABI-encoded data and calls reslove().
-    /// @param report ABI-encoded (marketId, outcome(uint8), confidenceBps, responseId).
+    /// @notice Internal hook invoked by Chainlink CRE forwarder when a settlement report arrives
+    /// @dev Currently a no-op placeholder. When Chainlink CRE integration is fully wired,
+    ///      this will decode the report and call resolve() automatically.
+    /// @param report ABI-encoded settlement data (currently unused)
     function _processReport(bytes calldata report) internal override {
-      //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
-           // abi.decode(report, (uint256, uint8, uint16, string));
-        //settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
+        // TODO: Decode report and auto-resolve when Chainlink CRE is fully integrated
+        //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
+        //      abi.decode(report, (uint256, uint8, uint16, string));
+        //  settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
     }
 
-
-
-
-
-
-
-// chainlink cre  will be using the return value to check if it time to reslove the market
-
-function checkResultionTime() external returns (bool resolveReady) {
-      _updateState();    
-       resolveReady = block.timestamp >  closeTime && block.timestamp >= resolutionTime;
-      }
-
-
-
-
-
-
-
+    /// @notice Checks whether the market has reached its resolution time
+    /// @dev Called off-chain by Chainlink CRE to determine if the market is ready to be resolved.
+    ///      Returns true only when the current timestamp has passed both closeTime and resolutionTime.
+    /// @return resolveReady True if the market is eligible for resolution
+    function checkResultionTime() external returns (bool resolveReady) {
+        _updateState();
+        resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
+    }
 
     // ========================================
     // QUOTE/PREVIEW FUNCTIONS (READ-ONLY)
     // ========================================
-
-
-
-
-
-
-
-
-
-
 
     /**
      * @notice Previews the output of swapping YES for NO without executing
