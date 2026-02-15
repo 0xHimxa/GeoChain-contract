@@ -43,8 +43,9 @@ DeployMarketFactory deployer = new DeployMarketFactory();
   collateral = OutcomeToken(collateralAddress);
   market = MarketFactory(proxyAddress);
 
-vm.prank(proxyAddress);
-collateral.mint(marketOwner, initialFunding);
+
+
+
 
 
     }
@@ -96,14 +97,14 @@ function testCreateMarketPass()external{
 uint256 closeTime = block.timestamp + 1000;
 uint256 resolutionTime = block.timestamp + 20000;
 
+
 vm.startPrank(marketOwner);
-collateral.approve(address(market), initialLiquidity);
 // come back here later
 //vm.expectEmit();
 
-market.createMarket(question, closeTime, resolutionTime, initialLiquidity);
+ market.createMarket(question, closeTime, resolutionTime, initialLiquidity);
 
-vm.stopPrank();
+ vm.stopPrank();
 
 
 

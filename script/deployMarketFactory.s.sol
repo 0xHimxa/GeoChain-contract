@@ -20,6 +20,7 @@ contract DeployMarketFactory is Script {
         address initialOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
 
+
         vm.startBroadcast(initialOwner);
        collateral = new OutcomeToken("USDC", "USDC", initialOwner);
         MarketDeployer marketDeployer = new MarketDeployer(initialOwner);
@@ -35,10 +36,14 @@ contract DeployMarketFactory is Script {
 
  collateral.transferOwnership(proxyAddress);
 
+   MarketFactory(proxyAddress).addLiquidityToFactory();
+
         vm.stopBroadcast();
+
 collateralAddress = address(collateral);
         console2.log("MarketFactory implementation:", implementationAddress);
         console2.log("MarketFactory proxy:", proxyAddress);
         console2.log("MarketFactory owner:", initialOwner);
+        console2.log("MarketFactory collateral Balance:",collateral.balanceOf(proxyAddress) );
     }
 }

@@ -41,6 +41,7 @@ contract MarketDeployer is Ownable {
     ) external onlyFactory returns (address market) {
         PredictionMarket m =
             new PredictionMarket(question, collateral, closeTime, resolutionTime, marketFactory, forwarder);
+        m.transferOwnership(factory);
         return address(m);
     }
 }

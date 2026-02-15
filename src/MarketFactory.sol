@@ -5,7 +5,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
+import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {MarketDeployer} from "./MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
@@ -32,7 +32,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     uint256 public marketCount;
 
 // amount to  fund the factory with 100,000 USDC
-    uint256 private Amount_Funding_Factory = 100000e6;
+    uint256 private Amount_Funding_Factory;
 
 
     // Storage for verified status
@@ -90,8 +90,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         __ReceiverTemplateUpgradeable_init(_forwarder, _initialOwner);
         collateral = IERC20(_collateral);
         marketDeployer = MarketDeployer(_marketDeployer);
+      Amount_Funding_Factory = 100000e6;
     }
-
+ 
     function setMarketDeployer(address _marketDeployer) external onlyOwner {
         if (_marketDeployer == address(0)) revert MarketFactory__ZeroAddress();
         marketDeployer = MarketDeployer(_marketDeployer);
@@ -107,7 +108,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 //in testnet the funding logic need to be change instead of minting to funding it with USDC on mainnet
  // for know i will just be minting my own USDC
     function addLiquidityToFactory() external onlyOwner{
+        console.log(OutcomeToken(address(collateral)).owner(),"Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
+        
         emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
 
         
