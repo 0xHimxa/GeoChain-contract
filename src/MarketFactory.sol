@@ -121,6 +121,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     }
 
     // Called when a prediction market resolves to remove it from active list
+    //onlyforward should be able to call this
     function removeResolvedMarket(address market) external {
         uint256 index = marketToIndex[market];
         address lastMarket = activeMarkets[activeMarkets.length - 1];
