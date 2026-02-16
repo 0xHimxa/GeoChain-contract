@@ -113,15 +113,19 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     address public crossChainController;
 
     /// @notice Last hub-synced canonical YES price in 1e6 precision
+    /// @dev Updated via syncCanonicalPriceFromHub() when in cross-chain mode
     uint256 public canonicalYesPriceE6;
 
     /// @notice Last hub-synced canonical NO price in 1e6 precision
+    /// @dev Updated via syncCanonicalPriceFromHub() when in cross-chain mode
     uint256 public canonicalNoPriceE6;
 
     /// @notice Timestamp until canonical prices should be treated as fresh
+    /// @dev If block.timestamp > canonicalPriceValidUntil, prices are considered stale
     uint256 public canonicalPriceValidUntil;
 
     /// @notice Monotonic nonce used to guard against stale/replayed price updates
+    /// @dev Incremented each time syncCanonicalPriceFromHub() is called
     uint64 public canonicalPriceNonce;
 
     // ========================================
@@ -241,16 +245,32 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
+    /**
+     * @notice Checks if market is operating in cross-chain canonical pricing mode
+     * @return true if crossChainController is set, false otherwise
+     * @dev When enabled, swaps use hub-provided prices instead of AMM reserves
+     */
     function _isCanonicalPricingMode() internal view returns (bool) {
         return crossChainController != address(0);
     }
 
+    /**
+     * @notice Reverts if canonical prices are stale or not set
+     * @dev Checks both nonce (must be > 0) and timestamp validity
+     */
     function _ensureCanonicalPriceFresh() internal view {
         if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
             revert PredictionMarket__CanonicalPriceStale();
         }
     }
 
+    /**
+     * @notice Calculates NO output for YES input using canonical hub prices
+     * @param yesIn Amount of YES tokens to swap
+     * @return netOut Amount of NO tokens received (after swap fee)
+     * @return fee Swap fee amount deducted
+     * @dev Uses hub-provided price ratio: noOut = yesIn * yesPrice / noPrice
+     */
     function _quoteCanonicalYesForNo(uint256 yesIn) internal view returns (uint256 netOut, uint256 fee) {
         if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
             revert PredictionMarket__InvalidCanonicalPrice();
@@ -261,6 +281,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         netOut = grossOut - fee;
     }
 
+    /**
+     * @notice Calculates YES output for NO input using canonical hub prices
+     * @param noIn Amount of NO tokens to swap
+     * @return netOut Amount of YES tokens received (after swap fee)
+     * @return fee Swap fee amount deducted
+     * @dev Uses hub-provided price ratio: yesOut = noIn * noPrice / yesPrice
+     */
     function _quoteCanonicalNoForYes(uint256 noIn) internal view returns (uint256 netOut, uint256 fee) {
         if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
             revert PredictionMarket__InvalidCanonicalPrice();
@@ -894,11 +921,16 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     }
 
     /// @notice Sets the trusted contract that may push hub updates into this market
+    /// @param controller Address of the cross-chain controller (typically the MarketFactory)
+    /// @dev Automatically called by MarketFactory.createMarket() during deployment
     function setCrossChainController(address controller) external onlyOwner {
         crossChainController = controller;
     }
 
     /// @notice Applies hub resolution on spoke markets (CCIP path)
+    /// @param _outcome The final resolution outcome (Yes or No, not Inconclusive)
+    /// @param proofUrl URL to proof/evidence for the resolution
+    /// @dev Only callable by crossChainController. Also calls marketFactory.removeResolvedMarket()
     function resolveFromHub(Resolution _outcome, string calldata proofUrl) external onlyCrossChainController {
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();

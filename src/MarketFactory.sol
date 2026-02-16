@@ -200,8 +200,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Mints testnet USDC into the factory so it has collateral to seed new markets
     /// @dev TESTNET ONLY — on mainnet, real USDC will be transferred in instead of minted.
     ///      The factory must be the owner of the collateral token for mint() to succeed.
-    /// @notice Sets this factory as the cross-chain controller for a local market
-    
+    ///      This provides initial liquidity for newly created markets.
     function addLiquidityToFactory() external onlyOwner {
         console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
@@ -271,6 +270,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     }
 
     /// @notice Adds or updates a trusted remote factory for a given chain selector
+    /// @param chainSelector The CCIP chain selector (supported: 11155111 Sepolia, 80002 Amoy, 84532 Base Sepolia)
+    /// @param remoteFactory Address of the trusted factory on the remote chain
+    /// @dev Reverts if chain selector is not in the supported list
     function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
         if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
@@ -290,6 +292,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     }
 
     /// @notice Removes a trusted remote configuration for a selector
+    /// @param chainSelector The CCIP chain selector to remove (supported: 11155111 Sepolia, 80002 Amoy, 84532 Base Sepolia)
+    /// @dev Reverts if chain selector is not in the supported list
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
         delete trustedRemoteBySelector[chainSelector];
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
@@ -437,6 +441,12 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         // Intentionally empty; satisfies the abstract ReceiverTemplateUpgradeable requirement
     }
 
+    /// @notice Sends a CCIP message to a destination chain
+    /// @param destinationChainSelector The CCIP chain selector of the destination chain
+    /// @param messageType The type of message (Price or Resolution)
+    /// @param payload The encoded message payload
+    /// @return messageId The CCIP message ID
+    /// @dev Uses ccipFeeToken (LINK) to pay for fees, requires approval
     function _sendCcipMessage(uint64 destinationChainSelector, uint8 messageType, bytes memory payload)
         internal
         returns (bytes32 messageId)
