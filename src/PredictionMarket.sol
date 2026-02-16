@@ -984,7 +984,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Called off-chain by Chainlink CRE to determine if the market is ready to be resolved.
     ///      Returns true only when the current timestamp has passed both closeTime and resolutionTime.
     /// @return resolveReady True if the market is eligible for resolution
-    function checkResultionTime() external returns (bool resolveReady) {
+    function checkResolutionTime() external returns (bool resolveReady) {
         _updateState();
         resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
     }

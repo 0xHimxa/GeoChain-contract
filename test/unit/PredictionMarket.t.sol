@@ -808,11 +808,11 @@ contract PredictionMarketTest is Test {
     }
 
     function testCheckResolutionTime() external {
-        bool readyBefore = market.checkResultionTime();
+        bool readyBefore = market.checkResolutionTime();
         assertEq(readyBefore, false);
 
         vm.warp(market.resolutionTime() + 1);
-        bool readyAfter = market.checkResultionTime();
+        bool readyAfter = market.checkResolutionTime();
         assertEq(readyAfter, true);
         assertEq(uint256(market.state()), uint256(State.Closed));
     }
