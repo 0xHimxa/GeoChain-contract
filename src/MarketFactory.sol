@@ -88,6 +88,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Highest applied hub resolution nonce per market
     mapping(uint256 => uint64) public resolutionNonceByMarketId;
 
+
     enum SyncMessageType {
         Price,
         Resolution
@@ -139,6 +140,14 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     error MarketFactory__MarketNotFound();
     error MarketFactory__InvalidResolutionOutcome();
     error MarketFactory__StaleResolutionNonce();
+    error MarketFactory__ChainSelectorCantbezero();
+ error MarketFactory__ChainSelectornNotSupported();
+
+    // ========================================
+    // CONSTRUCTOR
+    // ========================================
+
+
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -167,6 +176,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         collateral = IERC20(_collateral);
         marketDeployer = MarketDeployer(_marketDeployer);
         Amount_Funding_Factory = 100000e6;
+        
+     
+
     }
 
     /// @notice Updates the MarketDeployer helper contract address (owner only)
@@ -188,6 +200,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Mints testnet USDC into the factory so it has collateral to seed new markets
     /// @dev TESTNET ONLY — on mainnet, real USDC will be transferred in instead of minted.
     ///      The factory must be the owner of the collateral token for mint() to succeed.
+    /// @notice Sets this factory as the cross-chain controller for a local market
+    
     function addLiquidityToFactory() external onlyOwner {
         console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
@@ -228,8 +242,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         // Seed the AMM pool with equal YES/NO reserves backed by the transferred collateral
         m.seedLiquidity(initialLiquidity);
 
-        // Transfer market ownership from the factory to the caller (deployer/admin)
-        m.transferOwnership(msg.sender);
+       
 
         marketCount++;
         marketById[marketCount] = address(m);
@@ -238,6 +251,10 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         // Register the market in the active list for Chainlink CRE to iterate over
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
+        m.setCrossChainController(address(this));
+
+ // Transfer market ownership from the factory to the caller (deployer/admin)
+        m.transferOwnership(msg.sender);
 
         emit MarketCreated(marketCount, address(m), initialLiquidity);
 
@@ -256,7 +273,13 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Adds or updates a trusted remote factory for a given chain selector
     function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
         if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
 
+        
+        if(chainSelector != 11155111 && chainSelector != 80002 && chainSelector != 84532){
+            revert MarketFactory__ChainSelectornNotSupported();
+        }
+       
         trustedRemoteBySelector[chainSelector] = abi.encode(remoteFactory);
         if (!s_spokeSelectorExists[chainSelector]) {
             s_spokeSelectorExists[chainSelector] = true;
@@ -269,6 +292,11 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Removes a trusted remote configuration for a selector
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
         delete trustedRemoteBySelector[chainSelector];
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
+ if(chainSelector != 11155111 && chainSelector != 80002 && chainSelector != 84532){
+            revert MarketFactory__ChainSelectornNotSupported();
+        }
+       
 
         if (s_spokeSelectorExists[chainSelector]) {
             s_spokeSelectorExists[chainSelector] = false;
@@ -344,12 +372,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         marketIdByAddress[market] = marketId;
     }
 
-    /// @notice Sets this factory as the cross-chain controller for a local market
-    function setMarketCrossChainController(uint256 marketId) external onlyOwner {
-        address market = marketById[marketId];
-        if (market == address(0)) revert MarketFactory__MarketNotFound();
-        PredictionMarket(market).setCrossChainController(address(this));
-    }
+
 
     /// @notice Removes a resolved market from the activeMarkets array (swap-and-pop)
     /// @param market Address of the market that just resolved

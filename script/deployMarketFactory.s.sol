@@ -16,11 +16,14 @@ import {MarketDeployer} from "src/MarketDeployer.sol";
  *      Uses Anvil's default accounts (index 0 = owner, index 1 = forwarder placeholder).
  */
 contract DeployMarketFactory is Script {
+       
+    
     function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
         OutcomeToken collateral;
 
         // Anvil default account #1 – used as the Chainlink CRE forwarder placeholder for local testing
         address forwarder = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+
         // Anvil default account #0 – acts as the initial owner of all deployed contracts
         address initialOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
