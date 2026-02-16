@@ -1,8 +1,5 @@
 send verified nullifie and adddress to contracts
 
-currently the marketfactory transfer Usdc collateral from the call,
-probally not a good idea.
-
 
 will  need to added access control to predictionMarket to only forwerder 
 

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
+import {MarketConstants} from "src/libraries/MarketTypes.sol";
 import {PredictionMarketHandler} from "test/statefullFuzz/PredictionMarketHandler.t.sol";
 
 contract MockMarketFactoryInvariant {
@@ -44,14 +45,15 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
 
         targetContract(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](7);
+        bytes4[] memory selectors = new bytes4[](8);
         selectors[0] = PredictionMarketHandler.mintCompleteSets.selector;
         selectors[1] = PredictionMarketHandler.redeemCompleteSets.selector;
         selectors[2] = PredictionMarketHandler.addLiquidity.selector;
         selectors[3] = PredictionMarketHandler.removeLiquidity.selector;
-        selectors[4] = PredictionMarketHandler.swapYesForNo.selector;
-        selectors[5] = PredictionMarketHandler.swapNoForYes.selector;
-        selectors[6] = PredictionMarketHandler.transferShares.selector;
+        selectors[4] = PredictionMarketHandler.removeLiquidityAndRedeemCollateral.selector;
+        selectors[5] = PredictionMarketHandler.swapYesForNo.selector;
+        selectors[6] = PredictionMarketHandler.swapNoForYes.selector;
+        selectors[7] = PredictionMarketHandler.transferShares.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
@@ -72,5 +74,25 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
 
     function invariant_seededRemainsTrue() external view {
         assertTrue(market.seeded());
+    }
+
+    function invariant_protocolFeesBackedByCollateral() external view {
+        assertLe(market.protocolCollateralFees(), collateral.balanceOf(address(market)));
+    }
+
+    function invariant_yesAndNoSuppliesStayEqualInOpenState() external view {
+        assertEq(market.yesToken().totalSupply(), market.noToken().totalSupply());
+    }
+
+    function invariant_poolReservesCannotExceedOutcomeSupply() external view {
+        assertLe(market.yesReserve(), market.yesToken().totalSupply());
+        assertLe(market.noReserve(), market.noToken().totalSupply());
+    }
+
+    function invariant_actorRiskExposureNeverExceedsCap() external view {
+        address[] memory actors = handler.getActors();
+        for (uint256 i = 0; i < actors.length; i++) {
+            assertLe(market.userRiskExposure(actors[i]), MarketConstants.MAX_RISK_EXPOSURE);
+        }
     }
 }

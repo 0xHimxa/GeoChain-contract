@@ -17,6 +17,7 @@ contract PredictionMarketHandler is Test {
         collateral = _collateral;
 
         actors.push(ownerActor);
+        actors.push(address(this));
         actors.push(makeAddr("alice"));
         actors.push(makeAddr("bob"));
         actors.push(makeAddr("charlie"));
@@ -97,6 +98,20 @@ contract PredictionMarketHandler is Test {
 
         vm.startPrank(actor);
         (bool ok,) = address(market).call(abi.encodeWithSelector(PredictionMarket.removeLiquidity.selector, shares, 0, 0));
+        ok;
+        vm.stopPrank();
+    }
+
+    function removeLiquidityAndRedeemCollateral(uint256 actorSeed, uint256 sharesRaw) external {
+        address actor = _actor(actorSeed);
+        uint256 sharesBal = market.lpShares(actor);
+        if (sharesBal == 0) return;
+
+        uint256 shares = bound(sharesRaw, 1, sharesBal);
+
+        vm.startPrank(actor);
+        (bool ok,) =
+            address(market).call(abi.encodeWithSelector(PredictionMarket.removeLiquidityAndRedeemCollateral.selector, shares, 0));
         ok;
         vm.stopPrank();
     }
