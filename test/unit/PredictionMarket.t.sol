@@ -30,7 +30,7 @@ contract MarketFactoryTest is Test {
 
     uint64 sepoChainSelector = 11155111;
     uint64 polyChainSelector = 80002;
-    uint64 baseChainSelector = 84532;
+    uint6 baseChainSelector = 84532;
 
 
 
