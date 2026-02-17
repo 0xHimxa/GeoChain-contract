@@ -542,4 +542,16 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
     }
 
 
+
+function withdrawCollateralFromEvents(uint256 share, uint256 _marketId) external onlyOwner{
+
+address marketAddress = marketById[_marketId];
+ if(marketAddress == address(0)) revert MarketFactory__MarketNotFound();
+
+ PredictionMarket(marketAddress).withdrawLiquidityCollateral(share);
+
+
+
+}
+
 }
