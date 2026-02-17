@@ -522,4 +522,11 @@ createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
         IERC20(ccipFeeToken).safeIncreaseAllowance(ccipRouter, fee);
         messageId = IRouterClient(ccipRouter).ccipSend(destinationChainSelector, message);
     }
+
+
+    function getMarketFactoryCollateralBalance() external view returns (uint256) {
+        return collateral.balanceOf(address(this));
+    }
+
+
 }

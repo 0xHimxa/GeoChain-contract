@@ -167,4 +167,5 @@ library MarketErrors {
     error PredictionMarket__ManualReviewNeeded();
     error PredictionMarket__MarketNotInReview();
     error PredictionMarket__WithDrawLiquidity_Insufficientfee();
+    error PredictionMarket__InvalidReport();
 }

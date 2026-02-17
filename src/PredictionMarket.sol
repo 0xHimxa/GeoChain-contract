@@ -128,6 +128,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Incremented each time syncCanonicalPriceFromHub() is called
     uint64 public canonicalPriceNonce;
 
+      bytes32 private constant hashed_ResolveMarket = keccak256(abi.encodePacked("ResolveMarket"));
+
+
     // ========================================
     // CONSTRUCTOR
     // ========================================
@@ -825,7 +828,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev Can only be called after resolutionTime and when market is Closed
      *      Once resolved, winning token holders can redeem for collateral
      */
-    function resolve(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+    function resolve(Resolution _outcome, string memory proofUrl) public onlyOwner {
         _revertIfLocalResolutionDisabled();
         _updateState();
         if (bytes(proofUrl).length == 0) {
@@ -989,10 +992,15 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     ///      this will decode the report and call resolve() automatically.
     /// @param report ABI-encoded settlement data (currently unused)
     function _processReport(bytes calldata report) internal override {
-        // TODO: Decode report and auto-resolve when Chainlink CRE is fully integrated
-        //  (uint256 marketId, uint8 outcome, uint16 confidenceBps, string memory responseId) =
-        //      abi.decode(report, (uint256, uint8, uint16, string));
-        //  settleMarket(marketId, Outcome(outcome), confidenceBps, responseId);
+         (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
+      bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
+
+
+        if (actionTypeHash != hashed_ResolveMarket) revert MarketErrors.PredictionMarket__InvalidReport();
+ (Resolution _outcome, string memory _proofUrl) = abi.decode(payload, ( Resolution, string));
+
+
+        resolve(_outcome, _proofUrl);
     }
 
     /// @notice Checks whether the market has reached its resolution time
