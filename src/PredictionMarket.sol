@@ -185,6 +185,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     error PredictionMarket__StaleSyncMessage();
     error PredictionMarket__CanonicalPriceStale();
     error PredictionMarket__InsufficientSpokeInventory();
+    error PredictionMarket__LocalResolutionDisabled();
 
     /**
      * @notice Ensures market is open for trading
@@ -261,6 +262,12 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     function _ensureCanonicalPriceFresh() internal view {
         if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
             revert PredictionMarket__CanonicalPriceStale();
+        }
+    }
+
+    function _revertIfLocalResolutionDisabled() internal view {
+        if (crossChainController != address(0) && !marketFactory.isHubFactory()) {
+            revert PredictionMarket__LocalResolutionDisabled();
         }
     }
 
@@ -819,6 +826,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      *      Once resolved, winning token holders can redeem for collateral
      */
     function resolve(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+        _revertIfLocalResolutionDisabled();
         _updateState();
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
@@ -847,6 +855,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         state = State.Resolved;
         marketFactory.removeResolvedMarket(address(this));
+        if (crossChainController != address(0) && marketFactory.isHubFactory()) {
+            marketFactory.onHubMarketResolved(_outcome, proofUrl);
+        }
 
         emit MarketEvents.Resolved(resolution);
     }
@@ -895,6 +906,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      *      Once manually resolved, the market moves to Resolved state and users can redeem
      */
     function manualResolveMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+        _revertIfLocalResolutionDisabled();
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
         }
@@ -916,6 +928,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         manualReviewNeeded = false;
         state = State.Resolved;
+        if (crossChainController != address(0) && marketFactory.isHubFactory()) {
+            marketFactory.onHubMarketResolved(_outcome, proofUrl);
+        }
 
         emit MarketEvents.Resolved(resolution);
     }

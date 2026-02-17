@@ -152,6 +152,7 @@ uint256  private initailEventLiquidity;
     error MarketFactory__ChainSelectorCantbezero();
  error MarketFactory__ChainSelectornNotSupported();
   error MarketFactory__ActionNotRecognized();
+    error MarketFactory__OnlyRegisteredMarket();
 
     // ========================================
     // CONSTRUCTOR
@@ -366,6 +367,19 @@ initailEventLiquidity = 10000e6;
 
     /// @notice Syncs final hub resolution to all spokes via CCIP
     function broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) public onlyOwner {
+        _broadcastResolution(marketId, outcome, proofUrl);
+    }
+
+    /// @notice Called by a registered market after local hub resolution to fan out the result to spokes
+    /// @param outcome Final resolution outcome from the hub market
+    /// @param proofUrl Evidence URL for the resolution
+    function onHubMarketResolved(Resolution outcome, string calldata proofUrl) external {
+        uint256 marketId = marketIdByAddress[msg.sender];
+        if (marketId == 0 || marketById[marketId] != msg.sender) revert MarketFactory__OnlyRegisteredMarket();
+        _broadcastResolution(marketId, outcome, proofUrl);
+    }
+
+    function _broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) internal {
         if (!isHubFactory) revert MarketFactory__NotHubFactory();
         if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
         if (ccipRouter == address(0)) revert MarketFactory__CcipRouterNotSet();

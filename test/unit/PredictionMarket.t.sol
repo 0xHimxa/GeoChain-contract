@@ -9,10 +9,24 @@ import {MarketErrors, MarketConstants, Resolution, State} from "src/libraries/Ma
 contract MockMarketFactory {
     address public lastRemoved;
     uint256 public removeCount;
+    bool public isHubFactory;
+    Resolution public lastHubOutcome;
+    string public lastHubProofUrl;
+    uint256 public onHubResolvedCount;
 
     function removeResolvedMarket(address market) external {
         lastRemoved = market;
         removeCount++;
+    }
+
+    function setIsHubFactory(bool value) external {
+        isHubFactory = value;
+    }
+
+    function onHubMarketResolved(Resolution outcome, string calldata proofUrl) external {
+        lastHubOutcome = outcome;
+        lastHubProofUrl = proofUrl;
+        onHubResolvedCount++;
     }
 }
 
@@ -486,6 +500,14 @@ contract PredictionMarketTest is Test {
         market.resolve(Resolution.Yes, "ipfs://proof");
     }
 
+    function testResolveRevertsWhenLocalResolutionDisabledOnSpoke() external {
+        market.setCrossChainController(alice);
+        _warpAfterResolution();
+
+        vm.expectRevert(PredictionMarket.PredictionMarket__LocalResolutionDisabled.selector);
+        market.resolve(Resolution.Yes, "ipfs://proof");
+    }
+
     function testResolveYesSuccess() external {
         _warpAfterResolution();
 
@@ -510,6 +532,27 @@ contract PredictionMarketTest is Test {
         assertEq(uint256(market.state()), uint256(State.Resolved));
         assertEq(uint256(market.resolution()), uint256(Resolution.No));
         assertEq(mockFactory.removeCount(), 1);
+    }
+
+    function testManualResolveRevertsWhenLocalResolutionDisabledOnSpoke() external {
+        _warpAfterResolution();
+        market.resolve(Resolution.Inconclusive, "ipfs://initial");
+        market.setCrossChainController(alice);
+
+        vm.expectRevert(PredictionMarket.PredictionMarket__LocalResolutionDisabled.selector);
+        market.manualResolveMarket(Resolution.No, "ipfs://manual");
+    }
+
+    function testResolveNotifiesHubFactoryWhenControllerSet() external {
+        mockFactory.setIsHubFactory(true);
+        market.setCrossChainController(alice);
+        _warpAfterResolution();
+
+        market.resolve(Resolution.Yes, "ipfs://hub-proof");
+
+        assertEq(uint256(mockFactory.lastHubOutcome()), uint256(Resolution.Yes));
+        assertEq(mockFactory.lastHubProofUrl(), "ipfs://hub-proof");
+        assertEq(mockFactory.onHubResolvedCount(), 1);
     }
 
     function testManualResolveRevertWhenInvalidOutcome() external {
