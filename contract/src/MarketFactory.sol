@@ -94,8 +94,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     bytes32 private hashed_BroadCastPrice;
     bytes32 private hashed_BroadCastResolution;
     bytes32 private hashed_CreateMarket;
-    
-
+    bytes32 private hashed_PriceCorrection; 
+   
 
 uint256  private initailEventLiquidity;
 
@@ -204,7 +204,7 @@ uint256  private initailEventLiquidity;
         hashed_BroadCastPrice = keccak256( abi.encodePacked("broadCastPrice"));
         hashed_BroadCastResolution = keccak256(abi.encodePacked("broadCastResolution"));
         hashed_CreateMarket = keccak256(abi.encodePacked("createMarket"));
-       
+        hashed_PriceCorrection = keccak256(abi.encodePacked("priceCorrection"));
         
 initailEventLiquidity = 10000e6;
      
@@ -438,7 +438,7 @@ initailEventLiquidity = 10000e6;
     /// @param market Address of the market that just resolved
     /// @dev Called by a PredictionMarket contract during its resolve() flow.
     ///      Uses swap-and-pop for O(1) removal: moves the last element into the removed slot.
-    ///      TODO: restrict caller to only registered market contracts or the forwarder
+    
     function removeResolvedMarket(address market) external {
         uint256 index = marketToIndex[market];
         address lastMarket = activeMarkets[activeMarkets.length - 1];
@@ -513,7 +513,12 @@ _broadcastResolution( marketId,  outcome, proofUrl);
 
 _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
-      }else{
+      }else if(actionTypeHash == hashed_PriceCorrection){
+        (uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) = abi.decode(payload, (uint256, uint256, uint256));
+ _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps) 
+      }
+      
+      else{
          revert MarketFactory__ActionNotRecognized();
       }
 
@@ -557,18 +562,24 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
 
 
-function arbitragePredictionPrice(uint256 marketId, uint256 amount) external{
-
-
-
-
-}
 
     function arbitrateUnsafeMarket(uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps)
         external
         onlyOwner
     {
-        address marketAddress = marketById[marketId];
+      return _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps);
+     
+    }
+
+
+
+
+
+
+ function _arbitrateUnsafeMarket(uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) internal{
+
+
+ address marketAddress = marketById[marketId];
         if (marketAddress == address(0)) revert MarketFactory__MarketNotFound();
         if (maxSpendCollateral == 0) revert MarketFactory__ArbZeroAmount();
 
@@ -617,7 +628,15 @@ function arbitragePredictionPrice(uint256 marketId, uint256 amount) external{
         }
 
         emit UnsafeArbitrageExecuted(marketAddress, yesForNo, bestSpend, deviationBefore, deviationAfter);
-    }
+
+
+ }
+
+
+
+
+
+
 
     function _netOutcomeFromCollateral(uint256 collateralAmount) internal pure returns (uint256) {
         uint256 fee = (collateralAmount * MarketConstants.MINT_COMPLETE_SETS_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
@@ -667,5 +686,7 @@ address marketAddress = marketById[_marketId];
 
 
 }
+
+
 
 }
