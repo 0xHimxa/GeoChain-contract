@@ -121,6 +121,19 @@ contract MarketFactoryTest is Test {
         assertEq(market.activeMarkets(0), eventCreatedAddress);
     }
 
+    function testForwarderOnReportCanCreateMarket() external {
+        bytes memory payload = abi.encode("from-report", block.timestamp + 1000, block.timestamp + 2000);
+        bytes memory report = abi.encode("createMarket", payload);
+
+        vm.prank(forwarder);
+        market.onReport("", report);
+
+        assertEq(market.marketCount(), 1);
+        address created = market.marketById(1);
+        assertEq(created != address(0), true);
+        assertEq(PredictionMarket(created).owner(), marketOwner);
+    }
+
     function testCreateMarketTracksIncrementingUintIdsAndIndexes() external {
         vm.startPrank(marketOwner);
         address firstMarket = market.createMarket("first market", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);

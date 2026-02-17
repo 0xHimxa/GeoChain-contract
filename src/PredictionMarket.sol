@@ -828,7 +828,11 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev Can only be called after resolutionTime and when market is Closed
      *      Once resolved, winning token holders can redeem for collateral
      */
-    function resolve(Resolution _outcome, string memory proofUrl) public onlyOwner {
+    function resolve(Resolution _outcome, string memory proofUrl) external onlyOwner {
+        _resolve(_outcome, proofUrl);
+    }
+
+    function _resolve(Resolution _outcome, string memory proofUrl) internal {
         _revertIfLocalResolutionDisabled();
         _updateState();
         if (bytes(proofUrl).length == 0) {
@@ -1000,7 +1004,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
  (Resolution _outcome, string memory _proofUrl) = abi.decode(payload, ( Resolution, string));
 
 
-        resolve(_outcome, _proofUrl);
+        _resolve(_outcome, _proofUrl);
     }
 
     /// @notice Checks whether the market has reached its resolution time

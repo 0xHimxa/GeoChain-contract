@@ -228,8 +228,15 @@ initailEventLiquidity = 10000e6;
      * @notice Creates a new prediction market with initial liquidity
      */
     function createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
-        public
+        external
         onlyOwner
+        returns (address market)
+    {
+        return _createMarket(question, closeTime, resolutionTime, initialLiquidity);
+    }
+
+    function _createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
+        internal
         returns (address market)
     {
         if (closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0) {
@@ -270,7 +277,7 @@ initailEventLiquidity = 10000e6;
         m.setCrossChainController(address(this));
 
  // Transfer market ownership from the factory to the caller (deployer/admin)
-        m.transferOwnership(msg.sender);
+        m.transferOwnership(owner());
 
         emit MarketCreated(marketCount, address(m), initialLiquidity);
 
@@ -341,8 +348,14 @@ initailEventLiquidity = 10000e6;
 
     /// @notice Syncs hub canonical price to all spokes via CCIP
     function broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
-        public
+        external
         onlyOwner
+    {
+        _broadcastCanonicalPrice(marketId, yesPriceE6, noPriceE6, validUntil);
+    }
+
+    function _broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
+        internal
     {
         if (!isHubFactory) revert MarketFactory__NotHubFactory();
         if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
@@ -366,7 +379,7 @@ initailEventLiquidity = 10000e6;
     }
 
     /// @notice Syncs final hub resolution to all spokes via CCIP
-    function broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) public onlyOwner {
+    function broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) external onlyOwner {
         _broadcastResolution(marketId, outcome, proofUrl);
     }
 
@@ -473,19 +486,19 @@ initailEventLiquidity = 10000e6;
 
       if (actionTypeHash == hashed_BroadCastPrice) {
         (uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil) = abi.decode(payload, (uint256, uint256, uint256, uint256));
-      broadcastCanonicalPrice( marketId,  yesPriceE6,  noPriceE6,  validUntil);
+      _broadcastCanonicalPrice( marketId,  yesPriceE6,  noPriceE6,  validUntil);
       
       } else if (actionTypeHash == hashed_BroadCastResolution) {
         (uint256 marketId, Resolution outcome, string memory proofUrl) = abi.decode(payload, (uint256, Resolution, string));
 
-broadcastResolution( marketId,  outcome, proofUrl);
+_broadcastResolution( marketId,  outcome, proofUrl);
 
       } else if (actionTypeHash == hashed_CreateMarket) {
 
         (string memory question, uint256 closeTime, uint256 resolutionTime) = abi.decode(payload, (string, uint256, uint256));
 
 
-createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
+_createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
       }else{
          revert MarketFactory__ActionNotRecognized();

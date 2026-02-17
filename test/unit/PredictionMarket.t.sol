@@ -500,6 +500,17 @@ contract PredictionMarketTest is Test {
         market.resolve(Resolution.Yes, "ipfs://proof");
     }
 
+    function testForwarderOnReportCanResolveMarket() external {
+        _warpAfterResolution();
+        bytes memory report = abi.encode("ResolveMarket", abi.encode(Resolution.Yes, "ipfs://proof"));
+
+        vm.prank(FORWARDER);
+        market.onReport("", report);
+
+        assertEq(uint256(market.state()), uint256(State.Resolved));
+        assertEq(uint256(market.resolution()), uint256(Resolution.Yes));
+    }
+
     function testResolveRevertsWhenLocalResolutionDisabledOnSpoke() external {
         market.setCrossChainController(alice);
         _warpAfterResolution();
