@@ -4,6 +4,7 @@ pragma solidity 0.8.33;
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
+import {AMMLib} from "src/libraries/AMMLib.sol";
 import {MarketErrors, MarketConstants, Resolution, State} from "src/libraries/MarketTypes.sol";
 
 contract MockMarketFactory {
@@ -401,7 +402,7 @@ contract PredictionMarketTest is Test {
         market.swapNoForYes(1e6, quoteOut + 1);
     }
 
-    function testSwapYesForNoRevertCanonicalInsufficientInventory() external {
+    function testSwapYesForNoRevertWhenCanonicalDeviationTooHigh() external {
         market.setCrossChainController(address(this));
         market.syncCanonicalPriceFromHub(900_000, 100_000, block.timestamp + 1 days, 1);
         uint256 mintedNet = _mintCompleteSets(alice, 3_000e6);
@@ -409,13 +410,13 @@ contract PredictionMarketTest is Test {
         assertGt(mintedNet, 2_000e6);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__InsufficientSpokeInventory.selector);
+        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
         market.swapYesForNo(2_000e6, 0);
     }
 
     function testSwapNoForYesCanonicalSuccess() external {
         market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, 1);
+        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
         _mintCompleteSets(alice, 10e6);
         _approveOutcomeTokens(alice);
 
@@ -426,14 +427,14 @@ contract PredictionMarketTest is Test {
         assertEq(market.yesToken().balanceOf(alice), beforeYes + quoteOut);
     }
 
-    function testSwapNoForYesRevertCanonicalInsufficientInventory() external {
+    function testSwapNoForYesRevertWhenCanonicalDeviationTooHigh() external {
         market.setCrossChainController(address(this));
         market.syncCanonicalPriceFromHub(100_000, 900_000, block.timestamp + 1 days, 1);
         _mintCompleteSets(alice, 3_000e6);
         _approveOutcomeTokens(alice);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__InsufficientSpokeInventory.selector);
+        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
         market.swapNoForYes(2_000e6, 0);
     }
 
@@ -815,12 +816,14 @@ contract PredictionMarketTest is Test {
         market.getYesForNoQuote(1e6);
 
         vm.prank(alice);
-        market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, 1);
+        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
 
         (uint256 netOut, uint256 fee) = market.getYesForNoQuote(1e6);
+        (uint256 expectedOut, uint256 expectedFee,,) =
+            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
 
-        assertEq(netOut, 1_440_000);
-        assertEq(fee, 60_000);
+        assertEq(netOut, expectedOut);
+        assertEq(fee, expectedFee);
     }
 
     function testGetYesForNoQuoteReverts() external {
@@ -844,10 +847,20 @@ contract PredictionMarketTest is Test {
         vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceStale.selector);
         market.getNoForYesQuote(1e6);
 
-        market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, 1);
+        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
         (uint256 netOut, uint256 fee) = market.getNoForYesQuote(1e6);
-        assertEq(netOut, 640_000);
-        assertEq(fee, 26_666);
+        (uint256 expectedOut, uint256 expectedFee,,) =
+            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+        assertEq(netOut, expectedOut);
+        assertEq(fee, expectedFee);
+    }
+
+    function testCanonicalQuoteRevertsWhenDeviationTooHigh() external {
+        market.setCrossChainController(address(this));
+        market.syncCanonicalPriceFromHub(700_000, 300_000, block.timestamp + 1 days, 1);
+
+        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
+        market.getYesForNoQuote(1e6);
     }
 
     function testCanonicalQuoteRevertWhenInvalidPrice() external {

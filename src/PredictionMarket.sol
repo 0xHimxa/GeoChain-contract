@@ -187,8 +187,8 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     error PredictionMarket__InvalidCanonicalPrice();
     error PredictionMarket__StaleSyncMessage();
     error PredictionMarket__CanonicalPriceStale();
-    error PredictionMarket__InsufficientSpokeInventory();
     error PredictionMarket__LocalResolutionDisabled();
+    error PredictionMarket__CanonicalPriceDeviationTooHigh();
 
     /**
      * @notice Ensures market is open for trading
@@ -268,44 +268,31 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
+    /**
+     * @notice Ensures local AMM price is close enough to hub canonical price before allowing spoke swaps
+     * @dev This prevents stale or manipulated canonical updates from being used to drain one reserve side
+     */
+    function _ensureCanonicalDeviationWithinBounds() internal view {
+        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
+
+        uint256 localYesPriceE6 = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+
+        uint256 diff =
+            localYesPriceE6 > canonicalYesPriceE6 ? localYesPriceE6 - canonicalYesPriceE6 : canonicalYesPriceE6 - localYesPriceE6;
+
+        // 500 bps == 5% absolute probability deviation in 1e6 precision.
+        uint256 maxDeviation = (MarketConstants.PRICE_PRECISION * 500) / MarketConstants.FEE_PRECISION_BPS;
+        if (diff > maxDeviation) {
+            revert PredictionMarket__CanonicalPriceDeviationTooHigh();
+        }
+    }
+
     function _revertIfLocalResolutionDisabled() internal view {
         if (crossChainController != address(0) && !marketFactory.isHubFactory()) {
             revert PredictionMarket__LocalResolutionDisabled();
         }
-    }
-
-    /**
-     * @notice Calculates NO output for YES input using canonical hub prices
-     * @param yesIn Amount of YES tokens to swap
-     * @return netOut Amount of NO tokens received (after swap fee)
-     * @return fee Swap fee amount deducted
-     * @dev Uses hub-provided price ratio: noOut = yesIn * yesPrice / noPrice
-     */
-    function _quoteCanonicalYesForNo(uint256 yesIn) internal view returns (uint256 netOut, uint256 fee) {
-        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
-            revert PredictionMarket__InvalidCanonicalPrice();
-        }
-
-        uint256 grossOut = (yesIn * canonicalYesPriceE6) / canonicalNoPriceE6;
-        fee = (grossOut * MarketConstants.SWAP_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
-        netOut = grossOut - fee;
-    }
-
-    /**
-     * @notice Calculates YES output for NO input using canonical hub prices
-     * @param noIn Amount of NO tokens to swap
-     * @return netOut Amount of YES tokens received (after swap fee)
-     * @return fee Swap fee amount deducted
-     * @dev Uses hub-provided price ratio: yesOut = noIn * noPrice / yesPrice
-     */
-    function _quoteCanonicalNoForYes(uint256 noIn) internal view returns (uint256 netOut, uint256 fee) {
-        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
-            revert PredictionMarket__InvalidCanonicalPrice();
-        }
-
-        uint256 grossOut = (noIn * canonicalNoPriceE6) / canonicalYesPriceE6;
-        fee = (grossOut * MarketConstants.SWAP_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
-        netOut = grossOut - fee;
     }
 
     // ========================================
@@ -730,19 +717,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         if (_isCanonicalPricingMode()) {
             _ensureCanonicalPriceFresh();
-            (noOut,) = _quoteCanonicalYesForNo(yesIn);
-            if (noOut > noReserve) {
-                revert PredictionMarket__InsufficientSpokeInventory();
-            }
-
-            newYesReserve = yesReserve + yesIn;
-            newNoReserve = noReserve - noOut;
-        } else {
-            // Calculate swap output using AMMLib
-            (noOut,, newYesReserve, newNoReserve) = AMMLib.getAmountOut(
-                yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-            );
+            _ensureCanonicalDeviationWithinBounds();
         }
+
+        // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
+        (noOut,, newYesReserve, newNoReserve) = AMMLib.getAmountOut(
+            yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+        );
 
         // Validate output meets slippage requirements
         if (minNoOut > noOut) {
@@ -788,19 +769,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         if (_isCanonicalPricingMode()) {
             _ensureCanonicalPriceFresh();
-            (yesOut,) = _quoteCanonicalNoForYes(noIn);
-            if (yesOut > yesReserve) {
-                revert PredictionMarket__InsufficientSpokeInventory();
-            }
-
-            newNoReserve = noReserve + noIn;
-            newYesReserve = yesReserve - yesOut;
-        } else {
-            // Calculate swap output using AMMLib
-            (yesOut,, newNoReserve, newYesReserve) = AMMLib.getAmountOut(
-                noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-            );
+            _ensureCanonicalDeviationWithinBounds();
         }
+
+        // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
+        (yesOut,, newNoReserve, newYesReserve) = AMMLib.getAmountOut(
+            noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+        );
 
         // Validate output meets slippage requirements
         if (minYesOut > yesOut) {
@@ -1042,8 +1017,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         if (_isCanonicalPricingMode()) {
             _ensureCanonicalPriceFresh();
-            (netOut, fee) = _quoteCanonicalYesForNo(yesIn);
-            return (netOut, fee);
+            _ensureCanonicalDeviationWithinBounds();
         }
 
         (netOut, fee,,) =
@@ -1064,8 +1038,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         if (_isCanonicalPricingMode()) {
             _ensureCanonicalPriceFresh();
-            (netOut, fee) = _quoteCanonicalNoForYes(noIn);
-            return (netOut, fee);
+            _ensureCanonicalDeviationWithinBounds();
         }
 
         (netOut, fee,,) =
