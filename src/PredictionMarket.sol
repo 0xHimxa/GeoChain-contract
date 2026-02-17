@@ -128,7 +128,20 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Incremented each time syncCanonicalPriceFromHub() is called
     uint64 public canonicalPriceNonce;
 
-      bytes32 private constant hashed_ResolveMarket = keccak256(abi.encodePacked("ResolveMarket"));
+    /// @notice Deviation threshold in bps for normal operations
+    uint16 public softDeviationBps = 150;
+    /// @notice Deviation threshold in bps where stress controls become active
+    uint16 public stressDeviationBps = 300;
+    /// @notice Deviation threshold in bps above which swaps are hard-stopped
+    uint16 public hardDeviationBps = 500;
+    /// @notice Additional fee (bps) applied in stress/unsafe bands
+    uint16 public stressExtraFeeBps = 100;
+    /// @notice Max output size as bps of output reserve in stress band
+    uint16 public stressMaxOutBps = 200;
+    /// @notice Max output size as bps of output reserve in unsafe band
+    uint16 public unsafeMaxOutBps = 50;
+
+    bytes32 private constant hashed_ResolveMarket = keccak256(abi.encodePacked("ResolveMarket"));
 
 
     // ========================================
@@ -189,6 +202,25 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     error PredictionMarket__CanonicalPriceStale();
     error PredictionMarket__LocalResolutionDisabled();
     error PredictionMarket__CanonicalPriceDeviationTooHigh();
+    error PredictionMarket__DeviationPolicyInvalid();
+    error PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
+    error PredictionMarket__TradeSizeExceedsBandLimit();
+
+    enum DeviationBand {
+        Normal,
+        Stress,
+        Unsafe,
+        CircuitBreaker
+    }
+
+    event DeviationPolicyUpdated(
+        uint16 softDeviationBps,
+        uint16 stressDeviationBps,
+        uint16 hardDeviationBps,
+        uint16 stressExtraFeeBps,
+        uint16 stressMaxOutBps,
+        uint16 unsafeMaxOutBps
+    );
 
     /**
      * @notice Ensures market is open for trading
@@ -268,30 +300,147 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
-    /**
-     * @notice Ensures local AMM price is close enough to hub canonical price before allowing spoke swaps
-     * @dev This prevents stale or manipulated canonical updates from being used to drain one reserve side
-     */
-    function _ensureCanonicalDeviationWithinBounds() internal view {
+    function _localYesPriceE6() internal view returns (uint256) {
+        return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+    }
+
+    function _deviationBps(uint256 localYesPriceE6) internal view returns (uint256) {
+        uint256 diff = localYesPriceE6 > canonicalYesPriceE6 ? localYesPriceE6 - canonicalYesPriceE6 : canonicalYesPriceE6 - localYesPriceE6;
+        return (diff * MarketConstants.FEE_PRECISION_BPS) / MarketConstants.PRICE_PRECISION;
+    }
+
+    function _resolveDeviationBand(uint256 deviationBps) internal view returns (DeviationBand) {
+        if (deviationBps <= softDeviationBps) return DeviationBand.Normal;
+        if (deviationBps <= stressDeviationBps) return DeviationBand.Stress;
+        if (deviationBps <= hardDeviationBps) return DeviationBand.Unsafe;
+        return DeviationBand.CircuitBreaker;
+    }
+
+    function _validateCanonicalPrices() internal view {
         if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
             revert PredictionMarket__InvalidCanonicalPrice();
         }
+    }
 
-        uint256 localYesPriceE6 = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+    function _getCanonicalSwapControls(bool yesForNo, uint256 reserveOut)
+        internal
+        view
+        returns (uint256 effectiveFeeBps, uint256 maxOut)
+    {
+        _ensureCanonicalPriceFresh();
+        _validateCanonicalPrices();
 
-        uint256 diff =
-            localYesPriceE6 > canonicalYesPriceE6 ? localYesPriceE6 - canonicalYesPriceE6 : canonicalYesPriceE6 - localYesPriceE6;
+        uint256 localYesPriceE6 = _localYesPriceE6();
+        uint256 deviationBps = _deviationBps(localYesPriceE6);
+        DeviationBand band = _resolveDeviationBand(deviationBps);
 
-        // 500 bps == 5% absolute probability deviation in 1e6 precision.
-        uint256 maxDeviation = (MarketConstants.PRICE_PRECISION * 500) / MarketConstants.FEE_PRECISION_BPS;
-        if (diff > maxDeviation) {
+        if (band == DeviationBand.CircuitBreaker) {
             revert PredictionMarket__CanonicalPriceDeviationTooHigh();
+        }
+
+        effectiveFeeBps = MarketConstants.SWAP_FEE_BPS;
+        maxOut = type(uint256).max;
+
+        if (band == DeviationBand.Stress) {
+            effectiveFeeBps += stressExtraFeeBps;
+            maxOut = (reserveOut * stressMaxOutBps) / MarketConstants.FEE_PRECISION_BPS;
+        } else if (band == DeviationBand.Unsafe) {
+            effectiveFeeBps += stressExtraFeeBps;
+            maxOut = (reserveOut * unsafeMaxOutBps) / MarketConstants.FEE_PRECISION_BPS;
+
+            bool allowYesForNo = localYesPriceE6 > canonicalYesPriceE6;
+            bool allowNoForYes = localYesPriceE6 < canonicalYesPriceE6;
+
+            if ((yesForNo && !allowYesForNo) || (!yesForNo && !allowNoForYes)) {
+                revert PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
+            }
         }
     }
 
     function _revertIfLocalResolutionDisabled() internal view {
         if (crossChainController != address(0) && !marketFactory.isHubFactory()) {
             revert PredictionMarket__LocalResolutionDisabled();
+        }
+    }
+
+    function setDeviationPolicy(
+        uint16 _softDeviationBps,
+        uint16 _stressDeviationBps,
+        uint16 _hardDeviationBps,
+        uint16 _stressExtraFeeBps,
+        uint16 _stressMaxOutBps,
+        uint16 _unsafeMaxOutBps
+    ) external onlyOwner {
+        if (
+            _softDeviationBps >= _stressDeviationBps || _stressDeviationBps >= _hardDeviationBps
+                || _hardDeviationBps > MarketConstants.FEE_PRECISION_BPS
+                || _stressExtraFeeBps > MarketConstants.FEE_PRECISION_BPS
+                || _stressMaxOutBps == 0 || _stressMaxOutBps > MarketConstants.FEE_PRECISION_BPS
+                || _unsafeMaxOutBps == 0 || _unsafeMaxOutBps > MarketConstants.FEE_PRECISION_BPS
+                || _unsafeMaxOutBps >= _stressMaxOutBps
+        ) {
+            revert PredictionMarket__DeviationPolicyInvalid();
+        }
+
+        softDeviationBps = _softDeviationBps;
+        stressDeviationBps = _stressDeviationBps;
+        hardDeviationBps = _hardDeviationBps;
+        stressExtraFeeBps = _stressExtraFeeBps;
+        stressMaxOutBps = _stressMaxOutBps;
+        unsafeMaxOutBps = _unsafeMaxOutBps;
+
+        emit DeviationPolicyUpdated(
+            _softDeviationBps, _stressDeviationBps, _hardDeviationBps, _stressExtraFeeBps, _stressMaxOutBps, _unsafeMaxOutBps
+        );
+    }
+
+    function getDeviationStatus()
+        external
+        view
+        returns (
+            DeviationBand band,
+            uint256 deviationBps,
+            uint256 effectiveFeeBps,
+            uint256 maxOutBps,
+            bool allowYesForNo,
+            bool allowNoForYes
+        )
+    {
+        if (!_isCanonicalPricingMode()) {
+            return (
+                DeviationBand.Normal,
+                0,
+                MarketConstants.SWAP_FEE_BPS,
+                MarketConstants.FEE_PRECISION_BPS,
+                true,
+                true
+            );
+        }
+
+        _ensureCanonicalPriceFresh();
+        _validateCanonicalPrices();
+
+        uint256 localYesPriceE6 = _localYesPriceE6();
+        deviationBps = _deviationBps(localYesPriceE6);
+        band = _resolveDeviationBand(deviationBps);
+
+        effectiveFeeBps = MarketConstants.SWAP_FEE_BPS;
+        maxOutBps = MarketConstants.FEE_PRECISION_BPS;
+        allowYesForNo = true;
+        allowNoForYes = true;
+
+        if (band == DeviationBand.Stress) {
+            effectiveFeeBps += stressExtraFeeBps;
+            maxOutBps = stressMaxOutBps;
+        } else if (band == DeviationBand.Unsafe) {
+            effectiveFeeBps += stressExtraFeeBps;
+            maxOutBps = unsafeMaxOutBps;
+            allowYesForNo = localYesPriceE6 > canonicalYesPriceE6;
+            allowNoForYes = localYesPriceE6 < canonicalYesPriceE6;
+        } else if (band == DeviationBand.CircuitBreaker) {
+            allowYesForNo = false;
+            allowNoForYes = false;
+            maxOutBps = 0;
         }
     }
 
@@ -714,16 +863,20 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         uint256 noOut;
         uint256 newYesReserve;
         uint256 newNoReserve;
+        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
+        uint256 maxOut = type(uint256).max;
 
         if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            _ensureCanonicalDeviationWithinBounds();
+            (feeBps, maxOut) = _getCanonicalSwapControls(true, noReserve);
         }
 
         // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
         (noOut,, newYesReserve, newNoReserve) = AMMLib.getAmountOut(
-            yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+            yesReserve, noReserve, yesIn, feeBps, MarketConstants.FEE_PRECISION_BPS
         );
+        if (noOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
 
         // Validate output meets slippage requirements
         if (minNoOut > noOut) {
@@ -766,16 +919,20 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         uint256 yesOut;
         uint256 newNoReserve;
         uint256 newYesReserve;
+        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
+        uint256 maxOut = type(uint256).max;
 
         if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            _ensureCanonicalDeviationWithinBounds();
+            (feeBps, maxOut) = _getCanonicalSwapControls(false, yesReserve);
         }
 
         // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
         (yesOut,, newNoReserve, newYesReserve) = AMMLib.getAmountOut(
-            noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+            noReserve, yesReserve, noIn, feeBps, MarketConstants.FEE_PRECISION_BPS
         );
+        if (yesOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
 
         // Validate output meets slippage requirements
         if (minYesOut > yesOut) {
@@ -1015,13 +1172,17 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
         }
 
+        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
+        uint256 maxOut = type(uint256).max;
         if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            _ensureCanonicalDeviationWithinBounds();
+            (feeBps, maxOut) = _getCanonicalSwapControls(true, noReserve);
         }
 
         (netOut, fee,,) =
-            AMMLib.getAmountOut(yesReserve, noReserve, yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+            AMMLib.getAmountOut(yesReserve, noReserve, yesIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
+        if (netOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
     }
 
     /**
@@ -1036,13 +1197,17 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
         }
 
+        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
+        uint256 maxOut = type(uint256).max;
         if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            _ensureCanonicalDeviationWithinBounds();
+            (feeBps, maxOut) = _getCanonicalSwapControls(false, yesReserve);
         }
 
         (netOut, fee,,) =
-            AMMLib.getAmountOut(noReserve, yesReserve, noIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+            AMMLib.getAmountOut(noReserve, yesReserve, noIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
+        if (netOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
     }
 
     /**

@@ -438,6 +438,31 @@ contract PredictionMarketTest is Test {
         market.swapNoForYes(2_000e6, 0);
     }
 
+    function testSwapRevertWhenTradeExceedsStressBandLimit() external {
+        market.setCrossChainController(address(this));
+        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
+        _mintCompleteSets(alice, 1_000e6);
+        _approveOutcomeTokens(alice);
+
+        vm.prank(alice);
+        vm.expectRevert(PredictionMarket.PredictionMarket__TradeSizeExceedsBandLimit.selector);
+        market.swapNoForYes(500e6, 0);
+    }
+
+    function testUnsafeBandAllowsOnlyConvergingDirection() external {
+        market.setCrossChainController(address(this));
+        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+        _mintCompleteSets(alice, 50e6);
+        _approveOutcomeTokens(alice);
+
+        vm.prank(alice);
+        vm.expectRevert(PredictionMarket.PredictionMarket__TradeDirectionNotAllowedInUnsafeBand.selector);
+        market.swapNoForYes(1e6, 0);
+
+        vm.prank(alice);
+        market.swapYesForNo(1e6, 0);
+    }
+
     function testMintRevertWhenMarketClosed() external {
         vm.warp(market.closeTime() + 1);
 
@@ -820,7 +845,7 @@ contract PredictionMarketTest is Test {
 
         (uint256 netOut, uint256 fee) = market.getYesForNoQuote(1e6);
         (uint256 expectedOut, uint256 expectedFee,,) =
-            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, 500, MarketConstants.FEE_PRECISION_BPS);
 
         assertEq(netOut, expectedOut);
         assertEq(fee, expectedFee);
@@ -850,7 +875,7 @@ contract PredictionMarketTest is Test {
         market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
         (uint256 netOut, uint256 fee) = market.getNoForYesQuote(1e6);
         (uint256 expectedOut, uint256 expectedFee,,) =
-            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, 500, MarketConstants.FEE_PRECISION_BPS);
         assertEq(netOut, expectedOut);
         assertEq(fee, expectedFee);
     }
@@ -861,6 +886,40 @@ contract PredictionMarketTest is Test {
 
         vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
         market.getYesForNoQuote(1e6);
+    }
+
+    function testDeviationStatusReflectsBandAndControls() external {
+        market.setCrossChainController(address(this));
+        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+
+        (
+            PredictionMarket.DeviationBand band,
+            uint256 deviationBps,
+            uint256 effectiveFeeBps,
+            uint256 maxOutBps,
+            bool allowYesForNo,
+            bool allowNoForYes
+        ) = market.getDeviationStatus();
+
+        assertEq(uint256(band), uint256(PredictionMarket.DeviationBand.Unsafe));
+        assertEq(deviationBps, 400);
+        assertEq(effectiveFeeBps, 500);
+        assertEq(maxOutBps, 50);
+        assertEq(allowYesForNo, true);
+        assertEq(allowNoForYes, false);
+    }
+
+    function testSetDeviationPolicyValidationAndPass() external {
+        vm.expectRevert(PredictionMarket.PredictionMarket__DeviationPolicyInvalid.selector);
+        market.setDeviationPolicy(300, 200, 500, 100, 200, 50);
+
+        market.setDeviationPolicy(200, 350, 600, 80, 300, 100);
+        assertEq(market.softDeviationBps(), 200);
+        assertEq(market.stressDeviationBps(), 350);
+        assertEq(market.hardDeviationBps(), 600);
+        assertEq(market.stressExtraFeeBps(), 80);
+        assertEq(market.stressMaxOutBps(), 300);
+        assertEq(market.unsafeMaxOutBps(), 100);
     }
 
     function testCanonicalQuoteRevertWhenInvalidPrice() external {
