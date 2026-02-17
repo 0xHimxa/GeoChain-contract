@@ -89,6 +89,15 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     mapping(uint256 => uint64) public resolutionNonceByMarketId;
 
 
+    //CRE Ation types
+    bytes32 private hashed_BroadCastPrice;
+    bytes32 private hashed_BroadCastResolution;
+    bytes32 private hashed_CreateMarket;
+    
+
+
+uint256  private initailEventLiquidity;
+
     enum SyncMessageType {
         Price,
         Resolution
@@ -142,6 +151,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     error MarketFactory__StaleResolutionNonce();
     error MarketFactory__ChainSelectorCantbezero();
  error MarketFactory__ChainSelectornNotSupported();
+  error MarketFactory__ActionNotRecognized();
 
     // ========================================
     // CONSTRUCTOR
@@ -177,6 +187,12 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
         marketDeployer = MarketDeployer(_marketDeployer);
         Amount_Funding_Factory = 100000e6;
         
+        hashed_BroadCastPrice = keccak256( abi.encodePacked("broadCastPrice"));
+        hashed_BroadCastResolution = keccak256(abi.encodePacked("broadCastResolution"));
+        hashed_CreateMarket = keccak256(abi.encodePacked("createMarket"));
+       
+        
+initailEventLiquidity = 10000e6;
      
 
     }
@@ -210,8 +226,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /**
      * @notice Creates a new prediction market with initial liquidity
      */
-    function createMarket(string calldata question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
-        external
+    function createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
+        public
         onlyOwner
         returns (address market)
     {
@@ -324,7 +340,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     /// @notice Syncs hub canonical price to all spokes via CCIP
     function broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
-        external
+        public
         onlyOwner
     {
         if (!isHubFactory) revert MarketFactory__NotHubFactory();
@@ -349,7 +365,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     }
 
     /// @notice Syncs final hub resolution to all spokes via CCIP
-    function broadcastResolution(uint256 marketId, Resolution outcome, string calldata proofUrl) external onlyOwner {
+    function broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) public onlyOwner {
         if (!isHubFactory) revert MarketFactory__NotHubFactory();
         if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
         if (ccipRouter == address(0)) revert MarketFactory__CcipRouterNotSet();
@@ -438,7 +454,32 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Chainlink CRE receiver hook — currently a no-op placeholder
     /// @dev Will contain factory-level settlement logic once Chainlink CRE integration is complete
     function _processReport(bytes calldata report) internal override {
-        // Intentionally empty; satisfies the abstract ReceiverTemplateUpgradeable requirement
+      (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
+      bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
+
+      if (actionTypeHash == hashed_BroadCastPrice) {
+        (uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil) = abi.decode(payload, (uint256, uint256, uint256, uint256));
+      broadcastCanonicalPrice( marketId,  yesPriceE6,  noPriceE6,  validUntil);
+      
+      } else if (actionTypeHash == hashed_BroadCastResolution) {
+        (uint256 marketId, Resolution outcome, string memory proofUrl) = abi.decode(payload, (uint256, Resolution, string));
+
+broadcastResolution( marketId,  outcome, proofUrl);
+
+      } else if (actionTypeHash == hashed_CreateMarket) {
+
+        (string memory question, uint256 closeTime, uint256 resolutionTime) = abi.decode(payload, (string, uint256, uint256));
+
+
+createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
+
+      }else{
+         revert MarketFactory__ActionNotRecognized();
+      }
+
+
+  
+
     }
 
     /// @notice Sends a CCIP message to a destination chain

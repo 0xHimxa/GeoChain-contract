@@ -10,3 +10,5 @@ cre for check spoke balance after certain time so that it awlays have enoguh mon
 
 
 i hardecode chain selector  not a good idea will need to fix later
+
+to update the price i will need to loop through the array of active market and check for price different then update
