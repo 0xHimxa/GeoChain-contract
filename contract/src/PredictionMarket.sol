@@ -93,6 +93,8 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @notice Tracks cumulative collateral exposure per user to enforce MAX_RISK_EXPOSURE cap
     /// @dev Incremented when a user mints complete sets; prevents any single user from over-concentrating risk
     mapping(address => uint256) public userRiskExposure;
+    /// @notice Optional addresses exempt from MAX_RISK_EXPOSURE enforcement
+    mapping(address => bool) public isRiskExempt;
 
     /* ─────────── Market State ─────────── */
 
@@ -205,6 +207,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     error PredictionMarket__DeviationPolicyInvalid();
     error PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
     error PredictionMarket__TradeSizeExceedsBandLimit();
+    error PredictionMarket__RiskExposureExemptZeroAddress();
 
     enum DeviationBand {
         Normal,
@@ -265,6 +268,11 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert PredictionMarket__OnlyCrossChainController();
         }
         _;
+    }
+
+    function setRiskExempt(address account, bool exempt) external onlyOwner {
+        if (account == address(0)) revert PredictionMarket__RiskExposureExemptZeroAddress();
+        isRiskExempt[account] = exempt;
     }
 
     // ========================================
@@ -777,7 +785,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         // Enforce per-user risk cap: each user can only commit up to MAX_RISK_EXPOSURE (10,000 USDC)
         // across all their mintCompleteSets calls in this market, preventing excessive concentration
         uint256 exposure = userRiskExposure[msg.sender];
-        if (exposure + amount > MarketConstants.MAX_RISK_EXPOSURE) {
+        if (msg.sender != address(marketFactory) && !isRiskExempt[msg.sender] && exposure + amount > MarketConstants.MAX_RISK_EXPOSURE) {
             revert MarketErrors.PredictionMarket__RiskExposureExceeded();
         }
 

@@ -9,7 +9,8 @@ import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "./PredictionMarket.sol";
 import {MarketDeployer} from "./MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors, Resolution} from "./libraries/MarketTypes.sol";
+import {MarketErrors, Resolution, MarketConstants} from "./libraries/MarketTypes.sol";
+import {AMMLib} from "./libraries/AMMLib.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
 import {Client} from "./ccip/Client.sol";
 import {IRouterClient} from "./ccip/IRouterClient.sol";
@@ -132,6 +133,13 @@ uint256  private initailEventLiquidity;
     event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
     event CanonicalPriceMessageReceived(uint256 indexed marketId, uint256 yesPriceE6, uint256 noPriceE6, uint64 nonce);
     event ResolutionMessageReceived(uint256 indexed marketId, Resolution indexed outcome, uint64 nonce);
+    event UnsafeArbitrageExecuted(
+        address indexed market,
+        bool indexed yesForNo,
+        uint256 collateralSpent,
+        uint256 deviationBeforeBps,
+        uint256 deviationAfterBps
+    );
 
     // ========================================
     // ERRORS
@@ -153,6 +161,11 @@ uint256  private initailEventLiquidity;
  error MarketFactory__ChainSelectornNotSupported();
   error MarketFactory__ActionNotRecognized();
     error MarketFactory__OnlyRegisteredMarket();
+    error MarketFactory__ArbNotUnsafe();
+    error MarketFactory__ArbZeroAmount();
+    error MarketFactory__ArbNoDirection();
+    error MarketFactory__ArbNoExposure();
+    error MarketFactory__ArbInsufficientImprovement();
 
     // ========================================
     // CONSTRUCTOR
@@ -540,6 +553,107 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
     function getMarketFactoryCollateralBalance() external view returns (uint256) {
         return collateral.balanceOf(address(this));
     }
+
+
+
+
+function arbitragePredictionPrice(uint256 marketId, uint256 amount) external{
+
+
+
+
+}
+
+    function arbitrateUnsafeMarket(uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps)
+        external
+        onlyOwner
+    {
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0)) revert MarketFactory__MarketNotFound();
+        if (maxSpendCollateral == 0) revert MarketFactory__ArbZeroAmount();
+
+        PredictionMarket m = PredictionMarket(marketAddress);
+
+        (
+            PredictionMarket.DeviationBand band,
+            uint256 deviationBefore,
+            uint256 effectiveFeeBps,
+            uint256 maxOutBps,
+            bool allowYesForNo,
+            bool allowNoForYes
+        ) = m.getDeviationStatus();
+
+        if (band != PredictionMarket.DeviationBand.Unsafe) revert MarketFactory__ArbNotUnsafe();
+        if (!allowYesForNo && !allowNoForYes) revert MarketFactory__ArbNoDirection();
+
+        uint256 spend = maxSpendCollateral;
+
+        bool yesForNo = allowYesForNo;
+        uint256 reserveIn = yesForNo ? m.yesReserve() : m.noReserve();
+        uint256 reserveOut = yesForNo ? m.noReserve() : m.yesReserve();
+        uint256 maxOut = (reserveOut * maxOutBps) / MarketConstants.FEE_PRECISION_BPS;
+        if (maxOut == 0) revert MarketFactory__ArbZeroAmount();
+
+        uint256 bestSpend =
+            _capSpendForMaxOut(spend, reserveIn, reserveOut, effectiveFeeBps, maxOut);
+        if (bestSpend == 0) revert MarketFactory__ArbZeroAmount();
+
+        _ensureAllowance(collateral, marketAddress, bestSpend);
+        m.mintCompleteSets(bestSpend);
+
+        uint256 swapIn = _netOutcomeFromCollateral(bestSpend);
+        if (yesForNo) {
+            _ensureAllowance(IERC20(address(m.yesToken())), marketAddress, swapIn);
+            m.swapYesForNo(swapIn, 0);
+        } else {
+            _ensureAllowance(IERC20(address(m.noToken())), marketAddress, swapIn);
+            m.swapNoForYes(swapIn, 0);
+        }
+
+        (, uint256 deviationAfter,,,,) = m.getDeviationStatus();
+        if (deviationBefore <= deviationAfter) revert MarketFactory__ArbInsufficientImprovement();
+        if (deviationBefore - deviationAfter < minDeviationImprovementBps) {
+            revert MarketFactory__ArbInsufficientImprovement();
+        }
+
+        emit UnsafeArbitrageExecuted(marketAddress, yesForNo, bestSpend, deviationBefore, deviationAfter);
+    }
+
+    function _netOutcomeFromCollateral(uint256 collateralAmount) internal pure returns (uint256) {
+        uint256 fee = (collateralAmount * MarketConstants.MINT_COMPLETE_SETS_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        return collateralAmount - fee;
+    }
+
+    function _capSpendForMaxOut(
+        uint256 maxSpend,
+        uint256 reserveIn,
+        uint256 reserveOut,
+        uint256 feeBps,
+        uint256 maxOut
+    ) internal pure returns (uint256) {
+        uint256 low = 0;
+        uint256 high = maxSpend;
+        for (uint256 i = 0; i < 16; i++) {
+            uint256 mid = (low + high + 1) / 2;
+            uint256 swapIn = _netOutcomeFromCollateral(mid);
+            (uint256 out,,,) =
+                AMMLib.getAmountOut(reserveIn, reserveOut, swapIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
+            if (out <= maxOut) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return low;
+    }
+
+    function _ensureAllowance(IERC20 token, address spender, uint256 amount) internal {
+        uint256 allowance = token.allowance(address(this), spender);
+        if (allowance < amount) {
+            token.safeIncreaseAllowance(spender, amount - allowance);
+        }
+    }
+
 
 
 

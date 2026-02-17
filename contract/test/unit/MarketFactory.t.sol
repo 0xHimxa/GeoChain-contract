@@ -134,6 +134,21 @@ contract MarketFactoryTest is Test {
         assertEq(PredictionMarket(created).owner(), marketOwner);
     }
 
+    function testArbitrateUnsafeMarketImprovesDeviation() external {
+        vm.startPrank(marketOwner);
+        address created = market.createMarket("arb market", block.timestamp + 1000, block.timestamp + 20000, initialLiquidity);
+        vm.stopPrank();
+
+        vm.prank(address(market));
+        PredictionMarket(created).syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+
+        vm.prank(marketOwner);
+        market.arbitrateUnsafeMarket(1, 1000e6, 1);
+
+        (, uint256 deviationAfter,,,,) = PredictionMarket(created).getDeviationStatus();
+        assertLt(deviationAfter, 400);
+    }
+
     function testCreateMarketTracksIncrementingUintIdsAndIndexes() external {
         vm.startPrank(marketOwner);
         address firstMarket = market.createMarket("first market", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);
