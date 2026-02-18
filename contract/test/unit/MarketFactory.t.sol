@@ -41,6 +41,7 @@ contract MarketFactoryTest is Test {
     event MarketCreated(uint256 indexed marketId, address indexed market, uint256 indexed initialLiquidity);
     event MarketFactory__LiquidityAdded(uint256 indexed amount);
     event CcipConfigUpdated(address indexed router, address indexed feeToken, bool indexed isHubFactory);
+    event ChainSelectorSupportUpdated(uint64 indexed chainSelector, bool indexed isSupported);
     event TrustedRemoteUpdated(uint64 indexed chainSelector, address indexed remoteFactory);
     event TrustedRemoteRemoved(uint64 indexed chainSelector);
     event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
@@ -170,9 +171,8 @@ contract MarketFactoryTest is Test {
         address firstMarket = market.createMarket("first market", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);
         address secondMarket =
             market.createMarket("second market", block.timestamp + 3 hours, block.timestamp + 4 hours, initialLiquidity);
-        vm.stopPrank();
-
         market.removeResolvedMarket(firstMarket);
+        vm.stopPrank();
 
         assertEq(market.activeMarkets(0), secondMarket);
         assertEq(market.marketToIndex(secondMarket), 0);
@@ -195,6 +195,27 @@ contract MarketFactoryTest is Test {
         vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
         market.setTrustedRemote(1, address(100));
         vm.stopPrank();
+    }
+
+    function testSetSupportedChainSelectorRevertZeroSelector() external {
+        vm.prank(marketOwner);
+        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectorCantbezero.selector);
+        market.setSupportedChainSelector(0, true);
+    }
+
+    function testSetSupportedChainSelectorPassAllowsNewSelectorForTrustedRemote() external {
+        uint64 arbitrumSepoliaSelector = 421614;
+
+        vm.startPrank(marketOwner);
+        vm.expectEmit(true, true, false, false);
+        emit ChainSelectorSupportUpdated(arbitrumSepoliaSelector, true);
+        market.setSupportedChainSelector(arbitrumSepoliaSelector, true);
+        market.setTrustedRemote(arbitrumSepoliaSelector, address(777));
+        vm.stopPrank();
+
+        assertEq(market.isSupportedChainSelector(arbitrumSepoliaSelector), true);
+        bytes memory remote = market.trustedRemoteBySelector(arbitrumSepoliaSelector);
+        assertEq(abi.decode(remote, (address)), address(777));
     }
 
     function testSetTrustedRemotePass() external {
@@ -241,6 +262,14 @@ contract MarketFactoryTest is Test {
 
         vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
         market.removeTrustedRemote(33137);
+        vm.stopPrank();
+    }
+
+    function testRemoveTrustedRemoteRevertWhenSelectorSupportDisabled() external {
+        vm.startPrank(marketOwner);
+        market.setSupportedChainSelector(sepoChainSelector, false);
+        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
+        market.removeTrustedRemote(sepoChainSelector);
         vm.stopPrank();
     }
 

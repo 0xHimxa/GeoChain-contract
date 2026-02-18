@@ -74,6 +74,9 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Tracks if a chain selector has already been inserted into s_spokeSelectors
     mapping(uint64 => bool) private s_spokeSelectorExists;
 
+    /// @notice Tracks whether a chain selector is allowed for trusted remote configuration
+    mapping(uint64 => bool) private s_supportedChainSelector;
+
     /// @notice Trusted remote factory sender per chain selector (encoded as abi.encode(address))
     mapping(uint64 => bytes) public trustedRemoteBySelector;
 
@@ -128,6 +131,7 @@ uint256  private initailEventLiquidity;
     /// @notice Emitted when testnet USDC is minted into the factory via addLiquidityToFactory()
     event MarketFactory__LiquidityAdded(uint256 indexed amount);
     event CcipConfigUpdated(address indexed router, address indexed feeToken, bool indexed isHubFactory);
+    event ChainSelectorSupportUpdated(uint64 indexed chainSelector, bool indexed isSupported);
     event TrustedRemoteUpdated(uint64 indexed chainSelector, address indexed remoteFactory);
     event TrustedRemoteRemoved(uint64 indexed chainSelector);
     event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
@@ -208,9 +212,12 @@ uint256  private initailEventLiquidity;
         hashed_BroadCastResolution = keccak256(abi.encodePacked("broadCastResolution"));
         hashed_CreateMarket = keccak256(abi.encodePacked("createMarket"));
         hashed_PriceCorrection = keccak256(abi.encodePacked("priceCorrection"));
-        
-initailEventLiquidity = 10000e6;
-     
+
+        initailEventLiquidity = 10000e6;
+
+        s_supportedChainSelector[16281711391670634445] = true;
+        s_supportedChainSelector[3478487238524512106] = true;
+        s_supportedChainSelector[16015286601757825753] = true;
 
     }
 
@@ -309,19 +316,32 @@ initailEventLiquidity = 10000e6;
         emit CcipConfigUpdated(_ccipRouter, _ccipFeeToken, _isHubFactory);
     }
 
+    /// @notice Sets whether a chain selector is supported for trusted remote configuration
+    /// @param chainSelector The CCIP chain selector to configure
+    /// @param isSupported Whether the selector should be considered supported
+    function setSupportedChainSelector(uint64 chainSelector, bool isSupported) external onlyOwner {
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
+        s_supportedChainSelector[chainSelector] = isSupported;
+        emit ChainSelectorSupportUpdated(chainSelector, isSupported);
+    }
+
+    /// @notice Returns whether a chain selector is supported for trusted remote configuration
+    function isSupportedChainSelector(uint64 chainSelector) external view returns (bool) {
+        return s_supportedChainSelector[chainSelector];
+    }
+
     /// @notice Adds or updates a trusted remote factory for a given chain selector
-    /// @param chainSelector The CCIP chain selector (supported: 11155111 Sepolia, 80002 Amoy, 84532 Base Sepolia)
+    /// @param chainSelector The CCIP chain selector
     /// @param remoteFactory Address of the trusted factory on the remote chain
-    /// @dev Reverts if chain selector is not in the supported list
+    /// @dev Reverts if chain selector is not marked as supported via setSupportedChainSelector()
     function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
         if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
 
-        
-        if(chainSelector != 11155111 && chainSelector != 80002 && chainSelector != 84532){
+        if (!s_supportedChainSelector[chainSelector]) {
             revert MarketFactory__ChainSelectornNotSupported();
         }
-       
+
         trustedRemoteBySelector[chainSelector] = abi.encode(remoteFactory);
         if (!s_spokeSelectorExists[chainSelector]) {
             s_spokeSelectorExists[chainSelector] = true;
@@ -332,15 +352,15 @@ initailEventLiquidity = 10000e6;
     }
 
     /// @notice Removes a trusted remote configuration for a selector
-    /// @param chainSelector The CCIP chain selector to remove (supported: 11155111 Sepolia, 80002 Amoy, 84532 Base Sepolia)
-    /// @dev Reverts if chain selector is not in the supported list
+    /// @param chainSelector The CCIP chain selector to remove
+    /// @dev Reverts if chain selector is not marked as supported via setSupportedChainSelector()
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
-        delete trustedRemoteBySelector[chainSelector];
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
- if(chainSelector != 11155111 && chainSelector != 80002 && chainSelector != 84532){
+        if (!s_supportedChainSelector[chainSelector]) {
             revert MarketFactory__ChainSelectornNotSupported();
         }
-       
+
+        delete trustedRemoteBySelector[chainSelector];
 
         if (s_spokeSelectorExists[chainSelector]) {
             s_spokeSelectorExists[chainSelector] = false;
@@ -449,7 +469,9 @@ initailEventLiquidity = 10000e6;
          if(marketAddress == address(0)) revert MarketFactory__MarketNotFound();
         if (marketId == 0)  revert MarketFactory__MarketNotFound();
 
-        if(marketAddress != msg.sender  || owenr() != msg.sender ) revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+        if (msg.sender != marketAddress && msg.sender != owner()) {
+            revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+        }
 
         
         uint256 index = marketToIndex[market];
