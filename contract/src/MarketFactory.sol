@@ -168,7 +168,7 @@ uint256  private initailEventLiquidity;
     error MarketFactory__ArbNotUnsafe();
     error MarketFactory__ArbZeroAmount();
     error MarketFactory__ArbNoDirection();
-    error MarketFactory__ArbNoExposure();
+  
     error MarketFactory__ArbInsufficientImprovement();
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
 
@@ -364,9 +364,11 @@ uint256  private initailEventLiquidity;
 
         if (s_spokeSelectorExists[chainSelector]) {
             s_spokeSelectorExists[chainSelector] = false;
-            uint256 length = s_spokeSelectors.length;
+            uint64[] memory selectors = s_spokeSelectors;
+        uint256 length = selectors.length;
+           
             for (uint256 i = 0; i < length; i++) {
-                if (s_spokeSelectors[i] == chainSelector) {
+                if (selectors[i] == chainSelector) {
                     s_spokeSelectors[i] = s_spokeSelectors[length - 1];
                     s_spokeSelectors.pop();
                     break;

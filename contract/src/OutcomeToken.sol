@@ -25,8 +25,6 @@ contract OutcomeToken is ERC20, Ownable {
     // ERRORS
     // ========================================
 
-    /// @notice Thrown when caller is not the authorized market contract
-    error OutcomeToken__OnlyMarket();
 
     /// @notice Thrown when market address is zero in constructor
     error OutcomeToken__InvalidMarketAddress();

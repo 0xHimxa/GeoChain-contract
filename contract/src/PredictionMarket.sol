@@ -49,7 +49,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /* ─────────── Market Configuration ─────────── */
 
     /// @notice The prediction question for this market
-    string public s_question;
+    string public  s_question;
 
     /// @notice URL to proof/evidence for market resolution
     string public s_Proof_Url;
@@ -109,7 +109,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
     /// @notice Reference to the parent MarketFactory that deployed this market
     /// @dev Used to notify the factory when this market resolves (removes itself from activeMarkets list)
-    MarketFactory private marketFactory;
+    MarketFactory private immutable marketFactory;
 
     /// @notice Optional controller allowed to push hub state (CCIP receiver on spoke chains)
     address public crossChainController;
@@ -175,6 +175,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         // Ensure closeTime comes before resolutionTime
         if (_closeTime > _resolutionTime) {
             revert MarketErrors.PredictionMarket__CloseTimeGreaterThanResolutionTime();
+        }
+        if(_marketfactory == address(0)){
+            revert MarketErrors.PredictionMarket__MarketFactoryAddressCantBeZero();
         }
 
         // Set market configuration
@@ -825,9 +828,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
         }
 
-        // Burn both YES and NO tokens from user
-        yesToken.burn(msg.sender, amount);
-        noToken.burn(msg.sender, amount);
+   
 
         // Calculate fee and net amount using FeeLib
         (uint256 netAmount, uint256 fee) =
@@ -836,6 +837,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         // Add fee to protocol reserves
         protocolCollateralFees += fee;
 
+     // Burn both YES and NO tokens from user
+        yesToken.burn(msg.sender, amount);
+        noToken.burn(msg.sender, amount);
         // Transfer net collateral to user
         i_collateral.safeTransfer(msg.sender, netAmount);
 
@@ -1086,6 +1090,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @param controller Address of the cross-chain controller (typically the MarketFactory)
     /// @dev Automatically called by MarketFactory.createMarket() during deployment
     function setCrossChainController(address controller) external onlyOwner {
+        if(controller == address(0)){
+            revert MarketErrors.PredictionMarket__CrossChainControllerCantBeZero();
+        }
         crossChainController = controller;
     }
 

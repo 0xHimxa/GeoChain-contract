@@ -23,11 +23,6 @@ contract MarketDeployer is Ownable {
     /// @notice Reverts if setFactory() is called more than once (factory is immutable after first set)
     error MarketDeployer__FactoryAlreadySet();
 
-    /// @notice Restricts function access to the registered factory address only
-    modifier onlyFactory() {
-        if (msg.sender != factory) revert MarketDeployer__OnlyFactory();
-        _;
-    }
 
     /// @param initialOwner Address that will own this deployer (typically the protocol admin)
     constructor(address initialOwner) Ownable(initialOwner) {}
@@ -60,7 +55,8 @@ contract MarketDeployer is Ownable {
         uint256 resolutionTime,
         address marketFactory,
         address forwarder
-    ) external onlyFactory returns (address market) {
+    ) external  returns (address market) {
+         if (msg.sender != factory) revert MarketDeployer__OnlyFactory();
         PredictionMarket m = new PredictionMarket(
             question, collateral, closeTime, resolutionTime, marketFactory, forwarder
         );
