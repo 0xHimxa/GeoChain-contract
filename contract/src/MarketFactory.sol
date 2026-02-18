@@ -166,6 +166,9 @@ uint256  private initailEventLiquidity;
     error MarketFactory__ArbNoDirection();
     error MarketFactory__ArbNoExposure();
     error MarketFactory__ArbInsufficientImprovement();
+    error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+
+
 
     // ========================================
     // CONSTRUCTOR
@@ -440,6 +443,15 @@ initailEventLiquidity = 10000e6;
     ///      Uses swap-and-pop for O(1) removal: moves the last element into the removed slot.
     
     function removeResolvedMarket(address market) external {
+        uint256 marketId = marketIdByAddress[market];
+         address marketAddress = marketById[marketId];
+
+         if(marketAddress == address(0)) revert MarketFactory__MarketNotFound();
+        if (marketId == 0)  revert MarketFactory__MarketNotFound();
+
+        if(marketAddress != msg.sender  || owenr() != msg.sender ) revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+
+        
         uint256 index = marketToIndex[market];
         address lastMarket = activeMarkets[activeMarkets.length - 1];
 
@@ -515,7 +527,7 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
       }else if(actionTypeHash == hashed_PriceCorrection){
         (uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) = abi.decode(payload, (uint256, uint256, uint256));
- _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps) 
+ _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps); 
       }
       
       else{
