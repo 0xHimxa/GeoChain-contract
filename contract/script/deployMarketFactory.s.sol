@@ -21,12 +21,15 @@ contract DeployMarketFactory is Script {
     function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
         OutcomeToken collateral;
 
-        // Anvil default account #1 – used as the Chainlink CRE forwarder placeholder for local testing
-        address forwarder = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+        // Anvil nope my EOA default account #1  used as the Chainlink CRE forwarder placeholder for local testing
+        address forwarder = 0x15fC6ae953E024d975e77382eEeC56A9101f9F88;
 
-        // Anvil default account #0 – acts as the initial owner of all deployed contracts
-        address initialOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
+        // Anvil nope my EOA default account #0  acts as the initial owner of all deployed contracts
+        address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
+
+       
+     
         vm.startBroadcast(initialOwner);
 
         // 1. Deploy a mock USDC token (OutcomeToken reused as a mintable ERC20) owned by initialOwner
@@ -38,6 +41,12 @@ contract DeployMarketFactory is Script {
         // 3. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
         implementationAddress = address(implementation);
+
+
+
+        //Mint collateral to self
+
+        collateral.mint(initialOwner, 1000000e6);
 
         // 4. Encode the initialize() call to pass as ERC1967Proxy constructor data
         bytes memory initData = abi.encodeCall(

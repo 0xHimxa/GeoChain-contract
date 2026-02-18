@@ -1,1 +1,4 @@
 will need to make it posible market facotry to buy to it can try to fix price if it getting messy
+
+
+--
