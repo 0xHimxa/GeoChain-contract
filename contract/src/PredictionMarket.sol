@@ -111,7 +111,12 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Used to notify the factory when this market resolves (removes itself from activeMarkets list)
     MarketFactory private immutable marketFactory;
 
+    // ========================================
+    // CROSS-CHAIN PRICING STATE
+    // ========================================
+
     /// @notice Optional controller allowed to push hub state (CCIP receiver on spoke chains)
+    /// @dev When set, market operates in canonical pricing mode using hub-provided prices
     address public crossChainController;
 
     /// @notice Last hub-synced canonical YES price in 1e6 precision
@@ -130,17 +135,22 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     /// @dev Incremented each time syncCanonicalPriceFromHub() is called
     uint64 public canonicalPriceNonce;
 
-    /// @notice Deviation threshold in bps for normal operations
+    // ========================================
+    // DEVIATION BAND THRESHOLDS
+    // ========================================
+    // These control how the market responds when local AMM prices diverge from canonical hub prices
+
+    /// @notice Deviation threshold in bps for normal operations (no restrictions)
     uint16 public softDeviationBps = 150;
-    /// @notice Deviation threshold in bps where stress controls become active
+    /// @notice Deviation threshold in bps where stress controls become active (extra fees + output caps)
     uint16 public stressDeviationBps = 300;
-    /// @notice Deviation threshold in bps above which swaps are hard-stopped
+    /// @notice Deviation threshold in bps above which swaps are hard-stopped (circuit breaker)
     uint16 public hardDeviationBps = 500;
-    /// @notice Additional fee (bps) applied in stress/unsafe bands
+    /// @notice Additional fee (bps) applied in stress/unsafe bands to disincentivize large trades
     uint16 public stressExtraFeeBps = 100;
-    /// @notice Max output size as bps of output reserve in stress band
+    /// @notice Max output size as bps of output reserve in stress band (2% of reserve)
     uint16 public stressMaxOutBps = 200;
-    /// @notice Max output size as bps of output reserve in unsafe band
+    /// @notice Max output size as bps of output reserve in unsafe band (0.5% of reserve)
     uint16 public unsafeMaxOutBps = 50;
 
     bytes32 private constant hashed_ResolveMarket = keccak256(abi.encodePacked("ResolveMarket"));
@@ -212,11 +222,17 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     error PredictionMarket__TradeSizeExceedsBandLimit();
     error PredictionMarket__RiskExposureExemptZeroAddress();
 
+    // ========================================
+    // DEVIATION BAND DEFINITIONS
+    // ========================================
+
+    /// @notice Categorizes markets based on how far local AMM price deviates from canonical price
+    /// @dev Used to apply different trading restrictions and fees per band
     enum DeviationBand {
-        Normal,
-        Stress,
-        Unsafe,
-        CircuitBreaker
+        Normal,      // Price deviation <= softDeviationBps (1.5%): normal trading
+        Stress,      // Price deviation between soft and stress (1.5-3%): extra fees + output cap
+        Unsafe,      // Price deviation between stress and hard (3-5%): direction restrictions
+        CircuitBreaker // Price deviation > hardDeviationBps (5%): all trading halted
     }
 
     event DeviationPolicyUpdated(
@@ -279,6 +295,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     }
 
     // ========================================
+    // RISK EXPOSURE MANAGEMENT
+    // ========================================
+
+    // Note: userRiskExposure and isRiskExempt are documented in STATE VARIABLES section above
+    // These track per-user exposure to prevent excessive concentration in any single market
+
+    // ========================================
     // INTERNAL FUNCTIONS
     // ========================================
 
@@ -311,15 +334,27 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
+    // ========================================
+    // CROSS-CHAIN PRICING HELPERS
+    // ========================================
+
+    /// @notice Calculates the local AMM YES price from current reserves
+    /// @return YES price in 1e6 precision (same format as canonical prices)
     function _localYesPriceE6() internal view returns (uint256) {
         return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
     }
 
+    /// @notice Calculates price deviation between local AMM and canonical hub price
+    /// @param localYesPriceE6 The current local AMM YES price
+    /// @return Deviation in basis points (bps)
     function _deviationBps(uint256 localYesPriceE6) internal view returns (uint256) {
         uint256 diff = localYesPriceE6 > canonicalYesPriceE6 ? localYesPriceE6 - canonicalYesPriceE6 : canonicalYesPriceE6 - localYesPriceE6;
         return (diff * MarketConstants.FEE_PRECISION_BPS) / MarketConstants.PRICE_PRECISION;
     }
 
+    /// @notice Maps deviation bps to the appropriate DeviationBand
+    /// @param deviationBps The current price deviation in bps
+    /// @return The DeviationBand classification
     function _resolveDeviationBand(uint256 deviationBps) internal view returns (DeviationBand) {
         if (deviationBps <= softDeviationBps) return DeviationBand.Normal;
         if (deviationBps <= stressDeviationBps) return DeviationBand.Stress;
@@ -327,12 +362,20 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         return DeviationBand.CircuitBreaker;
     }
 
+    /// @notice Validates that canonical prices are properly set (non-zero)
+    /// @dev Reverts if either price is zero (indicates uninitialized state)
     function _validateCanonicalPrices() internal view {
         if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
             revert PredictionMarket__InvalidCanonicalPrice();
         }
     }
 
+    /// @notice Determines fee and output limits based on current deviation band
+    /// @dev This is the core logic that enforces canonical price guardrails
+    /// @param yesForNo True if swapping YES for NO, false for NO for YES
+    /// @param reserveOut The output token reserve (used for maxOut calculation)
+    /// @return effectiveFeeBps The fee basis points to apply (higher in stress/unsafe bands)
+    /// @return maxOut Maximum output allowed (capped in stress/unsafe bands)
     function _getCanonicalSwapControls(bool yesForNo, uint256 reserveOut)
         internal
         view
@@ -374,6 +417,13 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
+    // ========================================
+    // DEVIATION POLICY MANAGEMENT
+    // ========================================
+
+    /// @notice Updates the deviation band thresholds and fee parameters
+    /// @dev Only callable by owner. Enforces valid ordering:
+    ///      soft < stress < hard <= 10000, stressMaxOutBps > unsafeMaxOutBps > 0
     function setDeviationPolicy(
         uint16 _softDeviationBps,
         uint16 _stressDeviationBps,
@@ -405,6 +455,18 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         );
     }
 
+    // ========================================
+    // DEVIATION STATUS VIEW
+    // ========================================
+
+    /// @notice Returns current deviation status for UI/chainlink automation
+    /// @dev Useful for off-chain systems to determine if arbitrage/correction is needed
+    /// @return band Current DeviationBand classification
+    /// @return deviationBps Current price deviation in bps
+    /// @return effectiveFeeBps Fee that will be applied to swaps
+    /// @return maxOutBps Maximum output as percentage of reserve
+    /// @return allowYesForNo Whether YES->NO swaps are permitted in current band
+    /// @return allowNoForYes Whether NO->YES swaps are permitted in current band
     function getDeviationStatus()
         external
         view
@@ -1086,6 +1148,10 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         emit MarketEvents.Resolved(resolution);
     }
 
+    // ========================================
+    // CROSS-CHAIN INTEGRATION
+    // ========================================
+
     /// @notice Sets the trusted contract that may push hub updates into this market
     /// @param controller Address of the cross-chain controller (typically the MarketFactory)
     /// @dev Automatically called by MarketFactory.createMarket() during deployment
@@ -1121,6 +1187,8 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     }
 
     /// @notice Applies hub canonical prices to this market (used by UIs/quoting guards on spokes)
+    /// @dev Validates price sum equals PRECISION (ensures valid probability pair)
+    ///      Uses nonce for replay protection
     function syncCanonicalPriceFromHub(uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil, uint64 nonce)
         external
         onlyCrossChainController
@@ -1138,10 +1206,14 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         canonicalPriceNonce = nonce;
     }
 
+    // ========================================
+    // CHAINLINK CRE AUTOMATION
+    // ========================================
+
     /// @notice Internal hook invoked by Chainlink CRE forwarder when a settlement report arrives
-    /// @dev Currently a no-op placeholder. When Chainlink CRE integration is fully wired,
-    ///      this will decode the report and call resolve() automatically.
-    /// @param report ABI-encoded settlement data (currently unused)
+    /// @dev Decodes the report to extract action type and payload, then routes to appropriate handler
+    ///      Currently supports: "ResolveMarket" action to automatically resolve markets
+    /// @param report ABI-encoded settlement data containing action type and payload
     function _processReport(bytes calldata report) internal override {
          (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
       bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
