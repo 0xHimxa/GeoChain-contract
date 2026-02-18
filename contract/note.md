@@ -16,7 +16,7 @@ to update the price i will need to loop through the array of active market and c
 
 sepolia deployed: Market Factory proxy address: 0x272da1329071d2c5E43cEBc0B5D79dAce62d01E4
 
-arbi 1 sepolia deployed: Market Factory proxy address: 0xCD1f9757513780309aea15b85B655d5E78D849C4
+arbi 1 sepolia deployed: Market Factory proxy address: 0x5fb14Fb3c81fB400241b30b8F2fdc4eE1Fd54620
 
 
 f i dinit not specify the initial liquidity for new event will add minimum in the next upgrade
