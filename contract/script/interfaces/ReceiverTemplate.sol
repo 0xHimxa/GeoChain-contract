@@ -36,10 +36,11 @@ abstract contract ReceiverTemplate is IReceiver, Ownable {
     event ExpectedWorkflowIdUpdated(bytes32 indexed previousId, bytes32 indexed newId);
     event SecurityWarning(string message);
 
-    /// @notice Constructor sets msg.sender as the owner and configures the forwarder address
+    /// @notice Constructor sets the initial owner and configures the forwarder address
     /// @param _forwarderAddress The address of the Chainlink Forwarder contract (cannot be address(0))
+    /// @param _initialOwner The initial owner for access-controlled functions
     /// @dev The forwarder address is required for security - it ensures only verified reports are processed
-    constructor(address _forwarderAddress) Ownable(msg.sender) {
+    constructor(address _forwarderAddress, address _initialOwner) Ownable(_initialOwner) {
         if (_forwarderAddress == address(0)) {
             revert InvalidForwarderAddress();
         }

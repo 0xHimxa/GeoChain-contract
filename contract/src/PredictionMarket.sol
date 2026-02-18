@@ -176,7 +176,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         uint256 _resolutionTime,
         address _marketfactory,
         address _forwarderAddress
-    ) ReceiverTemplate(_forwarderAddress) {
+    ) ReceiverTemplate(_forwarderAddress, _marketfactory) {
         // Validate constructor arguments
         if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();

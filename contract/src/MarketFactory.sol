@@ -278,7 +278,7 @@ uint256  private initailEventLiquidity;
 
         PredictionMarket m = PredictionMarket(
             marketDeployer.deployPredictionMarket(
-                question, address(collateral), closeTime, resolutionTime, address(this), _getForwarderAddress()
+                question, address(collateral), closeTime, resolutionTime, _getForwarderAddress()
             )
         );
 

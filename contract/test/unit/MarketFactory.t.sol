@@ -309,7 +309,7 @@ contract MarketFactoryTest is Test {
     }
 
     function testSetMarketDeployerPass() external {
-        MarketDeployer newDeployer = new MarketDeployer(marketOwner);
+        MarketDeployer newDeployer = new MarketDeployer();
         vm.prank(marketOwner);
         market.setMarketDeployer(address(newDeployer));
     }

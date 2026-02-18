@@ -33,7 +33,7 @@ contract DeployMarketFactory is Script {
         collateral = new OutcomeToken("USDC", "USDC", initialOwner);
 
         // 2. Deploy the MarketDeployer helper (holds PredictionMarket creation bytecode)
-        MarketDeployer marketDeployer = new MarketDeployer(initialOwner);
+        MarketDeployer marketDeployer = new MarketDeployer();
 
         // 3. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
@@ -48,13 +48,10 @@ contract DeployMarketFactory is Script {
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
 
-        // 6. Bind the deployer to the factory proxy so it accepts deployPredictionMarket() calls
-        marketDeployer.setFactory(proxyAddress);
-
-        // 7. Transfer collateral token ownership to the factory proxy so it can mint testnet USDC
+        // 6. Transfer collateral token ownership to the factory proxy so it can mint testnet USDC
         collateral.transferOwnership(proxyAddress);
 
-        // 8. Fund the factory with 100,000 testnet USDC (minted via addLiquidityToFactory)
+        // 7. Fund the factory with 100,000 testnet USDC (minted via addLiquidityToFactory)
         MarketFactory(proxyAddress).addLiquidityToFactory();
 
         vm.stopBroadcast();
