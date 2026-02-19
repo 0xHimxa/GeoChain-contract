@@ -31,43 +31,53 @@ type Config = {
 };
 
 const onCronTrigger = (runtime: Runtime<Config>): string => {
-  const evmConfig = runtime.config.evms[0];
 
+const marketFactoryCallData = encodeFunctionData({
+  abi: MarketFactoryAbi,
+  functionName: "getMarketFactoryCollateralBalance"
+});
+
+
+const balances = runtime.config.evms.map((evmConfig) => {
   const network = getNetwork({
     chainFamily: "evm",
     chainSelectorName: evmConfig.chainName,
     isTestnet: true,
   });
+
   if (!network) {
     throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
   }
 
   const evmClient = new EVMClient(network.chainSelector.selector);
 
- const marketFactoryCallData = encodeFunctionData({
+  // Perform the call
+  const callResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: evmConfig.marketFactoryAddress as `0x${string}`,
+      data: marketFactoryCallData,
+    }),
+  }).result();
+
+  // Decode and return the data
+  return decodeFunctionResult({
     abi: MarketFactoryAbi,
-    functionName: "getMarketFactoryCollateralBalance"
-    });
+    functionName: "getMarketFactoryCollateralBalance",
+    data: bytesToHex(callResult.data),
+  });
+});
 
-
- const marketFactoryBalance = evmClient.callContract(runtime,{
-  call: encodeCallMsg({
-    from: sender,
-    to: evmConfig.marketFactoryAddress as `0x${string}`,
-    data: marketFactoryCallData,
-  }),
- }).result();
- 
- const factroyBalanceDecode = decodeFunctionResult({
-  abi: MarketFactoryAbi,
-  functionName: "getMarketFactoryCollateralBalance",
-    data: bytesToHex(marketFactoryBalance.data),
- })
+// 2. Access your data by index
+const factoryBalanceDecode = balances[0];
+const ab1factroyBalanceDecode = balances[1];
 
   
-runtime.log(`returned data: ${factroyBalanceDecode}`);
 
-  return `Hello world! ${factroyBalanceDecode}`;
+runtime.log(`returned data:  arbturm one chain`);
+
+
+  return `Hello world! ${factoryBalanceDecode}  ${ab1factroyBalanceDecode}`;
 };
 
 const initWorkflow = (config: Config) => {

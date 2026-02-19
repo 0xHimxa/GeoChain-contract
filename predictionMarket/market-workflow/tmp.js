@@ -17568,34 +17568,37 @@ var MarketFactoryAbi = [
 ];
 var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
 var onCronTrigger = (runtime2) => {
-  const evmConfig = runtime2.config.evms[0];
-  const network248 = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: evmConfig.chainName,
-    isTestnet: true
-  });
-  if (!network248) {
-    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-  }
-  const evmClient = new ClientCapability(network248.chainSelector.selector);
   const marketFactoryCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getMarketFactoryCollateralBalance"
   });
-  const marketFactoryBalance = evmClient.callContract(runtime2, {
-    call: encodeCallMsg({
-      from: sender,
-      to: evmConfig.marketFactoryAddress,
-      data: marketFactoryCallData
-    })
-  }).result();
-  const factroyBalanceDecode = decodeFunctionResult({
-    abi: MarketFactoryAbi,
-    functionName: "getMarketFactoryCollateralBalance",
-    data: bytesToHex(marketFactoryBalance.data)
+  const balances = runtime2.config.evms.map((evmConfig) => {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true
+    });
+    if (!network248) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+    }
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const callResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: marketFactoryCallData
+      })
+    }).result();
+    return decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "getMarketFactoryCollateralBalance",
+      data: bytesToHex(callResult.data)
+    });
   });
-  runtime2.log(`returned data: ${factroyBalanceDecode}`);
-  return `Hello world! ${factroyBalanceDecode}`;
+  const factoryBalanceDecode = balances[0];
+  const ab1factroyBalanceDecode = balances[1];
+  runtime2.log(`returned data:  arbturm one chain`);
+  return `Hello world! ${factoryBalanceDecode}  ${ab1factroyBalanceDecode}`;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
