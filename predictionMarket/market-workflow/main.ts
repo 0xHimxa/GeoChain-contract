@@ -16,6 +16,8 @@ import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
 import {signUpWorkFlow,SignupNewUserResponse} from "./firebase";
 
+import {askGemeni} from "./createEventPrompt";
+import {type GeminiResponse} from "./type";
 
 
 
@@ -152,10 +154,24 @@ return `returned data:  ${response.expiresIn}`;
 }
 
 
+const gemeniEvent = (runtime: Runtime<Config>): string => {
+
+  const response:GeminiResponse = askGemeni(runtime);
+
+runtime.log(`returned data:  ${response.event_name}: ${response.category}: ${response.description}: ${response.options}: ${response.closing_date}: ${response.resolution_date}: ${response.verification_source}: ${response.trending_reason}`);
+
+
+return `returned data:  ${response.event_name}`;
+
+
+}
+
+
+
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }), authWorkflow)];
+  return [handler(cron.trigger({ schedule: config.schedule }), gemeniEvent)];
 };
 
 export async function main() {

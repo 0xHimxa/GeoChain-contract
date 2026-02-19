@@ -2,7 +2,6 @@ import {
 
   type Runtime,
   HTTPClient,
-  type HTTPSendRequester,
   consensusIdenticalAggregation,
   ok 
 } from "@chainlink/cre-sdk";
@@ -20,7 +19,6 @@ export interface SignupNewUserResponse {
 
 export const  signUpWorkFlow = (runtime: Runtime<Config>)=>{
 const firestoreApiKey = runtime.getSecret({id: "FIREBASE_API_KEY"}).result();
- const firestoreProjectId = runtime.getSecret({id: "FIREBASE_PROJECT_ID"}).result();
 
   const httpClient = new HTTPClient();
   const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firestoreApiKey.value}`;
