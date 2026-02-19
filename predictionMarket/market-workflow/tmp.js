@@ -18205,10 +18205,8 @@ var onCronTrigger = (runtime2) => {
     }
     return contractBalance;
   });
-  const factoryBalanceDecode = balances[0];
-  const ab1factroyBalanceDecode = balances[1];
   runtime2.log(`returned data:  arbturm one chain`);
-  return `Hello world! ${factoryBalanceDecode}  ${ab1factroyBalanceDecode}`;
+  return `Hello world! ${balances[0]} ${balances[1]}`;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;

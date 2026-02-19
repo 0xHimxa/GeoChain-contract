@@ -31,7 +31,10 @@ type Config = {
   evms: EvmConfig[];
 };
 
-const onCronTrigger = (runtime: Runtime<Config>): string => {
+
+//this triger will check the market factory that create event, fix arbtrage balance after cartain time
+//if the balance is below certain amount fund it
+const marketFactoryBalanceTopUp= (runtime: Runtime<Config>): string => {
 
 const marketFactoryCallData = encodeFunctionData({
   abi: MarketFactoryAbi,
@@ -118,9 +121,6 @@ if(contractBalance <= 100000000000){
 
 });
 
-// 2. Access your data by index
-const factoryBalanceDecode = balances[0];
-const ab1factroyBalanceDecode = balances[1];
 
 
 
@@ -132,13 +132,13 @@ const ab1factroyBalanceDecode = balances[1];
 runtime.log(`returned data:  arbturm one chain`);
 
 
-  return `Hello world! ${factoryBalanceDecode}  ${ab1factroyBalanceDecode}`;
+  return `Hello world! ${balances[0]} ${balances[1]}`;
 };
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)];
+  return [handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp)];
 };
 
 export async function main() {
