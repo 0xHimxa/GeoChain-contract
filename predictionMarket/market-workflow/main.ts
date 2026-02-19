@@ -14,6 +14,8 @@ import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiPa
 //import { OutcomeTokenAbi } from "./outComeToken";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
+import {signUpWorkFlow,SignupNewUserResponse} from "./firebase";
+
 
 
 
@@ -26,7 +28,7 @@ type EvmConfig = {
   chainName: string;
 };
 
-type Config = {
+export type Config = {
   schedule: string;
   evms: EvmConfig[];
 };
@@ -135,10 +137,25 @@ runtime.log(`returned data:  arbturm one chain`);
   return `Hello world! ${balances[0]} ${balances[1]}`;
 };
 
+
+
+const authWorkflow = (runtime: Runtime<Config>): string => {
+
+  const response:SignupNewUserResponse = signUpWorkFlow(runtime);
+
+runtime.log(`returned data:  ${response.localId}`);
+
+return `returned data:  ${response.expiresIn}`;
+
+
+
+}
+
+
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp)];
+  return [handler(cron.trigger({ schedule: config.schedule }), authWorkflow)];
 };
 
 export async function main() {
