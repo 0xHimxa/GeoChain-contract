@@ -4,8 +4,8 @@ import {
   consensusIdenticalAggregation,
   type Runtime,
 } from "@chainlink/cre-sdk";
-import { Config } from "./main";
-import { type GeminiResponse } from "./type";
+import { Config } from "../main";
+import { type GeminiResponse } from "../type";
 
 const systemPrompt = `**Role:** You are a Senior Prediction Market Analyst and Event Architect. Your goal is to research real-time global trends (Crypto, Politics, Sports, Tech) and generate high-engagement "Yes/No" or "Multiple Choice" prediction events.
 

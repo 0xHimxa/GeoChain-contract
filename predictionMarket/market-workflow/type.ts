@@ -8,3 +8,19 @@
   "verification_source": string,
   "trending_reason": string
 }
+
+
+export interface GeminiResolveResponse{
+  "result": string,
+  "confidence": number,
+  "source_url": string
+}
+
+
+export interface SignupNewUserResponse {
+  kind: string;
+  idToken: string; // JWT token for Firestore authentication
+  refreshToken: string;
+  expiresIn: string; // Token expiration time in seconds
+  localId: string; // Anonymous user ID
+}

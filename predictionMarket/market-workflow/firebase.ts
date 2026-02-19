@@ -6,15 +6,10 @@ import {
   ok 
 } from "@chainlink/cre-sdk";
 import {Config} from "./main";
+import {type SignupNewUserResponse} from "./type"
  
 
-export interface SignupNewUserResponse {
-  kind: string;
-  idToken: string; // JWT token for Firestore authentication
-  refreshToken: string;
-  expiresIn: string; // Token expiration time in seconds
-  localId: string; // Anonymous user ID
-}
+
 
 
 export const  signUpWorkFlow = (runtime: Runtime<Config>)=>{

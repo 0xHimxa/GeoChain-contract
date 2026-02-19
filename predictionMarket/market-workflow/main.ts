@@ -14,10 +14,12 @@ import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiPa
 //import { OutcomeTokenAbi } from "./outComeToken";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
-import {signUpWorkFlow,SignupNewUserResponse} from "./firebase";
+import {signUpWorkFlow} from "./firebase";
 
-import {askGemeni} from "./createEventPrompt";
-import {type GeminiResponse} from "./type";
+import {askGemeni} from "./gemini/createEventPrompt";
+import {type GeminiResponse, type SignupNewUserResponse} from "./type";
+import {askGemeniResolve} from "./gemini/resolveEvent";
+
 
 
 
@@ -167,11 +169,40 @@ return `returned data:  ${response.event_name}`;
 }
 
 
+const geminiReslove = (runtime: Runtime<Config>): string => {
+
+  const testQuestion = {
+    question: "will FIFA world Cup be played in  2026",
+    resolutionTime: `${new Date().toISOString()}`
+  }
+
+
+
+const response = askGemeniResolve(runtime,testQuestion);
+
+runtime.log(`returned data:  ${response.result}: ${response.confidence}: ${response.source_url}`);
+
+
+return `returned data:  ${response.result}`;
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }), gemeniEvent)];
+  return [handler(cron.trigger({ schedule: config.schedule }),  geminiReslove)];
 };
 
 export async function main() {
