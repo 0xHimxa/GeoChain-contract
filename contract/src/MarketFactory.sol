@@ -98,6 +98,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     bytes32 private hashed_BroadCastResolution;
     bytes32 private hashed_CreateMarket;
     bytes32 private hashed_PriceCorrection; 
+    bytes32  private hashed_AddLiquidityToFactory;
    
 
 uint256  private initailEventLiquidity;
@@ -208,12 +209,13 @@ uint256  private initailEventLiquidity;
         marketDeployer = MarketDeployer(_marketDeployer);
         Amount_Funding_Factory = 100000e6;
         
-        hashed_BroadCastPrice = keccak256( abi.encodePacked("broadCastPrice"));
-        hashed_BroadCastResolution = keccak256(abi.encodePacked("broadCastResolution"));
-        hashed_CreateMarket = keccak256(abi.encodePacked("createMarket"));
-        hashed_PriceCorrection = keccak256(abi.encodePacked("priceCorrection"));
+        hashed_BroadCastPrice = keccak256( abi.encode("broadCastPrice"));
+        hashed_BroadCastResolution = keccak256(abi.encode("broadCastResolution"));
+        hashed_CreateMarket = keccak256(abi.encode("createMarket"));
+        hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
+        hashed_AddLiquidityToFactory = keccak256(abi.encode("addLiquidityToFactory"));
 
-        initailEventLiquidity = 10000e6;
+        initailEventLiquidity = 30000e6;
 
         s_supportedChainSelector[16281711391670634445] = true;
         s_supportedChainSelector[3478487238524512106] = true;
@@ -242,10 +244,18 @@ uint256  private initailEventLiquidity;
     ///      The factory must be the owner of the collateral token for mint() to succeed.
     ///      This provides initial liquidity for newly created markets.
     function addLiquidityToFactory() external onlyOwner {
+        return _addLiquidityToFactory();
+    }
+
+
+ function _addLiquidityToFactory() internal  {
         console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
         emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
     }
+
+
+
 
     /**
      * @notice Creates a new prediction market with initial liquidity
@@ -531,7 +541,7 @@ uint256  private initailEventLiquidity;
     /// @dev Will contain factory-level settlement logic once Chainlink CRE integration is complete
     function _processReport(bytes calldata report) internal override {
       (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
-      bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
+      bytes32 actionTypeHash = keccak256(abi.encode(actionType));
 
       if (actionTypeHash == hashed_BroadCastPrice) {
         (uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil) = abi.decode(payload, (uint256, uint256, uint256, uint256));
@@ -552,7 +562,10 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
       }else if(actionTypeHash == hashed_PriceCorrection){
         (uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) = abi.decode(payload, (uint256, uint256, uint256));
  _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps); 
-      }
+      }else if(actionTypeHash == hashed_AddLiquidityToFactory){
+        _addLiquidityToFactory();
+        
+        }
       
       else{
          revert MarketFactory__ActionNotRecognized();

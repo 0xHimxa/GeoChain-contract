@@ -7,9 +7,10 @@ import {
   EVMClient,
   encodeCallMsg,
   bytesToHex,
+  prepareReportRequest,
 
 } from "@chainlink/cre-sdk";
-import { decodeErrorResult, encodeFunctionData, decodeFunctionResult } from "viem";
+import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiParameters, parseAbiParameters } from "viem";
 //import { OutcomeTokenAbi } from "./outComeToken";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
@@ -38,6 +39,12 @@ const marketFactoryCallData = encodeFunctionData({
 });
 
 
+ const marketFactoryAddliquidityCall = encodeFunctionData({
+  abi: MarketFactoryAbi,
+  functionName: "addLiquidityToFactory"
+});
+
+
 const balances = runtime.config.evms.map((evmConfig) => {
   const network = getNetwork({
     chainFamily: "evm",
@@ -61,16 +68,64 @@ const balances = runtime.config.evms.map((evmConfig) => {
   }).result();
 
   // Decode and return the data
-  return decodeFunctionResult({
+   const contractBalance:any =  decodeFunctionResult({
     abi: MarketFactoryAbi,
     functionName: "getMarketFactoryCollateralBalance",
     data: bytesToHex(callResult.data),
   });
+
+
+if(contractBalance <= 100000000000){
+
+
+
+  const actionType = "addLiquidityToFactory";
+  
+  // For 'mint', the payload is ignored, so we send an empty hex string '0x'
+  const dummyPayload = "0x"; 
+
+  // Encode as (string, bytes)
+  const encodedReport = encodeAbiParameters(
+    parseAbiParameters('string actionType, bytes payload'),
+    [actionType, dummyPayload]
+  );
+
+  // Generate the consensus report
+  const reportResponse =  runtime.report({
+    ...prepareReportRequest(encodedReport),
+  }).result();
+
+
+
+    // Step 2: Submit the report to the consumer contract
+  const writeReportResult = evmClient
+    .writeReport(runtime, {
+      receiver: evmConfig.marketFactoryAddress,
+      report: reportResponse,
+    })
+    .result()
+
+  runtime.log("Waiting for write report response")
+
+  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+  runtime.log(`Write report transaction succeeded: ${txHash}`);
+  runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+  return 
+
+}
+  return contractBalance;
+
+
 });
 
 // 2. Access your data by index
 const factoryBalanceDecode = balances[0];
 const ab1factroyBalanceDecode = balances[1];
+
+
+
+
+
 
   
 
