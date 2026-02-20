@@ -21,6 +21,7 @@ import {type GeminiResponse, type SignupNewUserResponse} from "./type";
 import {askGemeniResolve} from "./gemini/resolveEvent";
 import {askGemeniDuplicateCheck} from "./gemini/duplicateEvent";
 import { writeToFirestore } from "./firebase/write";
+import { getFirestoreList } from "./firebase/doclist";
 
 
 
@@ -239,14 +240,18 @@ const dublicateQuestion = [
   function createPredictionMarketEvent(runtime: Runtime<Config>): string {
  
  
-  //const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
-   // const eventInfo:GeminiResponse = askGemeni(runtime);
+  const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
+  //  const eventInfo:GeminiResponse = askGemeni(runtime);
+
 
 // const closeTime = Math.floor(new Date(eventInfo.closing_date).getTime() / 1000);
 //const resolutionTime = Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000);  
-const eventName = "Will ETH price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 15 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 60 * 60);
+const eventName = "Will BTC price be above $3,000 in 1 hour?";
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+runtime.log(` id token: ${authInfo.idToken} `);
+     writeToFirestore(runtime,authInfo.idToken,eventName,resolutionTime.toString(),'');
+
 
 const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) {

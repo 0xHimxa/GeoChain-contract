@@ -39,6 +39,8 @@ export const writeToFirestore = (
       },
     };
 
+ 
+
 const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
     const body = Buffer.from(bodyBytes).toString("base64");
 
