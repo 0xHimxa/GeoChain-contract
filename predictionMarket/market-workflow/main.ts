@@ -14,12 +14,13 @@ import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiPa
 //import { OutcomeTokenAbi } from "./outComeToken";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
-import {signUpWorkFlow} from "./firebase";
+import {signUpWorkFlow} from "./firebase/firebase";
 
 import {askGemeni} from "./gemini/createEventPrompt";
 import {type GeminiResponse, type SignupNewUserResponse} from "./type";
 import {askGemeniResolve} from "./gemini/resolveEvent";
 import {askGemeniDuplicateCheck} from "./gemini/duplicateEvent";
+import { writeToFirestore } from "./firebase/write";
 
 
 
@@ -225,6 +226,19 @@ const dublicateQuestion = [
   return `returned data:  ${response.is_duplicate}`
 
   }   
+
+
+  function createPredictionMarketEvent(runtime: Runtime<Config>): string {
+  const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
+    const res:GeminiResponse = askGemeni(runtime);
+
+
+
+
+
+    return ``
+  }
+
 
 
 

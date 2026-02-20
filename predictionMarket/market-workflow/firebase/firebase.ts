@@ -5,8 +5,8 @@ import {
   consensusIdenticalAggregation,
   ok 
 } from "@chainlink/cre-sdk";
-import {Config} from "./main";
-import {type SignupNewUserResponse} from "./type"
+import {Config} from "../main";
+import {type SignupNewUserResponse} from "../type"
  
 
 
