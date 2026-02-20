@@ -9,16 +9,17 @@ import {PredictionMarket} from "src/PredictionMarket.sol";
 contract InteractWithEvent is Script {
 
 address evnentAddress = 0x04FFA2af594836FB3f2538d1C4ac2c4e2634a0B8;
+address event2Address = 0x10FA5AE74abf6c44C339955EA2Bf72D35962B0be;
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
 function run() external{
 
 vm.startBroadcast(owner);
 
-string memory question = PredictionMarket(evnentAddress).s_question();
-uint256 closeTime = PredictionMarket(evnentAddress).closeTime();
-uint256 resolutionTime = PredictionMarket(evnentAddress).resolutionTime();
-uint256 myshare = PredictionMarket(evnentAddress).lpShares(0x7c7fe235fC63509969E329E5D660E073EeFa5d39);
-bool readyReslolve = PredictionMarket(evnentAddress).checkResolutionTime();
+string memory question = PredictionMarket(event2Address).s_question();
+uint256 closeTime = PredictionMarket(event2Address).closeTime();
+uint256 resolutionTime = PredictionMarket(event2Address).resolutionTime();
+uint256 myshare = PredictionMarket(event2Address).lpShares(0x7c7fe235fC63509969E329E5D660E073EeFa5d39);
+bool readyReslolve = PredictionMarket(event2Address).checkResolutionTime();
 console.log("ready to resolve",readyReslolve);
 
 

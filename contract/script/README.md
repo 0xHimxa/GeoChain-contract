@@ -8,6 +8,10 @@ This directory contains deployment scripts for the GeoChain Prediction Market co
 
 Deploys the `MarketFactory` contract with specified collateral token.
 
+### upgradeMarketFactory.s.sol
+
+Upgrades an existing `MarketFactory` UUPS proxy to a newly deployed implementation.
+
 ## Prerequisites
 
 1. **Foundry** installed
@@ -29,6 +33,8 @@ PRIVATE_KEY=your_private_key_here
 RPC_URL=https://eth-mainnet.alchemyapi.io/v2/YOUR_KEY
 ETHERSCAN_API_KEY=your_etherscan_api_key
 COLLATERAL_TOKEN_ADDRESS=0x... # USDC or other ERC20 address
+MARKET_FACTORY_PROXY=0x... # existing proxy address to upgrade
+UPGRADE_CALLDATA=0x # init call for new version, keep 0x if not needed
 ```
 
 > [!WARNING]
@@ -85,6 +91,15 @@ forge script script/deployMarketFactory.s.sol \
     --broadcast \
     --verify \
     --legacy \
+    -vvvv
+```
+
+### Upgrade Existing Proxy
+
+```bash
+forge script script/upgradeMarketFactory.s.sol \
+    --rpc-url $RPC_URL \
+    --broadcast \
     -vvvv
 ```
 

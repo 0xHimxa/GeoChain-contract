@@ -6,15 +6,15 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {console} from "forge-std/console.sol";
-import {PredictionMarket} from "./PredictionMarket.sol";
-import {MarketDeployer} from "./MarketDeployer.sol";
+import {PredictionMarket} from "../PredictionMarket.sol";
+import {MarketDeployer} from "../MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors, Resolution, MarketConstants} from "./libraries/MarketTypes.sol";
-import {AMMLib} from "./libraries/AMMLib.sol";
-import {OutcomeToken} from "./OutcomeToken.sol";
-import {Client} from "./ccip/Client.sol";
-import {IRouterClient} from "./ccip/IRouterClient.sol";
-import {IAny2EVMMessageReceiver} from "./ccip/IAny2EVMMessageReceiver.sol";
+import {MarketErrors, Resolution, MarketConstants} from "../libraries/MarketTypes.sol";
+import {AMMLib} from "../libraries/AMMLib.sol";
+import {OutcomeToken} from "../OutcomeToken.sol";
+import {Client} from "../ccip/Client.sol";
+import {IRouterClient} from "../ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
 
 /**
  * @title MarketFactory
@@ -22,6 +22,7 @@ import {IAny2EVMMessageReceiver} from "./ccip/IAny2EVMMessageReceiver.sol";
  * @notice Factory contract for deploying new prediction markets with initial liquidity
  * @dev UUPS upgradeable factory. Uses initialize() instead of constructor.
  */
+ /// @custom:oz-upgrades-from MarketFactory
 contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgradeable, IAny2EVMMessageReceiver {
     using SafeERC20 for IERC20;
 
@@ -738,6 +739,12 @@ address marketAddress = marketById[_marketId];
 
 
 }
+
+
+function getActiveEventList() external view returns (address[] memory){
+    return activeMarkets;
+}
+
 
 
 }

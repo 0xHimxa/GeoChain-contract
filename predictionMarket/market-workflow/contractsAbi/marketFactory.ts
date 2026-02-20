@@ -1,4 +1,4 @@
-export const MarketFactoryAbi =[
+export const MarketFactoryAbi = [
         {
             "type": "constructor",
             "inputs": [],
@@ -254,6 +254,19 @@ export const MarketFactoryAbi =[
                 }
             ],
             "stateMutability": "nonpayable"
+        },
+        {
+            "type": "function",
+            "name": "getActiveEventList",
+            "inputs": [],
+            "outputs": [
+                {
+                    "name": "",
+                    "type": "address[]",
+                    "internalType": "address[]"
+                }
+            ],
+            "stateMutability": "view"
         },
         {
             "type": "function",
