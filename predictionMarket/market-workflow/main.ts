@@ -19,6 +19,8 @@ import {signUpWorkFlow} from "./firebase";
 import {askGemeni} from "./gemini/createEventPrompt";
 import {type GeminiResponse, type SignupNewUserResponse} from "./type";
 import {askGemeniResolve} from "./gemini/resolveEvent";
+import {askGemeniDuplicateCheck} from "./gemini/duplicateEvent";
+
 
 
 
@@ -177,6 +179,9 @@ const geminiReslove = (runtime: Runtime<Config>): string => {
   }
 
 
+  
+
+
 
 const response = askGemeniResolve(runtime,testQuestion);
 
@@ -190,6 +195,36 @@ return `returned data:  ${response.result}`;
 }
 
 
+const geminiDuplicateCheck = (runtime: Runtime<Config>): string => {
+
+const dublicateQuestion = [
+    {
+      question: "Will Bitcoin reach $100,000 by December 31, 2025?",
+      resolutionTime: "2025-11-10T14:22:00Z"
+    },
+    {
+      
+      question: "Will Ethereum ETF approval happen in 2025?",
+      resolutionTime: "2025-11-09T09:15:00Z"
+    }
+
+  
+  ]
+
+
+  const new_event = {
+    question: "Does BTC hit 6 figures before January 2026?",
+     resolutionTime: "2025-11-09T09:15:00Z"
+  
+  }
+  
+  const response = askGemeniDuplicateCheck(runtime,dublicateQuestion,new_event);
+  
+  runtime.log(`returned data:  ${response.is_duplicate}`);
+
+  return `returned data:  ${response.is_duplicate}`
+
+  }   
 
 
 
@@ -202,7 +237,7 @@ return `returned data:  ${response.result}`;
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }),  geminiReslove)];
+  return [handler(cron.trigger({ schedule: config.schedule }), geminiDuplicateCheck)];
 };
 
 export async function main() {

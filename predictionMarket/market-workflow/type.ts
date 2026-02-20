@@ -24,3 +24,9 @@ export interface SignupNewUserResponse {
   expiresIn: string; // Token expiration time in seconds
   localId: string; // Anonymous user ID
 }
+
+
+
+export interface IsDuplicate{
+  is_duplicate: boolean
+}
