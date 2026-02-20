@@ -20,6 +20,7 @@ export const writeToFirestore = (
   runtime: Runtime<Config>,
   idToken: string,
   question: string,
+  resolutionTime: string,
   geminiData: any // This is the data you want to save
 ) => {
   const projectId = runtime.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
@@ -31,6 +32,7 @@ export const writeToFirestore = (
     const dataToSend = {
       fields: {
         question: { stringValue: question },
+        resolutionTime: { stringValue: resolutionTime },
         geminiResponse: { stringValue: geminiData.response || "No response" },
         // Firestore expects integers as strings in its REST API
         createdAt: { integerValue: Date.now().toString() }, 
