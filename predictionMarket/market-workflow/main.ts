@@ -8,7 +8,7 @@ import {
   encodeCallMsg,
   bytesToHex,
   prepareReportRequest,
-
+  TxStatus,
 } from "@chainlink/cre-sdk";
 import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiParameters, parseAbiParameters } from "viem";
 //import { OutcomeTokenAbi } from "./outComeToken";
@@ -114,10 +114,18 @@ if(contractBalance <= 100000000000){
     .writeReport(runtime, {
       receiver: evmConfig.marketFactoryAddress,
       report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
     })
     .result()
 
   runtime.log("Waiting for write report response")
+
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    runtime.log(`[${evmConfig.chainName}] addLiquidity REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+    throw new Error(`addLiquidity failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+  }
 
   const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
   runtime.log(`Write report transaction succeeded: ${txHash}`);
@@ -274,7 +282,15 @@ const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
     const writeReportResult = evmClient.writeReport(runtime, {
       receiver: evmConfig.marketFactoryAddress,
       report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
     }).result();
+
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+      throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+    }
 
     const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
     runtime.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);

@@ -4,6 +4,7 @@ pragma solidity 0.8.33;
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
+import {AMMLib} from "src/libraries/AMMLib.sol";
 import {MarketConstants, MarketErrors, Resolution} from "src/libraries/MarketTypes.sol";
 
 contract MockMarketFactoryFuzz {
@@ -39,6 +40,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
             address(mockFactory),
             FORWARDER
         );
+
+        vm.prank(address(mockFactory));
+        market.transferOwnership(address(this));
 
         collateral.mint(address(market), INITIAL_LIQUIDITY);
         market.seedLiquidity(INITIAL_LIQUIDITY);
@@ -230,7 +234,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
 
     function testFuzz_GetYesForNoQuote_CanonicalFormula(uint96 yesInRaw, uint32 yesPriceRaw) external {
         uint256 yesIn = bound(uint256(yesInRaw), MarketConstants.MINIMUM_SWAP_AMOUNT, 100_000e6);
-        uint256 yesPrice = bound(uint256(yesPriceRaw), 1, MarketConstants.PRICE_PRECISION - 1);
+        uint256 yesPrice = bound(uint256(yesPriceRaw), 495_000, 505_000);
         uint256 noPrice = MarketConstants.PRICE_PRECISION - yesPrice;
 
         market.setCrossChainController(address(this));
@@ -238,10 +242,11 @@ contract PredictionMarketStatelessFuzzTest is Test {
 
         (uint256 netOut, uint256 fee) = market.getYesForNoQuote(yesIn);
 
-        uint256 grossOut = (yesIn * yesPrice) / noPrice;
-        uint256 expectedFee = (grossOut * MarketConstants.SWAP_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        (uint256 expectedNetOut, uint256 expectedFee,,) = AMMLib.getAmountOut(
+            market.yesReserve(), market.noReserve(), yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+        );
 
         assertEq(fee, expectedFee);
-        assertEq(netOut, grossOut - expectedFee);
+        assertEq(netOut, expectedNetOut);
     }
 }

@@ -16,6 +16,7 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
     PredictionMarket internal market;
     OutcomeToken internal collateral;
     PredictionMarketHandler internal handler;
+    MockMarketFactoryInvariant internal mockFactory;
 
     uint256 internal constant INITIAL_LIQUIDITY = 10_000e6;
     address internal constant FORWARDER = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
@@ -23,14 +24,19 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
 
+        mockFactory = new MockMarketFactoryInvariant();
+
         market = new PredictionMarket(
             "Will ETH close above 5k?",
             address(collateral),
             block.timestamp + 1 days,
             block.timestamp + 2 days,
-            address(new MockMarketFactoryInvariant()),
+            address(mockFactory),
             FORWARDER
         );
+
+        vm.prank(address(mockFactory));
+        market.transferOwnership(address(this));
 
         collateral.mint(address(market), INITIAL_LIQUIDITY);
         market.seedLiquidity(INITIAL_LIQUIDITY);

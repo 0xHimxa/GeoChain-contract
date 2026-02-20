@@ -220,6 +220,9 @@ uint256  private initailEventLiquidity;
         s_supportedChainSelector[16281711391670634445] = true;
         s_supportedChainSelector[3478487238524512106] = true;
         s_supportedChainSelector[16015286601757825753] = true;
+        s_supportedChainSelector[11155111] = true;
+        s_supportedChainSelector[80002] = true;
+        s_supportedChainSelector[84532] = true;
 
     }
 

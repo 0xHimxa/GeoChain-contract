@@ -21,12 +21,12 @@ contract DeployMarketFactory is Script {
     function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
         OutcomeToken collateral;
 
-        // Anvil nope  chainlink ab1  default account #1  used as the Chainlink CRE forwarder placeholder for local testing
-        address forwarder =0x15fC6ae953E024d975e77382eEeC56A9101f9F88;
+        // Anvil default account #1 used as workflow forwarder placeholder in tests.
+        address forwarder = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
 
-        // Anvil nope my EOA default account #0  acts as the initial owner of all deployed contracts
-        address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
+        // Anvil default account #0 expected by test suite as factory owner/admin.
+        address initialOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
        
      

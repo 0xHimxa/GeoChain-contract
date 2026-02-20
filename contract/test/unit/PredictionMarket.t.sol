@@ -55,6 +55,9 @@ contract PredictionMarketTest is Test {
             FORWARDER
         );
 
+        vm.prank(address(mockFactory));
+        market.transferOwnership(address(this));
+
         collateral.mint(address(market), INITIAL_LIQUIDITY);
         market.seedLiquidity(INITIAL_LIQUIDITY);
     }
@@ -103,6 +106,8 @@ contract PredictionMarketTest is Test {
             address(mockFactory),
             FORWARDER
         );
+        vm.prank(address(mockFactory));
+        m.transferOwnership(address(this));
     }
 
     function testConstructorRevertInvalidArguments() external {
@@ -616,9 +621,9 @@ contract PredictionMarketTest is Test {
         _warpAfterResolution();
         market.resolve(Resolution.Inconclusive, "ipfs://initial");
 
-        bytes32 slot13 = vm.load(address(market), bytes32(uint256(13)));
+        bytes32 slot14 = vm.load(address(market), bytes32(uint256(14)));
         bytes32 clearManualReviewMask = ~(bytes32(uint256(0xff)) << (8 * 2));
-        vm.store(address(market), bytes32(uint256(13)), slot13 & clearManualReviewMask);
+        vm.store(address(market), bytes32(uint256(14)), slot14 & clearManualReviewMask);
 
         vm.expectRevert(MarketErrors.PredictionMarket__ManualReviewNeeded.selector);
         market.manualResolveMarket(Resolution.Yes, "ipfs://manual");
@@ -709,10 +714,10 @@ contract PredictionMarketTest is Test {
         _warpAfterResolution();
         market.resolve(Resolution.Yes, "ipfs://proof");
 
-        bytes32 slot13 = vm.load(address(market), bytes32(uint256(13)));
+        bytes32 slot14 = vm.load(address(market), bytes32(uint256(14)));
         bytes32 clearResolutionMask = ~(bytes32(uint256(0xff)) << 8);
-        bytes32 withInconclusiveResolution = (slot13 & clearResolutionMask) | (bytes32(uint256(3)) << 8);
-        vm.store(address(market), bytes32(uint256(13)), withInconclusiveResolution);
+        bytes32 withInconclusiveResolution = (slot14 & clearResolutionMask) | (bytes32(uint256(3)) << 8);
+        vm.store(address(market), bytes32(uint256(14)), withInconclusiveResolution);
 
         vm.expectRevert(MarketErrors.PredictionMarket__InvalidFinalOutcome.selector);
         market.withdrawLiquidityCollateral(1);

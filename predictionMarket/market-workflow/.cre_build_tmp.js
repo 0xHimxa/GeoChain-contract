@@ -15765,8 +15765,15 @@ function createPredictionMarketEvent(runtime2) {
       }).result();
       const writeReportResult = evmClient.writeReport(runtime2, {
         receiver: evmConfig.marketFactoryAddress,
-        report: reportResponse
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000"
+        }
       }).result();
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime2.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+        throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+      }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
       runtime2.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);
       runtime2.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
