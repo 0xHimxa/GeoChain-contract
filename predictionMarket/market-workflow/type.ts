@@ -30,3 +30,11 @@ export interface SignupNewUserResponse {
 export interface IsDuplicate{
   is_duplicate: boolean
 }
+
+
+export interface InputType{
+
+    question: string
+    resolutionTime: string
+
+}

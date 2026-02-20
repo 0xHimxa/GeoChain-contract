@@ -16,10 +16,10 @@ import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 //import { PredictionMarketAbi } from "./predictionMarket";
 import {signUpWorkFlow} from "./firebase/firebase";
 
-import {askGemeni} from "./gemini/createEventPrompt";
+import {askGemeni} from "./gemini/uniqueEvent";
 import {type GeminiResponse, type SignupNewUserResponse} from "./type";
 import {askGemeniResolve} from "./gemini/resolveEvent";
-import {askGemeniDuplicateCheck} from "./gemini/duplicateEvent";
+
 import { writeToFirestore } from "./firebase/write";
 import { getFirestoreList } from "./firebase/doclist";
 
@@ -170,12 +170,12 @@ return `returned data:  ${response.expiresIn}`;
 
 const gemeniEvent = (runtime: Runtime<Config>): string => {
 
-  const response:GeminiResponse = askGemeni(runtime);
+ // const response:GeminiResponse = askGemeni(runtime);
 
-runtime.log(`returned data:  ${response.event_name}: ${response.category}: ${response.description}: ${response.options}: ${response.closing_date}: ${response.resolution_date}: ${response.verification_source}: ${response.trending_reason}`);
+//runtime.log(`returned data:  ${response.event_name}: ${response.category}: ${response.description}: ${response.options}: ${response.closing_date}: ${response.resolution_date}: ${response.verification_source}: ${response.trending_reason}`);
 
 
-return `returned data:  ${response.event_name}`;
+return `returned data:`;
 
 
 }
@@ -207,32 +207,21 @@ return `returned data:  ${response.result}`;
 
 const geminiDuplicateCheck = (runtime: Runtime<Config>): string => {
 
-const dublicateQuestion = [
+const prevQuestion = [
     {
       question: "Will Bitcoin reach $100,000 by December 31, 2025?",
       resolutionTime: "2025-11-10T14:22:00Z"
-    },
-    {
-      
-      question: "Will Ethereum ETF approval happen in 2025?",
-      resolutionTime: "2025-11-09T09:15:00Z"
     }
-
   
   ]
 
 
-  const new_event = {
-    question: "Does BTC hit 6 figures before January 2026?",
-     resolutionTime: "2025-11-09T09:15:00Z"
   
-  }
+  const response = askGemeni(runtime,prevQuestion);
   
-  const response = askGemeniDuplicateCheck(runtime,dublicateQuestion,new_event);
-  
-  runtime.log(`returned data:  ${response.is_duplicate}`);
+  runtime.log(`returned data:  ${response.event_name}`);
 
-  return `returned data:  ${response.is_duplicate}`
+  return `returned data:  ${response.resolution_date}`
 
   }   
 
@@ -326,7 +315,7 @@ return marketFactoryCall.join(", ");
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent)];
+  return [handler(cron.trigger({ schedule: config.schedule }),  geminiDuplicateCheck)];
 };
 
 export async function main() {
