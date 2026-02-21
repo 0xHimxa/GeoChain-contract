@@ -168,73 +168,6 @@ return `returned data:  ${response.expiresIn}`;
 }
 
 
-const gemeniEvent = (runtime: Runtime<Config>): string => {
-
- // const response:GeminiResponse = askGemeni(runtime);
-
-//runtime.log(`returned data:  ${response.event_name}: ${response.category}: ${response.description}: ${response.options}: ${response.closing_date}: ${response.resolution_date}: ${response.verification_source}: ${response.trending_reason}`);
-
-
-return `returned data:`;
-
-
-}
-
-
-const geminiReslove = (runtime: Runtime<Config>): string => {
-
-  const testQuestion = {
-    question: "will FIFA world Cup be played in  2026",
-    resolutionTime: `${new Date().toISOString()}`
-  }
-
-
-  
-
-
-
-const response = askGemeniResolve(runtime,testQuestion);
-
-runtime.log(`returned data:  ${response.result}: ${response.confidence}: ${response.source_url}`);
-
-
-return `returned data:  ${response.result}`;
-
-
-
-}
-
-
-const geminiDuplicateCheck = (runtime: Runtime<Config>): string => {
-
-const prevQuestion = [
-    {
-      question: "Will Bitcoin reach $100,000 by December 31, 2025?",
-      resolutionTime: "2025-11-10T14:22:00Z"
-    }
-  
-  ]
-  const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
-
-
-const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-runtime.log(` id token: ${authInfo.idToken} `);
-    // writeToFirestore(runtime,authInfo.idToken,eventName,resolutionTime.toString(),'');
-
-  const documents = getFirestoreList(runtime,authInfo.idToken);
-  
-  //const response = askGemeni(runtime,prevQuestion);
-  const hasMore = documents.length === 31;
-
-const events = hasMore ? documents.slice(0, 30) : documents;
-  runtime.log(`returned data:  ${documents.length}`);
-
-  return `returned data: `
-
-  }   
-
 
   function createPredictionMarketEvent(runtime: Runtime<Config>): string {
  
@@ -524,6 +457,147 @@ return `${activeEventList.length}`
 
 
 
+const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
+  if (runtime.config.evms.length === 0) {
+    return "No EVM config found";
+  }
+
+  const hubConfig = runtime.config.evms[0];
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: hubConfig.chainName,
+    isTestnet: true,
+  });
+
+  if (!network) {
+    throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
+  }
+
+  const evmClient = new EVMClient(network.chainSelector.selector);
+
+  const activeMarketCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+  });
+
+  const activeMarketResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: hubConfig.marketFactoryAddress as `0x${string}`,
+      data: activeMarketCallData,
+    }),
+  }).result();
+
+  const activeMarketList = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(activeMarketResult.data),
+  }) as `0x${string}`[];
+
+  if (activeMarketList.length === 0) {
+    return "No active markets to sync";
+  }
+
+  let broadcastedCount = 0;
+
+  for (const marketAddress of activeMarketList) {
+    const marketIdCallData = encodeFunctionData({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      args: [marketAddress],
+    });
+
+    const marketIdCallResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: hubConfig.marketFactoryAddress as `0x${string}`,
+        data: marketIdCallData,
+      }),
+    }).result();
+
+    const marketId = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      data: bytesToHex(marketIdCallResult.data),
+    }) as bigint;
+
+    if (marketId === 0n) {
+      runtime.log(`Skipping ${marketAddress}: marketIdByAddress returned 0`);
+      continue;
+    }
+
+    const yesPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability",
+    });
+    const noPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability",
+    });
+
+    const yesPriceResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: yesPriceCallData,
+      }),
+    }).result();
+
+    const noPriceResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: noPriceCallData,
+      }),
+    }).result();
+
+    const yesPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability",
+      data: bytesToHex(yesPriceResult.data),
+    }) as bigint;
+
+    const noPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability",
+      data: bytesToHex(noPriceResult.data),
+    }) as bigint;
+
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3 * 60);
+    const pricePayload = encodeAbiParameters(
+      parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"),
+      [marketId, yesPriceE6, noPriceE6, validUntil]
+    );
+    const encodedReport = encodeAbiParameters(
+      parseAbiParameters("string actionType, bytes payload"),
+      ["broadCastPrice", pricePayload]
+    );
+    const reportResponse = runtime.report({
+      ...prepareReportRequest(encodedReport),
+    }).result();
+
+    const writeReportResult = evmClient.writeReport(runtime, {
+      receiver: hubConfig.marketFactoryAddress,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
+    }).result();
+
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime.log(`[${hubConfig.chainName}] broadCastPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+      throw new Error(`broadCastPrice failed on ${hubConfig.chainName}: ${writeReportResult.errorMessage}`);
+    }
+
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime.log(`[${hubConfig.chainName}] broadCastPrice tx for marketId=${marketId}: ${txHash}`);
+    runtime.log(`[${hubConfig.chainName}] https://sepolia.etherscan.io/tx/${txHash}`);
+    broadcastedCount += 1;
+  }
+
+  return `Broadcasted price updates for ${broadcastedCount}/${activeMarketList.length} markets`;
+}
+
 
 
 
@@ -549,7 +623,10 @@ return `${activeEventList.length}`
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }),  resoloveEvent)];
+  return [
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+  ];
 };
 
 export async function main() {
