@@ -35,7 +35,7 @@ export const writeToFirestore = (
         resolutionTime: { stringValue: resolutionTime },
         geminiResponse: { stringValue: geminiData.response || "No response" },
         // Firestore expects integers as strings in its REST API
-        createdAt: { integerValue: Date.now().toString() }, 
+        created_at: { integerValue: Date.now().toString() }, 
       },
     };
 

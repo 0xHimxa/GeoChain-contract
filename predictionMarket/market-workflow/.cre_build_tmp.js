@@ -13804,154 +13804,87 @@ var sendErrorResponse = (error) => {
   }
   hostBindings.sendResponse(payload);
 };
-var systemPrompt = `
-ROLE:
-You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
-
-You operate in THREE mandatory phases:
-1) Category Selection (Weighted Randomization)
-2) Event Generation
-3) Duplicate Detection Validation
-
-If duplication is detected at the semantic level, you MUST internally discard and regenerate before producing output.
-
-
-PHASE 1 — CATEGORY SELECTION (MANDATORY)
-
-
-You MUST select ONE category using weighted randomness with equal distribution:
-
-- Crypto: 25%
-- Politics: 25%
-- Sports: 25%
-- Tech/Culture: 25%
-
-You MUST NOT default to Crypto.
-You MUST generate the event ONLY within the selected category.
-You may not override this selection.
-
-
-PHASE 2 — EVENT GENERATION
-
-
-Generate exactly ONE high-engagement prediction event within the selected category.
-
-MANDATORY REQUIREMENTS:
-- Must resolve between 1 and 14 days from now.
-- Resolution time must be at least 24 hours AFTER closing time.
-- Must be binary (Yes/No) OR mutually exclusive multiple choice.
-- Must include exact UTC timestamps (YYYY-MM-DD HH:MM UTC).
-- Crypto events MUST specify exact exchange AND exact trading pair.
-- Must include explicit Postponement Rule in description.
-- Must resolve via objective, verifiable, authoritative data.
-- No ambiguity or vague wording.
-- No subjective outcomes.
-
-PROHIBITED:
-- Offensive or illegal topics.
-- Death/injury speculation.
-- Social media rumors as settlement basis.
-- Global average crypto prices.
-- Ambiguous timeframes.
-
-
-PHASE 3 — DUPLICATE DETECTION (STRICT)
-
-
-Ensure the generated event is NOT the same underlying real-world outcome as any existing market.
-
-SAME EVENT = DUPLICATE if:
-- Same asset + same threshold + same time window.
-- Same person/team winning same contest.
-- Same regulatory approval decision.
-- Same measurable outcome.
-- Only wording differs.
-
-DIFFERENT EVENT = UNIQUE if:
-- Different threshold.
-- Different asset.
-- Different time window.
-- Different measurable outcome.
-- Different decision or result.
-
-If semantic overlap exists, regenerate internally.
-Never output a duplicate.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-SOURCE HIERARCHY (MANDATORY)
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. Official government/regulatory portals
-2. Primary sports data providers (official box scores)
-3. Major exchange APIs (Binance, Coinbase, Kraken)
-4. Tier-1 news (Reuters, AP)
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT RULES (CRITICAL)
-━━━━━━━━━━━━━━━━━━━━━━━━
-- Output EXACTLY ONE event.
-- Output MUST be valid raw JSON.
-- Do NOT wrap in markdown.
-- Do NOT use backticks.
-- Do NOT include commentary.
-- Do NOT include explanations.
-- Do NOT include text before or after JSON.
-- JSON must start with { and end with }.
-- No trailing commas.
-
-Required JSON structure:
-
-{
-  "event_name": "Short, specific title",
-  "category": "Crypto/Politics/Sports/Tech",
-  "description": "Precise explanation including Postponement Rule.",
-  "options": ["Yes", "No"] OR ["Option A", "Option B"],
-  "closing_date": "YYYY-MM-DD HH:MM UTC",
-  "resolution_date": "YYYY-MM-DD HH:MM UTC",
-  "verification_source": "Exact authoritative entity or URL",
-  "trending_reason": "Why this topic is currently trending"
-}
-`;
-var userPrompt = `
-Generate exactly ONE unique prediction event that satisfies ALL rules.
-Return ONLY valid raw JSON.
-`;
-var askGemeni = (runtime2, previousEvents) => {
-  const gemeniApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
+var signUpWorkFlow = (runtime2) => {
+  const firestoreApiKey = runtime2.getSecret({ id: "FIREBASE_API_KEY" }).result();
   const httpClient = new ClientCapability;
-  const result = httpClient.sendRequest(runtime2, prompt(gemeniApiKey, previousEvents), consensusIdenticalAggregation())().result();
-  runtime2.log(`returned data:  ${result.event_name}, ${result.category}, ${result.description}, ${result.options},`);
-  return result;
-};
-var prompt = (apikey, previousEvents) => (sendRequester) => {
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firestoreApiKey.value}`;
   const dataToSend = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    tools: [{ google_search: {} }],
-    contents: [
-      {
-        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
+    returnSecureToken: true
+  };
+  const authRequester = (sendRequester) => {
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const req = {
+      url,
+      method: "POST",
+      body,
+      headers: {
+        "Content-Type": "application/json"
       }
-    ]
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (!ok(res))
+      throw new Error(`Http request failed with status ${res.statusCode}`);
+    const bodyText = new TextDecoder().decode(res.body);
+    const readyToUse = JSON.parse(bodyText);
+    return readyToUse;
   };
-  const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
-  const body = Buffer.from(bodyBytes).toString("base64");
-  const req = {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-    method: "POST",
-    body,
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apikey
+  const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
+  return response;
+};
+var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const httpClient = new ClientCapability;
+  const writeRequester = (sendRequester) => {
+    const dataToSend = {
+      fields: {
+        question: { stringValue: question },
+        resolutionTime: { stringValue: resolutionTime },
+        geminiResponse: { stringValue: geminiData.response || "No response" },
+        created_at: { integerValue: Date.now().toString() }
+      }
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo`;
+    const req = {
+      url,
+      method: "POST",
+      body,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json"
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200) {
+      const errorText = new TextDecoder().decode(res.body);
+      throw new Error(`Firestore write failed: ${res.statusCode} - ${errorText}`);
     }
+    return JSON.parse(new TextDecoder().decode(res.body));
   };
-  const res = sendRequester.sendRequest(req).result();
-  if (!ok(res))
-    throw new Error(`Http request failed with status ${res.statusCode}`);
-  const rawData = new TextDecoder().decode(res.body);
-  const aires = JSON.parse(rawData);
-  const aiResponseString = aires?.candidates?.[0]?.content?.parts?.[0]?.text;
-  const cleanJson = aiResponseString.replace(/```json|```/g, "").trim();
-  const readyToUse = JSON.parse(cleanJson);
-  return readyToUse;
+  const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
+  return response.value;
+};
+var getFirestoreList = (runtime2, idToken) => {
+  const httpClient = new ClientCapability;
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const listRequester = (sendRequester) => {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
+    const req = {
+      url,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200)
+      throw new Error("Failed to fetch list");
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
+  return response.documents;
 };
 var geminiDuplicateCheck = (runtime2) => {
   const prevQuestion = [
@@ -13960,9 +13893,15 @@ var geminiDuplicateCheck = (runtime2) => {
       resolutionTime: "2025-11-10T14:22:00Z"
     }
   ];
-  const response = askGemeni(runtime2, prevQuestion);
-  runtime2.log(`returned data:  ${response.event_name}`);
-  return `returned data:  ${response.resolution_date}`;
+  const authInfo = signUpWorkFlow(runtime2);
+  const eventName = "Will BTC price be above $3,000 in 1 hour?";
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+  runtime2.log(` id token: ${authInfo.idToken} `);
+  writeToFirestore(runtime2, authInfo.idToken, eventName, resolutionTime.toString(), "");
+  const reportResponse = getFirestoreList(runtime2, authInfo.idToken);
+  runtime2.log(`returned data:  ${reportResponse.length}`);
+  return `returned data: `;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;

@@ -12,14 +12,15 @@ import {Config} from "../main";
 
 export const getFirestoreList = (
   runtime: Runtime<Config>,
-  idToken: string,
-  projectId: string
+  idToken: string
+
 ) => {
   const httpClient = new HTTPClient();
+  const projectId = runtime.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+
 
   const listRequester = (sendRequester: any) => {
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo`;
-
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
     const req = {
       url: url,
       method: "GET" as const,
@@ -35,5 +36,5 @@ export const getFirestoreList = (
   };
 
   const response = httpClient.sendRequest(runtime, listRequester, consensusIdenticalAggregation())().result();
-  return response.value.documents; // Returns an array of documents
+  return response.documents || []; // Returns an array of documents
 };

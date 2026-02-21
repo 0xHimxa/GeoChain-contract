@@ -214,14 +214,24 @@ const prevQuestion = [
     }
   
   ]
+  const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
 
 
+const eventName = "Will BTC price be above $3,000 in 1 hour?";
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+runtime.log(` id token: ${authInfo.idToken} `);
+    // writeToFirestore(runtime,authInfo.idToken,eventName,resolutionTime.toString(),'');
+
+  const documents = getFirestoreList(runtime,authInfo.idToken);
   
-  const response = askGemeni(runtime,prevQuestion);
-  
-  runtime.log(`returned data:  ${response.event_name}`);
+  //const response = askGemeni(runtime,prevQuestion);
+  const hasMore = documents.length === 31;
 
-  return `returned data:  ${response.resolution_date}`
+const events = hasMore ? documents.slice(0, 30) : documents;
+  runtime.log(`returned data:  ${documents.length}`);
+
+  return `returned data: `
 
   }   
 
