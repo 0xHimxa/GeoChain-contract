@@ -321,7 +321,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev When enabled, swaps use hub-provided prices instead of AMM reserves
      */
     function _isCanonicalPricingMode() internal view returns (bool) {
-        return crossChainController != address(0);
+        return crossChainController != address(0) && !marketFactory.isHubFactory()
     }
 
     /**
