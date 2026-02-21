@@ -21,7 +21,7 @@ import {type GeminiResponse, type SignupNewUserResponse} from "./type";
 import {askGemeniResolve} from "./gemini/resolveEvent";
 
 import { writeToFirestore } from "./firebase/write";
-import { getFirestoreList } from "./firebase/doclist";
+import { getFirestoreList} from "./firebase/doclist";
 
 
 
@@ -240,16 +240,33 @@ const events = hasMore ? documents.slice(0, 30) : documents;
  
  
   const authInfo:SignupNewUserResponse = signUpWorkFlow(runtime);
-  //  const eventInfo:GeminiResponse = askGemeni(runtime);
+  const documents = getFirestoreList(runtime,authInfo.idToken);
+
+const hasMore = documents.length === 31;
+
+const events = hasMore ? documents.slice(0, 30) : documents;
+const filteredEvent = events.length > 0 ?  events.map((event:any)=>({
+  question: event.question,
+  resolutionTime: event.resolutionTime
+})) : []; 
+
+   const eventInfo:GeminiResponse = askGemeni(runtime,filteredEvent);
+
+ const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
+const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
+
+runtime.log(`returned data:  ${documents.length}, ${54}, Data from db`);
+
+    writeToFirestore(runtime,authInfo.idToken,eventInfo.event_name,resolutionTime.toString(),'');
+
+//const eventName = eventInfo.event_name;
 
 
-// const closeTime = Math.floor(new Date(eventInfo.closing_date).getTime() / 1000);
-//const resolutionTime = Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000);  
-const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
+  
+//const eventName = "Will BTC price be above $3,000 in 1 hour?";
+//const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
+//const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
 runtime.log(` id token: ${authInfo.idToken} `);
-     writeToFirestore(runtime,authInfo.idToken,eventName,resolutionTime.toString(),'');
 
 
 const txExplorer = (chainName: string, txHash: string): string => {
@@ -304,7 +321,7 @@ const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
 
   const createPayload = encodeAbiParameters(
     parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"),
-    [eventName, closeTime, resolutionTime]
+    [eventInfo.event_name, closeTime, resolutionTime]
   );
 
   sendActionReport("createMarket", createPayload);

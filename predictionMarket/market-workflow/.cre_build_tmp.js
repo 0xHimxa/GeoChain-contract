@@ -15803,6 +15803,155 @@ var signUpWorkFlow = (runtime2) => {
   const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
   return response;
 };
+var systemPrompt = `
+ROLE:
+You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
+
+You operate in THREE mandatory phases:
+1) Category Selection (Weighted Randomization)
+2) Event Generation
+3) Duplicate Detection Validation
+
+If duplication is detected at the semantic level, you MUST internally discard and regenerate before producing output.
+
+
+PHASE 1 — CATEGORY SELECTION (MANDATORY)
+
+
+You MUST select ONE category using weighted randomness with equal distribution:
+
+- Crypto: 25%
+- Politics: 25%
+- Sports: 25%
+- Tech/Culture: 25%
+
+You MUST NOT default to Crypto.
+You MUST generate the event ONLY within the selected category.
+You may not override this selection.
+
+
+PHASE 2 — EVENT GENERATION
+
+
+Generate exactly ONE high-engagement prediction event within the selected category.
+
+MANDATORY REQUIREMENTS:
+- Must resolve between 1 and 14 days from now.
+- Resolution time must be at least 24 hours AFTER closing time.
+- Must be binary (Yes/No) OR mutually exclusive multiple choice.
+- Must include exact UTC timestamps (YYYY-MM-DD HH:MM UTC).
+- Crypto events MUST specify exact exchange AND exact trading pair.
+- Must include explicit Postponement Rule in description.
+- Must resolve via objective, verifiable, authoritative data.
+- No ambiguity or vague wording.
+- No subjective outcomes.
+
+PROHIBITED:
+- Offensive or illegal topics.
+- Death/injury speculation.
+- Social media rumors as settlement basis.
+- Global average crypto prices.
+- Ambiguous timeframes.
+
+
+PHASE 3 — DUPLICATE DETECTION (STRICT)
+
+
+Ensure the generated event is NOT the same underlying real-world outcome as any existing market.
+
+SAME EVENT = DUPLICATE if:
+- Same asset + same threshold + same time window.
+- Same person/team winning same contest.
+- Same regulatory approval decision.
+- Same measurable outcome.
+- Only wording differs.
+
+DIFFERENT EVENT = UNIQUE if:
+- Different threshold.
+- Different asset.
+- Different time window.
+- Different measurable outcome.
+- Different decision or result.
+
+If semantic overlap exists, regenerate internally.
+Never output a duplicate.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE HIERARCHY (MANDATORY)
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. Official government/regulatory portals
+2. Primary sports data providers (official box scores)
+3. Major exchange APIs (Binance, Coinbase, Kraken)
+4. Tier-1 news (Reuters, AP)
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT RULES (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━
+- Output EXACTLY ONE event.
+- Output MUST be valid raw JSON.
+- Do NOT wrap in markdown.
+- Do NOT use backticks.
+- Do NOT include commentary.
+- Do NOT include explanations.
+- Do NOT include text before or after JSON.
+- JSON must start with { and end with }.
+- No trailing commas.
+
+Required JSON structure:
+
+{
+  "event_name": "Short, specific title",
+  "category": "Crypto/Politics/Sports/Tech",
+  "description": "Precise explanation including Postponement Rule.",
+  "options": ["Yes", "No"] OR ["Option A", "Option B"],
+  "closing_date": "YYYY-MM-DD HH:MM UTC",
+  "resolution_date": "YYYY-MM-DD HH:MM UTC",
+  "verification_source": "Exact authoritative entity or URL",
+  "trending_reason": "Why this topic is currently trending"
+}
+`;
+var userPrompt = `
+Generate exactly ONE unique prediction event that satisfies ALL rules.
+Return ONLY valid raw JSON.
+`;
+var askGemeni = (runtime2, previousEvents) => {
+  const gemeniApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
+  const httpClient = new ClientCapability2;
+  const result = httpClient.sendRequest(runtime2, prompt(gemeniApiKey, previousEvents), consensusIdenticalAggregation())().result();
+  runtime2.log(`returned data:  ${result.event_name}, ${result.category}, ${result.description}, ${result.options},`);
+  return result;
+};
+var prompt = (apikey, previousEvents) => (sendRequester) => {
+  const dataToSend = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    tools: [{ google_search: {} }],
+    contents: [
+      {
+        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
+      }
+    ]
+  };
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+  const body = Buffer.from(bodyBytes).toString("base64");
+  const req = {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+    method: "POST",
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apikey
+    }
+  };
+  const res = sendRequester.sendRequest(req).result();
+  if (!ok(res))
+    throw new Error(`Http request failed with status ${res.statusCode}`);
+  const rawData = new TextDecoder().decode(res.body);
+  const aires = JSON.parse(rawData);
+  const aiResponseString = aires?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const cleanJson = aiResponseString.replace(/```json|```/g, "").trim();
+  const readyToUse = JSON.parse(cleanJson);
+  return readyToUse;
+};
 var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
   const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
   const httpClient = new ClientCapability2;
@@ -15837,13 +15986,53 @@ var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData)
   const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
   return response.value;
 };
+var flattenFirestore = (doc) => {
+  if (!doc.fields)
+    return doc;
+  const flattened = { id: doc.name.split("/").pop() };
+  for (const [key, value2] of Object.entries(doc.fields)) {
+    const valObj = value2;
+    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
+    flattened[key] = actualValue;
+  }
+  return flattened;
+};
+var getFirestoreList = (runtime2, idToken) => {
+  const httpClient = new ClientCapability2;
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const listRequester = (sendRequester) => {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
+    const req = {
+      url,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200)
+      throw new Error("Failed to fetch list");
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
+  const rawDocs = response.documents || [];
+  return rawDocs.map((doc) => flattenFirestore(doc));
+};
 function createPredictionMarketEvent(runtime2) {
   const authInfo = signUpWorkFlow(runtime2);
-  const eventName = "Will BTC price be above $3,000 in 1 hour?";
-  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
-  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
+  const documents = getFirestoreList(runtime2, authInfo.idToken);
+  const hasMore = documents.length === 31;
+  const events = hasMore ? documents.slice(0, 30) : documents;
+  const filteredEvent = events.length > 0 ? events.map((event) => ({
+    question: event.question,
+    resolutionTime: event.resolutionTime
+  })) : [];
+  const eventInfo = askGemeni(runtime2, filteredEvent);
+  const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
+  const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
+  runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db`);
+  writeToFirestore(runtime2, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
   runtime2.log(` id token: ${authInfo.idToken} `);
-  writeToFirestore(runtime2, authInfo.idToken, eventName, resolutionTime.toString(), "");
   const txExplorer = (chainName, txHash) => {
     if (chainName.includes("arbitrum")) {
       return `https://sepolia.arbiscan.io/tx/${txHash}`;
@@ -15881,7 +16070,7 @@ function createPredictionMarketEvent(runtime2) {
       runtime2.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
       return txHash;
     };
-    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventName, closeTime, resolutionTime]);
+    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.event_name, closeTime, resolutionTime]);
     sendActionReport("createMarket", createPayload);
     return `[${evmConfig.chainName}] ok`;
   });

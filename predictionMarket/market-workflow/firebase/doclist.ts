@@ -10,6 +10,23 @@ import {Config} from "../main";
 
 
 
+const flattenFirestore = (doc: any) => {
+  if (!doc.fields) return doc;
+  
+  const flattened: any = { id: doc.name.split('/').pop() }; // Grabs the actual Doc ID
+  
+  for (const [key, value] of Object.entries(doc.fields)) {
+    // This looks inside the field (e.g., 'question') 
+    // and grabs the value regardless of if it's a string, map, or number.
+    const valObj = value as any;
+    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
+    
+    flattened[key] = actualValue;
+  }
+  return flattened;
+};
+
+
 export const getFirestoreList = (
   runtime: Runtime<Config>,
   idToken: string
@@ -36,5 +53,7 @@ export const getFirestoreList = (
   };
 
   const response = httpClient.sendRequest(runtime, listRequester, consensusIdenticalAggregation())().result();
-  return response.documents || []; // Returns an array of documents
+  const rawDocs = response.documents || []; // Returns an array of documents
+
+  return rawDocs.map((doc: any) => flattenFirestore(doc));
 };
