@@ -17,7 +17,7 @@ contract UpgradeMarketFactory is Script {
     function run() external returns (address proxyAddress, address newImplementationAddress) {
        
         address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        proxyAddress = 0x015a4e609ED01012ff4B9401a274BE84C89052E6;
+        proxyAddress = 0x7c7fe235fC63509969E329E5D660E073EeFa5d39;
         bytes memory upgradeCallData = "";
 
         vm.startBroadcast(owner);

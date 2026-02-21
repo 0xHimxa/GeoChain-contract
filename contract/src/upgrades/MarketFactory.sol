@@ -541,6 +541,11 @@ uint256  private initailEventLiquidity;
         revert MarketFactory__UnknownSyncMessageType();
     }
 
+    /// @notice ERC165 support declaration used by CCIP OffRamp to detect receivers
+    function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
+        return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || super.supportsInterface(interfaceId);
+    }
+
     /// @notice Chainlink CRE receiver hook — currently a no-op placeholder
     /// @dev Will contain factory-level settlement logic once Chainlink CRE integration is complete
     function _processReport(bytes calldata report) internal override {
@@ -599,7 +604,9 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
             data: abi.encode(messageType, payload),
             tokenAmounts: tokenAmounts,
             feeToken: ccipFeeToken,
-            extraArgs: ""
+            extraArgs: Client._argsToBytes(
+                Client.EVMExtraArgsV2({gasLimit: 800_000, allowOutOfOrderExecution: true})
+            )
         });
 
         uint256 fee = IRouterClient(ccipRouter).getFee(destinationChainSelector, message);

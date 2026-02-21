@@ -246,8 +246,8 @@ const events = hasMore ? documents.slice(0, 30) : documents;
 // const closeTime = Math.floor(new Date(eventInfo.closing_date).getTime() / 1000);
 //const resolutionTime = Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000);  
 const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
 runtime.log(` id token: ${authInfo.idToken} `);
      writeToFirestore(runtime,authInfo.idToken,eventName,resolutionTime.toString(),'');
 
@@ -325,7 +325,7 @@ return marketFactoryCall.join(", ");
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }),  geminiDuplicateCheck)];
+  return [handler(cron.trigger({ schedule: config.schedule }),  createPredictionMarketEvent)];
 };
 
 export async function main() {
