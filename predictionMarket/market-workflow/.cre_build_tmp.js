@@ -78,6 +78,65 @@ var init_regex = __esm(() => {
   integerRegex = /^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/;
   isTupleRegex = /^\(.+?\).*?$/;
 });
+function formatAbiParameter(abiParameter) {
+  let type = abiParameter.type;
+  if (tupleRegex.test(abiParameter.type) && "components" in abiParameter) {
+    type = "(";
+    const length = abiParameter.components.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      const component = abiParameter.components[i2];
+      type += formatAbiParameter(component);
+      if (i2 < length - 1)
+        type += ", ";
+    }
+    const result = execTyped(tupleRegex, abiParameter.type);
+    type += `)${result?.array ?? ""}`;
+    return formatAbiParameter({
+      ...abiParameter,
+      type
+    });
+  }
+  if ("indexed" in abiParameter && abiParameter.indexed)
+    type = `${type} indexed`;
+  if (abiParameter.name)
+    return `${type} ${abiParameter.name}`;
+  return type;
+}
+var tupleRegex;
+var init_formatAbiParameter = __esm(() => {
+  init_regex();
+  tupleRegex = /^tuple(?<array>(\[(\d*)\])*)$/;
+});
+function formatAbiParameters(abiParameters) {
+  let params = "";
+  const length = abiParameters.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const abiParameter = abiParameters[i2];
+    params += formatAbiParameter(abiParameter);
+    if (i2 !== length - 1)
+      params += ", ";
+  }
+  return params;
+}
+var init_formatAbiParameters = __esm(() => {
+  init_formatAbiParameter();
+});
+function formatAbiItem(abiItem) {
+  if (abiItem.type === "function")
+    return `function ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability && abiItem.stateMutability !== "nonpayable" ? ` ${abiItem.stateMutability}` : ""}${abiItem.outputs?.length ? ` returns (${formatAbiParameters(abiItem.outputs)})` : ""}`;
+  if (abiItem.type === "event")
+    return `event ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "error")
+    return `error ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "constructor")
+    return `constructor(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  if (abiItem.type === "fallback")
+    return `fallback() external${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  return "receive() external payable";
+}
+var init_formatAbiItem = __esm(() => {
+  init_formatAbiParameters();
+});
 function isStructSignature(signature) {
   return structSignatureRegex.test(signature);
 }
@@ -592,7 +651,27 @@ var init_parseAbiParameters = __esm(() => {
   init_utils();
 });
 var init_exports = __esm(() => {
+  init_formatAbiItem();
   init_parseAbiParameters();
+});
+function formatAbiItem2(abiItem, { includeName = false } = {}) {
+  if (abiItem.type !== "function" && abiItem.type !== "event" && abiItem.type !== "error")
+    throw new InvalidDefinitionTypeError(abiItem.type);
+  return `${abiItem.name}(${formatAbiParams(abiItem.inputs, { includeName })})`;
+}
+function formatAbiParams(params, { includeName = false } = {}) {
+  if (!params)
+    return "";
+  return params.map((param) => formatAbiParam(param, { includeName })).join(includeName ? ", " : ",");
+}
+function formatAbiParam(param, { includeName }) {
+  if (param.type.startsWith("tuple")) {
+    return `(${formatAbiParams(param.components, { includeName })})${param.type.slice("tuple".length)}`;
+  }
+  return param.type + (includeName && param.name ? ` ${param.name}` : "");
+}
+var init_formatAbiItem2 = __esm(() => {
+  init_abi();
 });
 function isHex(value2, { strict = true } = {}) {
   if (!value2)
@@ -695,14 +774,62 @@ var init_base = __esm(() => {
     }
   };
 });
+var AbiDecodingDataSizeTooSmallError;
+var AbiDecodingZeroDataError;
 var AbiEncodingArrayLengthMismatchError;
 var AbiEncodingBytesSizeMismatchError;
 var AbiEncodingLengthMismatchError;
+var AbiFunctionNotFoundError;
+var AbiFunctionOutputsNotFoundError;
+var AbiItemAmbiguityError;
 var InvalidAbiEncodingTypeError;
+var InvalidAbiDecodingTypeError;
 var InvalidArrayError;
+var InvalidDefinitionTypeError;
 var init_abi = __esm(() => {
+  init_formatAbiItem2();
   init_size();
   init_base();
+  AbiDecodingDataSizeTooSmallError = class AbiDecodingDataSizeTooSmallError2 extends BaseError2 {
+    constructor({ data, params, size: size2 }) {
+      super([`Data size of ${size2} bytes is too small for given parameters.`].join(`
+`), {
+        metaMessages: [
+          `Params: (${formatAbiParams(params, { includeName: true })})`,
+          `Data:   ${data} (${size2} bytes)`
+        ],
+        name: "AbiDecodingDataSizeTooSmallError"
+      });
+      Object.defineProperty(this, "data", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "params", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "size", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.data = data;
+      this.params = params;
+      this.size = size2;
+    }
+  };
+  AbiDecodingZeroDataError = class AbiDecodingZeroDataError2 extends BaseError2 {
+    constructor() {
+      super('Cannot decode zero data ("0x") with ABI parameters.', {
+        name: "AbiDecodingZeroDataError"
+      });
+    }
+  };
   AbiEncodingArrayLengthMismatchError = class AbiEncodingArrayLengthMismatchError2 extends BaseError2 {
     constructor({ expectedLength, givenLength, type }) {
       super([
@@ -728,6 +855,45 @@ var init_abi = __esm(() => {
 `), { name: "AbiEncodingLengthMismatchError" });
     }
   };
+  AbiFunctionNotFoundError = class AbiFunctionNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath } = {}) {
+      super([
+        `Function ${functionName ? `"${functionName}" ` : ""}not found on ABI.`,
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionNotFoundError"
+      });
+    }
+  };
+  AbiFunctionOutputsNotFoundError = class AbiFunctionOutputsNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath }) {
+      super([
+        `Function "${functionName}" does not contain any \`outputs\` on ABI.`,
+        "Cannot decode function result without knowing what the parameter types are.",
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionOutputsNotFoundError"
+      });
+    }
+  };
+  AbiItemAmbiguityError = class AbiItemAmbiguityError2 extends BaseError2 {
+    constructor(x, y) {
+      super("Found ambiguous types in overloaded ABI items.", {
+        metaMessages: [
+          `\`${x.type}\` in \`${formatAbiItem2(x.abiItem)}\`, and`,
+          `\`${y.type}\` in \`${formatAbiItem2(y.abiItem)}\``,
+          "",
+          "These types encode differently and cannot be distinguished at runtime.",
+          "Remove one of the ambiguous items in the ABI."
+        ],
+        name: "AbiItemAmbiguityError"
+      });
+    }
+  };
   InvalidAbiEncodingTypeError = class InvalidAbiEncodingTypeError2 extends BaseError2 {
     constructor(type, { docsPath }) {
       super([
@@ -737,12 +903,30 @@ var init_abi = __esm(() => {
 `), { docsPath, name: "InvalidAbiEncodingType" });
     }
   };
+  InvalidAbiDecodingTypeError = class InvalidAbiDecodingTypeError2 extends BaseError2 {
+    constructor(type, { docsPath }) {
+      super([
+        `Type "${type}" is not a valid decoding type.`,
+        "Please provide a valid ABI type."
+      ].join(`
+`), { docsPath, name: "InvalidAbiDecodingType" });
+    }
+  };
   InvalidArrayError = class InvalidArrayError2 extends BaseError2 {
     constructor(value2) {
       super([`Value "${value2}" is not a valid array.`].join(`
 `), {
         name: "InvalidArrayError"
       });
+    }
+  };
+  InvalidDefinitionTypeError = class InvalidDefinitionTypeError2 extends BaseError2 {
+    constructor(type) {
+      super([
+        `"${type}" is not a valid definition type.`,
+        'Valid types: "function", "event", "error"'
+      ].join(`
+`), { name: "InvalidDefinitionTypeError" });
     }
   };
 });
@@ -798,6 +982,7 @@ var init_pad = __esm(() => {
   init_data();
 });
 var IntegerOutOfRangeError;
+var InvalidBytesBooleanError;
 var SizeOverflowError;
 var init_encoding = __esm(() => {
   init_base();
@@ -806,18 +991,58 @@ var init_encoding = __esm(() => {
       super(`Number "${value2}" is not in safe ${size2 ? `${size2 * 8}-bit ${signed ? "signed" : "unsigned"} ` : ""}integer range ${max ? `(${min} to ${max})` : `(above ${min})`}`, { name: "IntegerOutOfRangeError" });
     }
   };
+  InvalidBytesBooleanError = class InvalidBytesBooleanError2 extends BaseError2 {
+    constructor(bytes) {
+      super(`Bytes value "${bytes}" is not a valid boolean. The bytes array must contain a single byte of either a 0 or 1 value.`, {
+        name: "InvalidBytesBooleanError"
+      });
+    }
+  };
   SizeOverflowError = class SizeOverflowError2 extends BaseError2 {
     constructor({ givenSize, maxSize }) {
       super(`Size cannot exceed ${maxSize} bytes. Given size: ${givenSize} bytes.`, { name: "SizeOverflowError" });
     }
   };
 });
+function trim(hexOrBytes, { dir = "left" } = {}) {
+  let data = typeof hexOrBytes === "string" ? hexOrBytes.replace("0x", "") : hexOrBytes;
+  let sliceLength = 0;
+  for (let i2 = 0;i2 < data.length - 1; i2++) {
+    if (data[dir === "left" ? i2 : data.length - i2 - 1].toString() === "0")
+      sliceLength++;
+    else
+      break;
+  }
+  data = dir === "left" ? data.slice(sliceLength) : data.slice(0, data.length - sliceLength);
+  if (typeof hexOrBytes === "string") {
+    if (data.length === 1 && dir === "right")
+      data = `${data}0`;
+    return `0x${data.length % 2 === 1 ? `0${data}` : data}`;
+  }
+  return data;
+}
 function assertSize2(hexOrBytes, { size: size2 }) {
   if (size(hexOrBytes) > size2)
     throw new SizeOverflowError({
       givenSize: size(hexOrBytes),
       maxSize: size2
     });
+}
+function hexToBigInt(hex, opts = {}) {
+  const { signed } = opts;
+  if (opts.size)
+    assertSize2(hex, { size: opts.size });
+  const value2 = BigInt(hex);
+  if (!signed)
+    return value2;
+  const size2 = (hex.length - 2) / 2;
+  const max = (1n << BigInt(size2) * 8n - 1n) - 1n;
+  if (value2 <= max)
+    return value2;
+  return value2 - BigInt(`0x${"f".padStart(size2 * 2, "f")}`) - 1n;
+}
+function hexToNumber(hex, opts = {}) {
+  return Number(hexToBigInt(hex, opts));
 }
 var init_fromHex = __esm(() => {
   init_encoding();
@@ -1276,6 +1501,83 @@ var init_keccak256 = __esm(() => {
   init_toBytes();
   init_toHex();
 });
+function hashSignature(sig) {
+  return hash(sig);
+}
+var hash = (value2) => keccak256(toBytes(value2));
+var init_hashSignature = __esm(() => {
+  init_toBytes();
+  init_keccak256();
+});
+function normalizeSignature(signature) {
+  let active = true;
+  let current = "";
+  let level = 0;
+  let result = "";
+  let valid = false;
+  for (let i2 = 0;i2 < signature.length; i2++) {
+    const char = signature[i2];
+    if (["(", ")", ","].includes(char))
+      active = true;
+    if (char === "(")
+      level++;
+    if (char === ")")
+      level--;
+    if (!active)
+      continue;
+    if (level === 0) {
+      if (char === " " && ["event", "function", ""].includes(result))
+        result = "";
+      else {
+        result += char;
+        if (char === ")") {
+          valid = true;
+          break;
+        }
+      }
+      continue;
+    }
+    if (char === " ") {
+      if (signature[i2 - 1] !== "," && current !== "," && current !== ",(") {
+        current = "";
+        active = false;
+      }
+      continue;
+    }
+    result += char;
+    current += char;
+  }
+  if (!valid)
+    throw new BaseError2("Unable to normalize signature.");
+  return result;
+}
+var init_normalizeSignature = __esm(() => {
+  init_base();
+});
+var toSignature = (def) => {
+  const def_ = (() => {
+    if (typeof def === "string")
+      return def;
+    return formatAbiItem(def);
+  })();
+  return normalizeSignature(def_);
+};
+var init_toSignature = __esm(() => {
+  init_exports();
+  init_normalizeSignature();
+});
+function toSignatureHash(fn) {
+  return hashSignature(toSignature(fn));
+}
+var init_toSignatureHash = __esm(() => {
+  init_hashSignature();
+  init_toSignature();
+});
+var toEventSelector;
+var init_toEventSelector = __esm(() => {
+  init_toSignatureHash();
+  toEventSelector = toSignatureHash;
+});
 var InvalidAddressError;
 var init_address = __esm(() => {
   init_base();
@@ -1327,13 +1629,13 @@ function checksumAddress(address_, chainId) {
   if (checksumAddressCache.has(`${address_}.${chainId}`))
     return checksumAddressCache.get(`${address_}.${chainId}`);
   const hexAddress = chainId ? `${chainId}${address_.toLowerCase()}` : address_.substring(2).toLowerCase();
-  const hash = keccak256(stringToBytes(hexAddress), "bytes");
+  const hash2 = keccak256(stringToBytes(hexAddress), "bytes");
   const address = (chainId ? hexAddress.substring(`${chainId}0x`.length) : hexAddress).split("");
   for (let i2 = 0;i2 < 40; i2 += 2) {
-    if (hash[i2 >> 1] >> 4 >= 8 && address[i2]) {
+    if (hash2[i2 >> 1] >> 4 >= 8 && address[i2]) {
       address[i2] = address[i2].toUpperCase();
     }
-    if ((hash[i2 >> 1] & 15) >= 8 && address[i2 + 1]) {
+    if ((hash2[i2 >> 1] & 15) >= 8 && address[i2 + 1]) {
       address[i2 + 1] = address[i2 + 1].toUpperCase();
     }
   }
@@ -1662,6 +1964,620 @@ var init_encodeAbiParameters = __esm(() => {
   init_slice();
   init_toHex();
   init_regex2();
+});
+var toFunctionSelector = (fn) => slice(toSignatureHash(fn), 0, 4);
+var init_toFunctionSelector = __esm(() => {
+  init_slice();
+  init_toSignatureHash();
+});
+function getAbiItem(parameters) {
+  const { abi, args = [], name } = parameters;
+  const isSelector = isHex(name, { strict: false });
+  const abiItems = abi.filter((abiItem) => {
+    if (isSelector) {
+      if (abiItem.type === "function")
+        return toFunctionSelector(abiItem) === name;
+      if (abiItem.type === "event")
+        return toEventSelector(abiItem) === name;
+      return false;
+    }
+    return "name" in abiItem && abiItem.name === name;
+  });
+  if (abiItems.length === 0)
+    return;
+  if (abiItems.length === 1)
+    return abiItems[0];
+  let matchedAbiItem = undefined;
+  for (const abiItem of abiItems) {
+    if (!("inputs" in abiItem))
+      continue;
+    if (!args || args.length === 0) {
+      if (!abiItem.inputs || abiItem.inputs.length === 0)
+        return abiItem;
+      continue;
+    }
+    if (!abiItem.inputs)
+      continue;
+    if (abiItem.inputs.length === 0)
+      continue;
+    if (abiItem.inputs.length !== args.length)
+      continue;
+    const matched = args.every((arg, index) => {
+      const abiParameter = "inputs" in abiItem && abiItem.inputs[index];
+      if (!abiParameter)
+        return false;
+      return isArgOfType(arg, abiParameter);
+    });
+    if (matched) {
+      if (matchedAbiItem && "inputs" in matchedAbiItem && matchedAbiItem.inputs) {
+        const ambiguousTypes = getAmbiguousTypes(abiItem.inputs, matchedAbiItem.inputs, args);
+        if (ambiguousTypes)
+          throw new AbiItemAmbiguityError({
+            abiItem,
+            type: ambiguousTypes[0]
+          }, {
+            abiItem: matchedAbiItem,
+            type: ambiguousTypes[1]
+          });
+      }
+      matchedAbiItem = abiItem;
+    }
+  }
+  if (matchedAbiItem)
+    return matchedAbiItem;
+  return abiItems[0];
+}
+function isArgOfType(arg, abiParameter) {
+  const argType = typeof arg;
+  const abiParameterType = abiParameter.type;
+  switch (abiParameterType) {
+    case "address":
+      return isAddress(arg, { strict: false });
+    case "bool":
+      return argType === "boolean";
+    case "function":
+      return argType === "string";
+    case "string":
+      return argType === "string";
+    default: {
+      if (abiParameterType === "tuple" && "components" in abiParameter)
+        return Object.values(abiParameter.components).every((component, index) => {
+          return isArgOfType(Object.values(arg)[index], component);
+        });
+      if (/^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/.test(abiParameterType))
+        return argType === "number" || argType === "bigint";
+      if (/^bytes([1-9]|1[0-9]|2[0-9]|3[0-2])?$/.test(abiParameterType))
+        return argType === "string" || arg instanceof Uint8Array;
+      if (/[a-z]+[1-9]{0,3}(\[[0-9]{0,}\])+$/.test(abiParameterType)) {
+        return Array.isArray(arg) && arg.every((x) => isArgOfType(x, {
+          ...abiParameter,
+          type: abiParameterType.replace(/(\[[0-9]{0,}\])$/, "")
+        }));
+      }
+      return false;
+    }
+  }
+}
+function getAmbiguousTypes(sourceParameters, targetParameters, args) {
+  for (const parameterIndex in sourceParameters) {
+    const sourceParameter = sourceParameters[parameterIndex];
+    const targetParameter = targetParameters[parameterIndex];
+    if (sourceParameter.type === "tuple" && targetParameter.type === "tuple" && "components" in sourceParameter && "components" in targetParameter)
+      return getAmbiguousTypes(sourceParameter.components, targetParameter.components, args[parameterIndex]);
+    const types4 = [sourceParameter.type, targetParameter.type];
+    const ambiguous = (() => {
+      if (types4.includes("address") && types4.includes("bytes20"))
+        return true;
+      if (types4.includes("address") && types4.includes("string"))
+        return isAddress(args[parameterIndex], { strict: false });
+      if (types4.includes("address") && types4.includes("bytes"))
+        return isAddress(args[parameterIndex], { strict: false });
+      return false;
+    })();
+    if (ambiguous)
+      return types4;
+  }
+  return;
+}
+var init_getAbiItem = __esm(() => {
+  init_abi();
+  init_isAddress();
+  init_toEventSelector();
+  init_toFunctionSelector();
+});
+function prepareEncodeFunctionData(parameters) {
+  const { abi, args, functionName } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({
+      abi,
+      args,
+      name: functionName
+    });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath });
+  return {
+    abi: [abiItem],
+    functionName: toFunctionSelector(formatAbiItem2(abiItem))
+  };
+}
+var docsPath = "/docs/contract/encodeFunctionData";
+var init_prepareEncodeFunctionData = __esm(() => {
+  init_abi();
+  init_toFunctionSelector();
+  init_formatAbiItem2();
+  init_getAbiItem();
+});
+function encodeFunctionData(parameters) {
+  const { args } = parameters;
+  const { abi, functionName } = (() => {
+    if (parameters.abi.length === 1 && parameters.functionName?.startsWith("0x"))
+      return parameters;
+    return prepareEncodeFunctionData(parameters);
+  })();
+  const abiItem = abi[0];
+  const signature = functionName;
+  const data = "inputs" in abiItem && abiItem.inputs ? encodeAbiParameters(abiItem.inputs, args ?? []) : undefined;
+  return concatHex([signature, data ?? "0x"]);
+}
+var init_encodeFunctionData = __esm(() => {
+  init_encodeAbiParameters();
+  init_prepareEncodeFunctionData();
+});
+var NegativeOffsetError;
+var PositionOutOfBoundsError;
+var RecursiveReadLimitExceededError;
+var init_cursor = __esm(() => {
+  init_base();
+  NegativeOffsetError = class NegativeOffsetError2 extends BaseError2 {
+    constructor({ offset }) {
+      super(`Offset \`${offset}\` cannot be negative.`, {
+        name: "NegativeOffsetError"
+      });
+    }
+  };
+  PositionOutOfBoundsError = class PositionOutOfBoundsError2 extends BaseError2 {
+    constructor({ length, position }) {
+      super(`Position \`${position}\` is out of bounds (\`0 < position < ${length}\`).`, { name: "PositionOutOfBoundsError" });
+    }
+  };
+  RecursiveReadLimitExceededError = class RecursiveReadLimitExceededError2 extends BaseError2 {
+    constructor({ count, limit }) {
+      super(`Recursive read limit of \`${limit}\` exceeded (recursive read count: \`${count}\`).`, { name: "RecursiveReadLimitExceededError" });
+    }
+  };
+});
+function createCursor(bytes, { recursiveReadLimit = 8192 } = {}) {
+  const cursor = Object.create(staticCursor);
+  cursor.bytes = bytes;
+  cursor.dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  cursor.positionReadCount = new Map;
+  cursor.recursiveReadLimit = recursiveReadLimit;
+  return cursor;
+}
+var staticCursor;
+var init_cursor2 = __esm(() => {
+  init_cursor();
+  staticCursor = {
+    bytes: new Uint8Array,
+    dataView: new DataView(new ArrayBuffer(0)),
+    position: 0,
+    positionReadCount: new Map,
+    recursiveReadCount: 0,
+    recursiveReadLimit: Number.POSITIVE_INFINITY,
+    assertReadLimit() {
+      if (this.recursiveReadCount >= this.recursiveReadLimit)
+        throw new RecursiveReadLimitExceededError({
+          count: this.recursiveReadCount + 1,
+          limit: this.recursiveReadLimit
+        });
+    },
+    assertPosition(position) {
+      if (position < 0 || position > this.bytes.length - 1)
+        throw new PositionOutOfBoundsError({
+          length: this.bytes.length,
+          position
+        });
+    },
+    decrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position - offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    getReadCount(position) {
+      return this.positionReadCount.get(position || this.position) || 0;
+    },
+    incrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position + offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    inspectByte(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectBytes(length, position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + length - 1);
+      return this.bytes.subarray(position, position + length);
+    },
+    inspectUint8(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectUint16(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 1);
+      return this.dataView.getUint16(position);
+    },
+    inspectUint24(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 2);
+      return (this.dataView.getUint16(position) << 8) + this.dataView.getUint8(position + 2);
+    },
+    inspectUint32(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 3);
+      return this.dataView.getUint32(position);
+    },
+    pushByte(byte) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = byte;
+      this.position++;
+    },
+    pushBytes(bytes) {
+      this.assertPosition(this.position + bytes.length - 1);
+      this.bytes.set(bytes, this.position);
+      this.position += bytes.length;
+    },
+    pushUint8(value2) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = value2;
+      this.position++;
+    },
+    pushUint16(value2) {
+      this.assertPosition(this.position + 1);
+      this.dataView.setUint16(this.position, value2);
+      this.position += 2;
+    },
+    pushUint24(value2) {
+      this.assertPosition(this.position + 2);
+      this.dataView.setUint16(this.position, value2 >> 8);
+      this.dataView.setUint8(this.position + 2, value2 & ~4294967040);
+      this.position += 3;
+    },
+    pushUint32(value2) {
+      this.assertPosition(this.position + 3);
+      this.dataView.setUint32(this.position, value2);
+      this.position += 4;
+    },
+    readByte() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectByte();
+      this.position++;
+      return value2;
+    },
+    readBytes(length, size2) {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectBytes(length);
+      this.position += size2 ?? length;
+      return value2;
+    },
+    readUint8() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint8();
+      this.position += 1;
+      return value2;
+    },
+    readUint16() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint16();
+      this.position += 2;
+      return value2;
+    },
+    readUint24() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint24();
+      this.position += 3;
+      return value2;
+    },
+    readUint32() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint32();
+      this.position += 4;
+      return value2;
+    },
+    get remaining() {
+      return this.bytes.length - this.position;
+    },
+    setPosition(position) {
+      const oldPosition = this.position;
+      this.assertPosition(position);
+      this.position = position;
+      return () => this.position = oldPosition;
+    },
+    _touch() {
+      if (this.recursiveReadLimit === Number.POSITIVE_INFINITY)
+        return;
+      const count = this.getReadCount();
+      this.positionReadCount.set(this.position, count + 1);
+      if (count > 0)
+        this.recursiveReadCount++;
+    }
+  };
+});
+function bytesToBigInt(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToBigInt(hex, opts);
+}
+function bytesToBool(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes);
+  }
+  if (bytes.length > 1 || bytes[0] > 1)
+    throw new InvalidBytesBooleanError(bytes);
+  return Boolean(bytes[0]);
+}
+function bytesToNumber(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToNumber(hex, opts);
+}
+function bytesToString(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes, { dir: "right" });
+  }
+  return new TextDecoder().decode(bytes);
+}
+var init_fromBytes = __esm(() => {
+  init_encoding();
+  init_fromHex();
+  init_toHex();
+});
+function decodeAbiParameters(params, data) {
+  const bytes = typeof data === "string" ? hexToBytes2(data) : data;
+  const cursor = createCursor(bytes);
+  if (size(bytes) === 0 && params.length > 0)
+    throw new AbiDecodingZeroDataError;
+  if (size(data) && size(data) < 32)
+    throw new AbiDecodingDataSizeTooSmallError({
+      data: typeof data === "string" ? data : bytesToHex2(data),
+      params,
+      size: size(data)
+    });
+  let consumed = 0;
+  const values = [];
+  for (let i2 = 0;i2 < params.length; ++i2) {
+    const param = params[i2];
+    cursor.setPosition(consumed);
+    const [data2, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: 0
+    });
+    consumed += consumed_;
+    values.push(data2);
+  }
+  return values;
+}
+function decodeParameter(cursor, param, { staticPosition }) {
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents) {
+    const [length, type] = arrayComponents;
+    return decodeArray(cursor, { ...param, type }, { length, staticPosition });
+  }
+  if (param.type === "tuple")
+    return decodeTuple(cursor, param, { staticPosition });
+  if (param.type === "address")
+    return decodeAddress(cursor);
+  if (param.type === "bool")
+    return decodeBool(cursor);
+  if (param.type.startsWith("bytes"))
+    return decodeBytes(cursor, param, { staticPosition });
+  if (param.type.startsWith("uint") || param.type.startsWith("int"))
+    return decodeNumber(cursor, param);
+  if (param.type === "string")
+    return decodeString(cursor, { staticPosition });
+  throw new InvalidAbiDecodingTypeError(param.type, {
+    docsPath: "/docs/contract/decodeAbiParameters"
+  });
+}
+function decodeAddress(cursor) {
+  const value2 = cursor.readBytes(32);
+  return [checksumAddress(bytesToHex2(sliceBytes(value2, -20))), 32];
+}
+function decodeArray(cursor, param, { length, staticPosition }) {
+  if (!length) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const startOfData = start + sizeOfLength;
+    cursor.setPosition(start);
+    const length2 = bytesToNumber(cursor.readBytes(sizeOfLength));
+    const dynamicChild = hasDynamicChild(param);
+    let consumed2 = 0;
+    const value3 = [];
+    for (let i2 = 0;i2 < length2; ++i2) {
+      cursor.setPosition(startOfData + (dynamicChild ? i2 * 32 : consumed2));
+      const [data, consumed_] = decodeParameter(cursor, param, {
+        staticPosition: startOfData
+      });
+      consumed2 += consumed_;
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const value3 = [];
+    for (let i2 = 0;i2 < length; ++i2) {
+      cursor.setPosition(start + i2 * 32);
+      const [data] = decodeParameter(cursor, param, {
+        staticPosition: start
+      });
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  let consumed = 0;
+  const value2 = [];
+  for (let i2 = 0;i2 < length; ++i2) {
+    const [data, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: staticPosition + consumed
+    });
+    consumed += consumed_;
+    value2.push(data);
+  }
+  return [value2, consumed];
+}
+function decodeBool(cursor) {
+  return [bytesToBool(cursor.readBytes(32), { size: 32 }), 32];
+}
+function decodeBytes(cursor, param, { staticPosition }) {
+  const [_, size2] = param.type.split("bytes");
+  if (!size2) {
+    const offset = bytesToNumber(cursor.readBytes(32));
+    cursor.setPosition(staticPosition + offset);
+    const length = bytesToNumber(cursor.readBytes(32));
+    if (length === 0) {
+      cursor.setPosition(staticPosition + 32);
+      return ["0x", 32];
+    }
+    const data = cursor.readBytes(length);
+    cursor.setPosition(staticPosition + 32);
+    return [bytesToHex2(data), 32];
+  }
+  const value2 = bytesToHex2(cursor.readBytes(Number.parseInt(size2), 32));
+  return [value2, 32];
+}
+function decodeNumber(cursor, param) {
+  const signed = param.type.startsWith("int");
+  const size2 = Number.parseInt(param.type.split("int")[1] || "256");
+  const value2 = cursor.readBytes(32);
+  return [
+    size2 > 48 ? bytesToBigInt(value2, { signed }) : bytesToNumber(value2, { signed }),
+    32
+  ];
+}
+function decodeTuple(cursor, param, { staticPosition }) {
+  const hasUnnamedChild = param.components.length === 0 || param.components.some(({ name }) => !name);
+  const value2 = hasUnnamedChild ? [] : {};
+  let consumed = 0;
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    for (let i2 = 0;i2 < param.components.length; ++i2) {
+      const component = param.components[i2];
+      cursor.setPosition(start + consumed);
+      const [data, consumed_] = decodeParameter(cursor, component, {
+        staticPosition: start
+      });
+      consumed += consumed_;
+      value2[hasUnnamedChild ? i2 : component?.name] = data;
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value2, 32];
+  }
+  for (let i2 = 0;i2 < param.components.length; ++i2) {
+    const component = param.components[i2];
+    const [data, consumed_] = decodeParameter(cursor, component, {
+      staticPosition
+    });
+    value2[hasUnnamedChild ? i2 : component?.name] = data;
+    consumed += consumed_;
+  }
+  return [value2, consumed];
+}
+function decodeString(cursor, { staticPosition }) {
+  const offset = bytesToNumber(cursor.readBytes(32));
+  const start = staticPosition + offset;
+  cursor.setPosition(start);
+  const length = bytesToNumber(cursor.readBytes(32));
+  if (length === 0) {
+    cursor.setPosition(staticPosition + 32);
+    return ["", 32];
+  }
+  const data = cursor.readBytes(length, 32);
+  const value2 = bytesToString(trim(data));
+  cursor.setPosition(staticPosition + 32);
+  return [value2, 32];
+}
+function hasDynamicChild(param) {
+  const { type } = param;
+  if (type === "string")
+    return true;
+  if (type === "bytes")
+    return true;
+  if (type.endsWith("[]"))
+    return true;
+  if (type === "tuple")
+    return param.components?.some(hasDynamicChild);
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents && hasDynamicChild({ ...param, type: arrayComponents[1] }))
+    return true;
+  return false;
+}
+var sizeOfLength = 32;
+var sizeOfOffset = 32;
+var init_decodeAbiParameters = __esm(() => {
+  init_abi();
+  init_getAddress();
+  init_cursor2();
+  init_size();
+  init_slice();
+  init_fromBytes();
+  init_toBytes();
+  init_toHex();
+  init_encodeAbiParameters();
+});
+function decodeFunctionResult(parameters) {
+  const { abi, args, functionName, data } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({ abi, args, name: functionName });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath: docsPath2 });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath: docsPath2 });
+  if (!abiItem.outputs)
+    throw new AbiFunctionOutputsNotFoundError(abiItem.name, { docsPath: docsPath2 });
+  const values = decodeAbiParameters(abiItem.outputs, data);
+  if (values && values.length > 1)
+    return values;
+  if (values && values.length === 1)
+    return values[0];
+  return;
+}
+var docsPath2 = "/docs/contract/decodeFunctionResult";
+var init_decodeFunctionResult = __esm(() => {
+  init_abi();
+  init_decodeAbiParameters();
+  init_getAbiItem();
 });
 function isMessage(arg, schema) {
   const isMessage2 = arg !== null && typeof arg == "object" && "$typeName" in arg && typeof arg.$typeName == "string";
@@ -5436,7 +6352,6 @@ var ListSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 3);
 var DecimalSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 4);
 var file_sdk_v1alpha_sdk = /* @__PURE__ */ fileDesc("ChVzZGsvdjFhbHBoYS9zZGsucHJvdG8SC3Nkay52MWFscGhhIrQBChVTaW1wbGVDb25zZW5zdXNJbnB1dHMSIQoFdmFsdWUYASABKAsyEC52YWx1ZXMudjEuVmFsdWVIABIPCgVlcnJvchgCIAEoCUgAEjUKC2Rlc2NyaXB0b3JzGAMgASgLMiAuc2RrLnYxYWxwaGEuQ29uc2Vuc3VzRGVzY3JpcHRvchIhCgdkZWZhdWx0GAQgASgLMhAudmFsdWVzLnYxLlZhbHVlQg0KC29ic2VydmF0aW9uIpABCglGaWVsZHNNYXASMgoGZmllbGRzGAEgAygLMiIuc2RrLnYxYWxwaGEuRmllbGRzTWFwLkZpZWxkc0VudHJ5Gk8KC0ZpZWxkc0VudHJ5EgsKA2tleRgBIAEoCRIvCgV2YWx1ZRgCIAEoCzIgLnNkay52MWFscGhhLkNvbnNlbnN1c0Rlc2NyaXB0b3I6AjgBIoYBChNDb25zZW5zdXNEZXNjcmlwdG9yEjMKC2FnZ3JlZ2F0aW9uGAEgASgOMhwuc2RrLnYxYWxwaGEuQWdncmVnYXRpb25UeXBlSAASLAoKZmllbGRzX21hcBgCIAEoCzIWLnNkay52MWFscGhhLkZpZWxkc01hcEgAQgwKCmRlc2NyaXB0b3IiagoNUmVwb3J0UmVxdWVzdBIXCg9lbmNvZGVkX3BheWxvYWQYASABKAwSFAoMZW5jb2Rlcl9uYW1lGAIgASgJEhQKDHNpZ25pbmdfYWxnbxgDIAEoCRIUCgxoYXNoaW5nX2FsZ28YBCABKAkilwEKDlJlcG9ydFJlc3BvbnNlEhUKDWNvbmZpZ19kaWdlc3QYASABKAwSEgoGc2VxX25yGAIgASgEQgIwABIWCg5yZXBvcnRfY29udGV4dBgDIAEoDBISCgpyYXdfcmVwb3J0GAQgASgMEi4KBHNpZ3MYBSADKAsyIC5zZGsudjFhbHBoYS5BdHRyaWJ1dGVkU2lnbmF0dXJlIjsKE0F0dHJpYnV0ZWRTaWduYXR1cmUSEQoJc2lnbmF0dXJlGAEgASgMEhEKCXNpZ25lcl9pZBgCIAEoDSJrChFDYXBhYmlsaXR5UmVxdWVzdBIKCgJpZBgBIAEoCRIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueRIOCgZtZXRob2QYAyABKAkSEwoLY2FsbGJhY2tfaWQYBCABKAUiWgoSQ2FwYWJpbGl0eVJlc3BvbnNlEicKB3BheWxvYWQYASABKAsyFC5nb29nbGUucHJvdG9idWYuQW55SAASDwoFZXJyb3IYAiABKAlIAEIKCghyZXNwb25zZSJYChNUcmlnZ2VyU3Vic2NyaXB0aW9uEgoKAmlkGAEgASgJEiUKB3BheWxvYWQYAiABKAsyFC5nb29nbGUucHJvdG9idWYuQW55Eg4KBm1ldGhvZBgDIAEoCSJVChpUcmlnZ2VyU3Vic2NyaXB0aW9uUmVxdWVzdBI3Cg1zdWJzY3JpcHRpb25zGAEgAygLMiAuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvbiJACgdUcmlnZ2VyEg4KAmlkGAEgASgEQgIwABIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueSInChhBd2FpdENhcGFiaWxpdGllc1JlcXVlc3QSCwoDaWRzGAEgAygFIrgBChlBd2FpdENhcGFiaWxpdGllc1Jlc3BvbnNlEkgKCXJlc3BvbnNlcxgBIAMoCzI1LnNkay52MWFscGhhLkF3YWl0Q2FwYWJpbGl0aWVzUmVzcG9uc2UuUmVzcG9uc2VzRW50cnkaUQoOUmVzcG9uc2VzRW50cnkSCwoDa2V5GAEgASgFEi4KBXZhbHVlGAIgASgLMh8uc2RrLnYxYWxwaGEuQ2FwYWJpbGl0eVJlc3BvbnNlOgI4ASKgAQoORXhlY3V0ZVJlcXVlc3QSDgoGY29uZmlnGAEgASgMEisKCXN1YnNjcmliZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEicKB3RyaWdnZXIYAyABKAsyFC5zZGsudjFhbHBoYS5UcmlnZ2VySAASHQoRbWF4X3Jlc3BvbnNlX3NpemUYBCABKARCAjAAQgkKB3JlcXVlc3QimQEKD0V4ZWN1dGlvblJlc3VsdBIhCgV2YWx1ZRgBIAEoCzIQLnZhbHVlcy52MS5WYWx1ZUgAEg8KBWVycm9yGAIgASgJSAASSAoVdHJpZ2dlcl9zdWJzY3JpcHRpb25zGAMgASgLMicuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvblJlcXVlc3RIAEIICgZyZXN1bHQiVgoRR2V0U2VjcmV0c1JlcXVlc3QSLAoIcmVxdWVzdHMYASADKAsyGi5zZGsudjFhbHBoYS5TZWNyZXRSZXF1ZXN0EhMKC2NhbGxiYWNrX2lkGAIgASgFIiIKE0F3YWl0U2VjcmV0c1JlcXVlc3QSCwoDaWRzGAEgAygFIqsBChRBd2FpdFNlY3JldHNSZXNwb25zZRJDCglyZXNwb25zZXMYASADKAsyMC5zZGsudjFhbHBoYS5Bd2FpdFNlY3JldHNSZXNwb25zZS5SZXNwb25zZXNFbnRyeRpOCg5SZXNwb25zZXNFbnRyeRILCgNrZXkYASABKAUSKwoFdmFsdWUYAiABKAsyHC5zZGsudjFhbHBoYS5TZWNyZXRSZXNwb25zZXM6AjgBIi4KDVNlY3JldFJlcXVlc3QSCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJIkUKBlNlY3JldBIKCgJpZBgBIAEoCRIRCgluYW1lc3BhY2UYAiABKAkSDQoFb3duZXIYAyABKAkSDQoFdmFsdWUYBCABKAkiSgoLU2VjcmV0RXJyb3ISCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJEg0KBW93bmVyGAMgASgJEg0KBWVycm9yGAQgASgJIm4KDlNlY3JldFJlc3BvbnNlEiUKBnNlY3JldBgBIAEoCzITLnNkay52MWFscGhhLlNlY3JldEgAEikKBWVycm9yGAIgASgLMhguc2RrLnYxYWxwaGEuU2VjcmV0RXJyb3JIAEIKCghyZXNwb25zZSJBCg9TZWNyZXRSZXNwb25zZXMSLgoJcmVzcG9uc2VzGAEgAygLMhsuc2RrLnYxYWxwaGEuU2VjcmV0UmVzcG9uc2UquAEKD0FnZ3JlZ2F0aW9uVHlwZRIgChxBR0dSRUdBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASGwoXQUdHUkVHQVRJT05fVFlQRV9NRURJQU4QARIeChpBR0dSRUdBVElPTl9UWVBFX0lERU5USUNBTBACEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1BSRUZJWBADEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1NVRkZJWBAEKjkKBE1vZGUSFAoQTU9ERV9VTlNQRUNJRklFRBAAEgwKCE1PREVfRE9OEAESDQoJTU9ERV9OT0RFEAJCaAoPY29tLnNkay52MWFscGhhQghTZGtQcm90b1ABogIDU1hYqgILU2RrLlYxYWxwaGHKAgtTZGtcVjFhbHBoYeICF1Nka1xWMWFscGhhXEdQQk1ldGFkYXRh6gIMU2RrOjpWMWFscGhhYgZwcm90bzM", [file_google_protobuf_any, file_google_protobuf_empty, file_values_v1_values]);
 var SimpleConsensusInputsSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 0);
-var ConsensusDescriptorSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 2);
 var ReportRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 3);
 var ReportResponseSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 4);
 var CapabilityRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 6);
@@ -7227,6 +8142,11 @@ var LATEST_BLOCK_NUMBER = {
   absVal: Buffer.from([2]).toString("base64"),
   sign: "-1"
 };
+var encodeCallMsg = (payload) => ({
+  from: hexToBase64(payload.from),
+  to: hexToBase64(payload.to),
+  data: hexToBase64(payload.data)
+});
 var EVM_DEFAULT_REPORT_ENCODER = {
   encoderName: "evm",
   signingAlgo: "ecdsa",
@@ -7236,15 +8156,6 @@ var prepareReportRequest = (hexEncodedPayload, reportEncoder = EVM_DEFAULT_REPOR
   encodedPayload: hexToBase64(hexEncodedPayload),
   ...reportEncoder
 });
-function ok(responseOrFn) {
-  if (typeof responseOrFn === "function") {
-    return {
-      result: () => ok(responseOrFn().result)
-    };
-  } else {
-    return responseOrFn.statusCode >= 200 && responseOrFn.statusCode < 300;
-  }
-}
 function sendReport(runtime, report, fn) {
   const rawReport = report.x_generatedCodeOnly_unwrap();
   const request = fn(rawReport);
@@ -10874,33 +11785,6 @@ var defaultLookup = new NetworkLookup({
   testnetBySelectorByFamily
 });
 var getNetwork = (options) => defaultLookup.find(options);
-function consensusIdenticalAggregation() {
-  return simpleConsensus(AggregationType.IDENTICAL);
-}
-
-class ConsensusImpl {
-  descriptor;
-  defaultValue;
-  constructor(descriptor, defaultValue) {
-    this.descriptor = descriptor;
-    this.defaultValue = defaultValue;
-  }
-  withDefault(t) {
-    return new ConsensusImpl(this.descriptor, t);
-  }
-  _usesUToForceShape(_) {}
-}
-function simpleConsensus(agg) {
-  return new ConsensusImpl(simpleDescriptor(agg));
-}
-function simpleDescriptor(agg) {
-  return create(ConsensusDescriptorSchema, {
-    descriptor: {
-      case: "aggregation",
-      value: agg
-    }
-  });
-}
 
 class Int64 {
   static INT64_MIN = -(2n ** 63n);
@@ -15774,265 +16658,3411 @@ var sendErrorResponse = (error) => {
   hostBindings.sendResponse(payload);
 };
 init_exports();
+init_decodeFunctionResult();
 init_encodeAbiParameters();
-var signUpWorkFlow = (runtime2) => {
-  const firestoreApiKey = runtime2.getSecret({ id: "FIREBASE_API_KEY" }).result();
-  const httpClient = new ClientCapability2;
-  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firestoreApiKey.value}`;
-  const dataToSend = {
-    returnSecureToken: true
-  };
-  const authRequester = (sendRequester) => {
-    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
-    const body = Buffer.from(bodyBytes).toString("base64");
-    const req = {
-      url,
-      method: "POST",
-      body,
-      headers: {
-        "Content-Type": "application/json"
-      }
-    };
-    const res = sendRequester.sendRequest(req).result();
-    if (!ok(res))
-      throw new Error(`Http request failed with status ${res.statusCode}`);
-    const bodyText = new TextDecoder().decode(res.body);
-    const readyToUse = JSON.parse(bodyText);
-    return readyToUse;
-  };
-  const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
-  return response;
-};
-var systemPrompt = `
-ROLE:
-You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
-
-You operate in THREE mandatory phases:
-1) Category Selection (Weighted Randomization)
-2) Event Generation
-3) Duplicate Detection Validation
-
-If duplication is detected at the semantic level, you MUST internally discard and regenerate before producing output.
-
-
-PHASE 1 — CATEGORY SELECTION (MANDATORY)
-
-
-You MUST select ONE category using weighted randomness with equal distribution:
-
-- Crypto: 25%
-- Politics: 25%
-- Sports: 25%
-- Tech/Culture: 25%
-
-You MUST NOT default to Crypto.
-You MUST generate the event ONLY within the selected category.
-You may not override this selection.
-
-
-PHASE 2 — EVENT GENERATION
-
-
-Generate exactly ONE high-engagement prediction event within the selected category.
-
-MANDATORY REQUIREMENTS:
-- Must resolve between 1 and 14 days from now.
-- Resolution time must be at least 24 hours AFTER closing time.
-- Must be binary (Yes/No) OR mutually exclusive multiple choice.
-- Must include exact UTC timestamps (YYYY-MM-DD HH:MM UTC).
-- Crypto events MUST specify exact exchange AND exact trading pair.
-- Must include explicit Postponement Rule in description.
-- Must resolve via objective, verifiable, authoritative data.
-- No ambiguity or vague wording.
-- No subjective outcomes.
-
-PROHIBITED:
-- Offensive or illegal topics.
-- Death/injury speculation.
-- Social media rumors as settlement basis.
-- Global average crypto prices.
-- Ambiguous timeframes.
-
-
-PHASE 3 — DUPLICATE DETECTION (STRICT)
-
-
-Ensure the generated event is NOT the same underlying real-world outcome as any existing market.
-
-SAME EVENT = DUPLICATE if:
-- Same asset + same threshold + same time window.
-- Same person/team winning same contest.
-- Same regulatory approval decision.
-- Same measurable outcome.
-- Only wording differs.
-
-DIFFERENT EVENT = UNIQUE if:
-- Different threshold.
-- Different asset.
-- Different time window.
-- Different measurable outcome.
-- Different decision or result.
-
-If semantic overlap exists, regenerate internally.
-Never output a duplicate.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-SOURCE HIERARCHY (MANDATORY)
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. Official government/regulatory portals
-2. Primary sports data providers (official box scores)
-3. Major exchange APIs (Binance, Coinbase, Kraken)
-4. Tier-1 news (Reuters, AP)
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT RULES (CRITICAL)
-━━━━━━━━━━━━━━━━━━━━━━━━
-- Output EXACTLY ONE event.
-- Output MUST be valid raw JSON.
-- Do NOT wrap in markdown.
-- Do NOT use backticks.
-- Do NOT include commentary.
-- Do NOT include explanations.
-- Do NOT include text before or after JSON.
-- JSON must start with { and end with }.
-- No trailing commas.
-
-Required JSON structure:
-
-{
-  "event_name": "Short, specific title",
-  "category": "Crypto/Politics/Sports/Tech",
-  "description": "Precise explanation including Postponement Rule.",
-  "options": ["Yes", "No"] OR ["Option A", "Option B"],
-  "closing_date": "YYYY-MM-DD HH:MM UTC",
-  "resolution_date": "YYYY-MM-DD HH:MM UTC",
-  "verification_source": "Exact authoritative entity or URL",
-  "trending_reason": "Why this topic is currently trending"
-}
-`;
-var userPrompt = `
-Generate exactly ONE unique prediction event that satisfies ALL rules.
-Return ONLY valid raw JSON.
-`;
-var askGemeni = (runtime2, previousEvents) => {
-  const gemeniApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
-  const httpClient = new ClientCapability2;
-  const result = httpClient.sendRequest(runtime2, prompt(gemeniApiKey, previousEvents), consensusIdenticalAggregation())().result();
-  runtime2.log(`returned data:  ${result.event_name}, ${result.category}, ${result.description}, ${result.options},`);
-  return result;
-};
-var prompt = (apikey, previousEvents) => (sendRequester) => {
-  const dataToSend = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    tools: [{ google_search: {} }],
-    contents: [
+init_encodeFunctionData();
+var MarketFactoryAbi = [
+  {
+    type: "constructor",
+    inputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "UPGRADE_INTERFACE_VERSION",
+    inputs: [],
+    outputs: [
       {
-        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
+        name: "",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "activeMarkets",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "addLiquidityToFactory",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "arbitrateUnsafeMarket",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "maxSpendCollateral",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minDeviationImprovementBps",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "broadcastCanonicalPrice",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "yesPriceE6",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "noPriceE6",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "validUntil",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "broadcastResolution",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "outcome",
+        type: "uint8",
+        internalType: "enum Resolution"
+      },
+      {
+        name: "proofUrl",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "ccipFeeToken",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "ccipNonce",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "ccipReceive",
+    inputs: [
+      {
+        name: "any2EvmMessage",
+        type: "tuple",
+        internalType: "struct Client.Any2EVMMessage",
+        components: [
+          {
+            name: "messageId",
+            type: "bytes32",
+            internalType: "bytes32"
+          },
+          {
+            name: "sourceChainSelector",
+            type: "uint64",
+            internalType: "uint64"
+          },
+          {
+            name: "sender",
+            type: "bytes",
+            internalType: "bytes"
+          },
+          {
+            name: "data",
+            type: "bytes",
+            internalType: "bytes"
+          },
+          {
+            name: "destTokenAmounts",
+            type: "tuple[]",
+            internalType: "struct Client.EVMTokenAmount[]",
+            components: [
+              {
+                name: "token",
+                type: "address",
+                internalType: "address"
+              },
+              {
+                name: "amount",
+                type: "uint256",
+                internalType: "uint256"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "ccipRouter",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "collateral",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract IERC20"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "createMarket",
+    inputs: [
+      {
+        name: "question",
+        type: "string",
+        internalType: "string"
+      },
+      {
+        name: "closeTime",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "resolutionTime",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "initialLiquidity",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "market",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "getActiveEventList",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address[]",
+        internalType: "address[]"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedAuthor",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedWorkflowId",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedWorkflowName",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bytes10",
+        internalType: "bytes10"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getForwarderAddress",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getMarketFactoryCollateralBalance",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getSpokeSelectors",
+    inputs: [],
+    outputs: [
+      {
+        name: "selectors",
+        type: "uint64[]",
+        internalType: "uint64[]"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "initialize",
+    inputs: [
+      {
+        name: "_collateral",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_forwarder",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_marketDeployer",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_initialOwner",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "isHubFactory",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isSupportedChainSelector",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isVerified",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "marketById",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "marketCount",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "marketIdByAddress",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "marketToIndex",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "onHubMarketResolved",
+    inputs: [
+      {
+        name: "outcome",
+        type: "uint8",
+        internalType: "enum Resolution"
+      },
+      {
+        name: "proofUrl",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "onReport",
+    inputs: [
+      {
+        name: "metadata",
+        type: "bytes",
+        internalType: "bytes"
+      },
+      {
+        name: "report",
+        type: "bytes",
+        internalType: "bytes"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "owner",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "processedCcipMessages",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "proxiableUUID",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "removeResolvedMarket",
+    inputs: [
+      {
+        name: "market",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "removeTrustedRemote",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "renounceOwnership",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "resolutionNonceByMarketId",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "setCcipConfig",
+    inputs: [
+      {
+        name: "_ccipRouter",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_ccipFeeToken",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_isHubFactory",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedAuthor",
+    inputs: [
+      {
+        name: "_author",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedWorkflowId",
+    inputs: [
+      {
+        name: "_id",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedWorkflowName",
+    inputs: [
+      {
+        name: "_name",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setForwarderAddress",
+    inputs: [
+      {
+        name: "_forwarder",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setMarketDeployer",
+    inputs: [
+      {
+        name: "_marketDeployer",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setMarketIdMapping",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "market",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setSupportedChainSelector",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        internalType: "uint64"
+      },
+      {
+        name: "isSupported",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setTrustedRemote",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        internalType: "uint64"
+      },
+      {
+        name: "remoteFactory",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "supportsInterface",
+    inputs: [
+      {
+        name: "interfaceId",
+        type: "bytes4",
+        internalType: "bytes4"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "pure"
+  },
+  {
+    type: "function",
+    name: "transferOwnership",
+    inputs: [
+      {
+        name: "newOwner",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "trustedRemoteBySelector",
+    inputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes",
+        internalType: "bytes"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "upgradeToAndCall",
+    inputs: [
+      {
+        name: "newImplementation",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "data",
+        type: "bytes",
+        internalType: "bytes"
+      }
+    ],
+    outputs: [],
+    stateMutability: "payable"
+  },
+  {
+    type: "function",
+    name: "withdrawCollateralFromEvents",
+    inputs: [
+      {
+        name: "share",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "_marketId",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "event",
+    name: "CanonicalPriceMessageReceived",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256"
+      },
+      {
+        name: "yesPriceE6",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "noPriceE6",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "nonce",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "CcipConfigUpdated",
+    inputs: [
+      {
+        name: "router",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "feeToken",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "isHubFactory",
+        type: "bool",
+        indexed: true,
+        internalType: "bool"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "CcipMessageSent",
+    inputs: [
+      {
+        name: "messageId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32"
+      },
+      {
+        name: "destinationChainSelector",
+        type: "uint64",
+        indexed: true,
+        internalType: "uint64"
+      },
+      {
+        name: "messageType",
+        type: "uint8",
+        indexed: true,
+        internalType: "uint8"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ChainSelectorSupportUpdated",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        indexed: true,
+        internalType: "uint64"
+      },
+      {
+        name: "isSupported",
+        type: "bool",
+        indexed: true,
+        internalType: "bool"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedAuthorUpdated",
+    inputs: [
+      {
+        name: "previousAuthor",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newAuthor",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedWorkflowIdUpdated",
+    inputs: [
+      {
+        name: "previousId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32"
+      },
+      {
+        name: "newId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedWorkflowNameUpdated",
+    inputs: [
+      {
+        name: "previousName",
+        type: "bytes10",
+        indexed: true,
+        internalType: "bytes10"
+      },
+      {
+        name: "newName",
+        type: "bytes10",
+        indexed: true,
+        internalType: "bytes10"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ForwarderAddressUpdated",
+    inputs: [
+      {
+        name: "previousForwarder",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newForwarder",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Initialized",
+    inputs: [
+      {
+        name: "version",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "MarketCreated",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256"
+      },
+      {
+        name: "market",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "initialLiquidity",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "MarketFactory__LiquidityAdded",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "OwnershipTransferred",
+    inputs: [
+      {
+        name: "previousOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ResolutionMessageReceived",
+    inputs: [
+      {
+        name: "marketId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256"
+      },
+      {
+        name: "outcome",
+        type: "uint8",
+        indexed: true,
+        internalType: "enum Resolution"
+      },
+      {
+        name: "nonce",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "SecurityWarning",
+    inputs: [
+      {
+        name: "message",
+        type: "string",
+        indexed: false,
+        internalType: "string"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "TrustedRemoteRemoved",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        indexed: true,
+        internalType: "uint64"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "TrustedRemoteUpdated",
+    inputs: [
+      {
+        name: "chainSelector",
+        type: "uint64",
+        indexed: true,
+        internalType: "uint64"
+      },
+      {
+        name: "remoteFactory",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "UnsafeArbitrageExecuted",
+    inputs: [
+      {
+        name: "market",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "yesForNo",
+        type: "bool",
+        indexed: true,
+        internalType: "bool"
+      },
+      {
+        name: "collateralSpent",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "deviationBeforeBps",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "deviationAfterBps",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Upgraded",
+    inputs: [
+      {
+        name: "implementation",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "error",
+    name: "AddressEmptyCode",
+    inputs: [
+      {
+        name: "target",
+        type: "address",
+        internalType: "address"
       }
     ]
-  };
-  const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
-  const body = Buffer.from(bodyBytes).toString("base64");
-  const req = {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-    method: "POST",
-    body,
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apikey
-    }
-  };
-  const res = sendRequester.sendRequest(req).result();
-  if (!ok(res))
-    throw new Error(`Http request failed with status ${res.statusCode}`);
-  const rawData = new TextDecoder().decode(res.body);
-  const aires = JSON.parse(rawData);
-  const aiResponseString = aires?.candidates?.[0]?.content?.parts?.[0]?.text;
-  const cleanJson = aiResponseString.replace(/```json|```/g, "").trim();
-  const readyToUse = JSON.parse(cleanJson);
-  return readyToUse;
-};
-var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
-  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
-  const httpClient = new ClientCapability2;
-  const writeRequester = (sendRequester) => {
-    const dataToSend = {
-      fields: {
-        question: { stringValue: question },
-        resolutionTime: { stringValue: resolutionTime },
-        geminiResponse: { stringValue: geminiData.response || "No response" },
-        created_at: { integerValue: Date.now().toString() }
+  },
+  {
+    type: "error",
+    name: "ERC1967InvalidImplementation",
+    inputs: [
+      {
+        name: "implementation",
+        type: "address",
+        internalType: "address"
       }
-    };
-    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
-    const body = Buffer.from(bodyBytes).toString("base64");
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo`;
-    const req = {
-      url,
-      method: "POST",
-      body,
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        "Content-Type": "application/json"
+    ]
+  },
+  {
+    type: "error",
+    name: "ERC1967NonPayable",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "FailedCall",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "InvalidAuthor",
+    inputs: [
+      {
+        name: "received",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "expected",
+        type: "address",
+        internalType: "address"
       }
-    };
-    const res = sendRequester.sendRequest(req).result();
-    if (res.statusCode !== 200) {
-      const errorText = new TextDecoder().decode(res.body);
-      throw new Error(`Firestore write failed: ${res.statusCode} - ${errorText}`);
-    }
-    return JSON.parse(new TextDecoder().decode(res.body));
-  };
-  const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
-  return response.value;
-};
-var flattenFirestore = (doc) => {
-  if (!doc.fields)
-    return doc;
-  const flattened = { id: doc.name.split("/").pop() };
-  for (const [key, value2] of Object.entries(doc.fields)) {
-    const valObj = value2;
-    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
-    flattened[key] = actualValue;
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidForwarderAddress",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "InvalidInitialization",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "InvalidSender",
+    inputs: [
+      {
+        name: "sender",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "expected",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidWorkflowId",
+    inputs: [
+      {
+        name: "received",
+        type: "bytes32",
+        internalType: "bytes32"
+      },
+      {
+        name: "expected",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidWorkflowName",
+    inputs: [
+      {
+        name: "received",
+        type: "bytes10",
+        internalType: "bytes10"
+      },
+      {
+        name: "expected",
+        type: "bytes10",
+        internalType: "bytes10"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ActionNotRecognized",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ArbInsufficientImprovement",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ArbNoDirection",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ArbNotUnsafe",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ArbZeroAmount",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__CcipFeeTokenNotSet",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__CcipRouterNotSet",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ChainSelectorCantbezero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ChainSelectornNotSupported",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__InvalidRemoteSender",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__InvalidResolutionOutcome",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__MarketNotFound",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__MessageAlreadyProcessed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__NotHubFactory",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__OnlyRegisteredMarket",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__SourceChainNotAllowed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__StaleResolutionNonce",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__UnknownSyncMessageType",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ZeroAddress",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "MarketFactory__ZeroLiquidity",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "NotInitializing",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "OwnableInvalidOwner",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "OwnableUnauthorizedAccount",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__CloseTimeGreaterThanResolutionTime",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InvalidArguments_PassedInConstructor",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "SafeERC20FailedOperation",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "UUPSUnauthorizedCallContext",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "UUPSUnsupportedProxiableUUID",
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "WorkflowNameRequiresAuthorValidation",
+    inputs: []
   }
-  return flattened;
-};
-var getFirestoreList = (runtime2, idToken) => {
-  const httpClient = new ClientCapability2;
-  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
-  const listRequester = (sendRequester) => {
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
-    const req = {
-      url,
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${idToken}`
+];
+var PredictionMarketAbi = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "_question",
+        type: "string",
+        internalType: "string"
+      },
+      {
+        name: "_collateral",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_closeTime",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "_resolutionTime",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "_marketfactory",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "_forwarderAddress",
+        type: "address",
+        internalType: "address"
       }
-    };
-    const res = sendRequester.sendRequest(req).result();
-    if (res.statusCode !== 200)
-      throw new Error("Failed to fetch list");
-    return JSON.parse(new TextDecoder().decode(res.body));
-  };
-  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
-  const rawDocs = response.documents || [];
-  return rawDocs.map((doc) => flattenFirestore(doc));
-};
-function createPredictionMarketEvent(runtime2) {
-  const authInfo = signUpWorkFlow(runtime2);
-  const documents = getFirestoreList(runtime2, authInfo.idToken);
-  const hasMore = documents.length === 31;
-  const events = hasMore ? documents.slice(0, 30) : documents;
-  const filteredEvent = events.length > 0 ? events.map((event) => ({
-    question: event.question,
-    resolutionTime: event.resolutionTime
-  })) : [];
-  const eventInfo = askGemeni(runtime2, filteredEvent);
-  const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
-  const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
-  runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db`);
-  writeToFirestore(runtime2, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
-  runtime2.log(` id token: ${authInfo.idToken} `);
+    ],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "addLiquidity",
+    inputs: [
+      {
+        name: "yesAmount",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "noAmount",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minShares",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "canonicalNoPriceE6",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "canonicalPriceNonce",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "canonicalPriceValidUntil",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "canonicalYesPriceE6",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "checkResolutionTime",
+    inputs: [],
+    outputs: [
+      {
+        name: "resolveReady",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "closeTime",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "crossChainController",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getDeviationStatus",
+    inputs: [],
+    outputs: [
+      {
+        name: "band",
+        type: "uint8",
+        internalType: "enum PredictionMarket.DeviationBand"
+      },
+      {
+        name: "deviationBps",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "effectiveFeeBps",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "maxOutBps",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "allowYesForNo",
+        type: "bool",
+        internalType: "bool"
+      },
+      {
+        name: "allowNoForYes",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedAuthor",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedWorkflowId",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExpectedWorkflowName",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bytes10",
+        internalType: "bytes10"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getForwarderAddress",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getNoForYesQuote",
+    inputs: [
+      {
+        name: "noIn",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "netOut",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "fee",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getNoPriceProbability",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getYesForNoQuote",
+    inputs: [
+      {
+        name: "yesIn",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [
+      {
+        name: "netOut",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "fee",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getYesPriceProbability",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "hardDeviationBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "i_collateral",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract IERC20"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isRiskExempt",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "lpShares",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "manualResolveMarket",
+    inputs: [
+      {
+        name: "_outcome",
+        type: "uint8",
+        internalType: "enum Resolution"
+      },
+      {
+        name: "proofUrl",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "mintCompleteSets",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "noReserve",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "noToken",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract OutcomeToken"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "onReport",
+    inputs: [
+      {
+        name: "metadata",
+        type: "bytes",
+        internalType: "bytes"
+      },
+      {
+        name: "report",
+        type: "bytes",
+        internalType: "bytes"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "owner",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "pause",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "paused",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "protocolCollateralFees",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "redeem",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "redeemCompleteSets",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "removeLiquidity",
+    inputs: [
+      {
+        name: "shares",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minYesOut",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minNoOut",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "removeLiquidityAndRedeemCollateral",
+    inputs: [
+      {
+        name: "shares",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minCollateralOut",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "renounceOwnership",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "resolution",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint8",
+        internalType: "enum Resolution"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "resolutionTime",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "resolve",
+    inputs: [
+      {
+        name: "_outcome",
+        type: "uint8",
+        internalType: "enum Resolution"
+      },
+      {
+        name: "proofUrl",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "resolveFromHub",
+    inputs: [
+      {
+        name: "_outcome",
+        type: "uint8",
+        internalType: "enum Resolution"
+      },
+      {
+        name: "proofUrl",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "s_Proof_Url",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "s_question",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "seedLiquidity",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "seeded",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "setCrossChainController",
+    inputs: [
+      {
+        name: "controller",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setDeviationPolicy",
+    inputs: [
+      {
+        name: "_softDeviationBps",
+        type: "uint16",
+        internalType: "uint16"
+      },
+      {
+        name: "_stressDeviationBps",
+        type: "uint16",
+        internalType: "uint16"
+      },
+      {
+        name: "_hardDeviationBps",
+        type: "uint16",
+        internalType: "uint16"
+      },
+      {
+        name: "_stressExtraFeeBps",
+        type: "uint16",
+        internalType: "uint16"
+      },
+      {
+        name: "_stressMaxOutBps",
+        type: "uint16",
+        internalType: "uint16"
+      },
+      {
+        name: "_unsafeMaxOutBps",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedAuthor",
+    inputs: [
+      {
+        name: "_author",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedWorkflowId",
+    inputs: [
+      {
+        name: "_id",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setExpectedWorkflowName",
+    inputs: [
+      {
+        name: "_name",
+        type: "string",
+        internalType: "string"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setForwarderAddress",
+    inputs: [
+      {
+        name: "_forwarder",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "setRiskExempt",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "exempt",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "softDeviationBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "state",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint8",
+        internalType: "enum State"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "stressDeviationBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "stressExtraFeeBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "stressMaxOutBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "supportsInterface",
+    inputs: [
+      {
+        name: "interfaceId",
+        type: "bytes4",
+        internalType: "bytes4"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool"
+      }
+    ],
+    stateMutability: "pure"
+  },
+  {
+    type: "function",
+    name: "swapNoForYes",
+    inputs: [
+      {
+        name: "noIn",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minYesOut",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "swapYesForNo",
+    inputs: [
+      {
+        name: "yesIn",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "minNoOut",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "syncCanonicalPriceFromHub",
+    inputs: [
+      {
+        name: "yesPriceE6",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "noPriceE6",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "validUntil",
+        type: "uint256",
+        internalType: "uint256"
+      },
+      {
+        name: "nonce",
+        type: "uint64",
+        internalType: "uint64"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "totalShares",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "transferOwnership",
+    inputs: [
+      {
+        name: "newOwner",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "transferShares",
+    inputs: [
+      {
+        name: "to",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "shares",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "unpause",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "unsafeMaxOutBps",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint16",
+        internalType: "uint16"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "userRiskExposure",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address"
+      }
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "withdrawLiquidityCollateral",
+    inputs: [
+      {
+        name: "shares",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "withdrawProtocolFees",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "yesReserve",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "yesToken",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract OutcomeToken"
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "event",
+    name: "CompleteSetsMinted",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "CompleteSetsRedeemed",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "DeviationPolicyUpdated",
+    inputs: [
+      {
+        name: "softDeviationBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      },
+      {
+        name: "stressDeviationBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      },
+      {
+        name: "hardDeviationBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      },
+      {
+        name: "stressExtraFeeBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      },
+      {
+        name: "stressMaxOutBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      },
+      {
+        name: "unsafeMaxOutBps",
+        type: "uint16",
+        indexed: false,
+        internalType: "uint16"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedAuthorUpdated",
+    inputs: [
+      {
+        name: "previousAuthor",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newAuthor",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedWorkflowIdUpdated",
+    inputs: [
+      {
+        name: "previousId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32"
+      },
+      {
+        name: "newId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ExpectedWorkflowNameUpdated",
+    inputs: [
+      {
+        name: "previousName",
+        type: "bytes10",
+        indexed: true,
+        internalType: "bytes10"
+      },
+      {
+        name: "newName",
+        type: "bytes10",
+        indexed: true,
+        internalType: "bytes10"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "ForwarderAddressUpdated",
+    inputs: [
+      {
+        name: "previousForwarder",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newForwarder",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "IsUnderManualReview",
+    inputs: [
+      {
+        name: "outcome",
+        type: "uint8",
+        indexed: true,
+        internalType: "enum Resolution"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "LiquidityAdded",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "yesAmount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "noAmount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "shares",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "LiquidityRemoved",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "yesAmount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "noAmount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "shares",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "LiquiditySeeded",
+    inputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "OwnershipTransferred",
+    inputs: [
+      {
+        name: "previousOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "newOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Paused",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        indexed: false,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Redeemed",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Resolved",
+    inputs: [
+      {
+        name: "outcome",
+        type: "uint8",
+        indexed: false,
+        internalType: "enum Resolution"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "SecurityWarning",
+    inputs: [
+      {
+        name: "message",
+        type: "string",
+        indexed: false,
+        internalType: "string"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "SharesTransferred",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "to",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "shares",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Trade",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "yesForNo",
+        type: "bool",
+        indexed: false,
+        internalType: "bool"
+      },
+      {
+        name: "amountIn",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "amountOut",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Unpaused",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        indexed: false,
+        internalType: "address"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "WithDrawnLiquidity",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+        indexed: true,
+        internalType: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      },
+      {
+        name: "shares",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256"
+      }
+    ],
+    anonymous: false
+  },
+  {
+    type: "error",
+    name: "EnforcedPause",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "ExpectedPause",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "InvalidAuthor",
+    inputs: [
+      {
+        name: "received",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "expected",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidForwarderAddress",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "InvalidSender",
+    inputs: [
+      {
+        name: "sender",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "expected",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidWorkflowId",
+    inputs: [
+      {
+        name: "received",
+        type: "bytes32",
+        internalType: "bytes32"
+      },
+      {
+        name: "expected",
+        type: "bytes32",
+        internalType: "bytes32"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "InvalidWorkflowName",
+    inputs: [
+      {
+        name: "received",
+        type: "bytes10",
+        internalType: "bytes10"
+      },
+      {
+        name: "expected",
+        type: "bytes10",
+        internalType: "bytes10"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "OwnableInvalidOwner",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "OwnableUnauthorizedAccount",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AddLiquidity_InsuffientTokenBalance",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AddLiquidity_YesAndNoCantBeZero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AlreadyResolved",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AmountCantBeZero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AmountLessThanMinAllwed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__AmountLessThanMinSwapAllwed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__CanonicalPriceDeviationTooHigh",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__CanonicalPriceStale",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__CloseTimeGreaterThanResolutionTime",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__CrossChainControllerCantBeZero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__DeviationPolicyInvalid",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__FundingInitailAountGreaterThanAmountSent",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InitailConstantLiquidityAlreadySet",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InitailConstantLiquidityNotSetYet",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InvalidArguments_PassedInConstructor",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InvalidCanonicalPrice",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InvalidFinalOutcome",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__InvalidReport",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__IsPaused",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__IsUnderManualReview",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__Isclosed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__LocalResolutionDisabled",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__ManualReviewNeeded",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__MarketFactoryAddressCantBeZero",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__MarketNotClosed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__MarketNotInReview",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__MintCompleteSets_InsuffientTokenBalance",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__MintingCompleteset__AmountLessThanMinimu",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__NotResolved",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__OnlyCrossChainController",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__ProofUrlCantBeEmpty",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__RedeemCompletesetLessThanMinAllowed",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__ResolveTimeNotReached",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__RiskExposureExceeded",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__RiskExposureExemptZeroAddress",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__StaleSyncMessage",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__StateNeedToResolvedToWithdrawLiquidity",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__SwapNoFoYes_NoExeedBalannce",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__SwapYesFoNo_YesExeedBalannce",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__SwapingExceedSlippage",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__TradeDirectionNotAllowedInUnsafeBand",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__TradeSizeExceedsBandLimit",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__TransferShares_CantbeSendtoZeroAddress",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__TransferShares_InsufficientShares",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__WithDrawLiquidity_Insufficientfee",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__WithDrawLiquidity_SlippageExceeded",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "PredictionMarket__redeemCompleteSets_InsuffientTokenBalance",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "ReentrancyGuardReentrantCall",
+    inputs: []
+  },
+  {
+    type: "error",
+    name: "SafeERC20FailedOperation",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address"
+      }
+    ]
+  },
+  {
+    type: "error",
+    name: "WorkflowNameRequiresAuthorValidation",
+    inputs: []
+  }
+];
+var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
+var resoloveEvent = (runtime2) => {
+  const eventName = "Will BTC price be above $3,000 in 1 hour?";
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
   const txExplorer = (chainName, txHash) => {
     if (chainName.includes("arbitrum")) {
       return `https://sepolia.arbiscan.io/tx/${txHash}`;
@@ -16040,21 +20070,21 @@ function createPredictionMarketEvent(runtime2) {
     return `https://sepolia.etherscan.io/tx/${txHash}`;
   };
   const marketFactoryCall = runtime2.config.evms.map((evmConfig) => {
-    const network248 = getNetwork({
+    const network249 = getNetwork({
       chainFamily: "evm",
       chainSelectorName: evmConfig.chainName,
       isTestnet: true
     });
-    if (!network248) {
+    if (!network249) {
       throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
     }
-    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const evmClient2 = new ClientCapability(network249.chainSelector.selector);
     const sendActionReport = (actionType, payload) => {
       const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, payload]);
       const reportResponse = runtime2.report({
         ...prepareReportRequest(encodedReport)
       }).result();
-      const writeReportResult = evmClient.writeReport(runtime2, {
+      const writeReportResult = evmClient2.writeReport(runtime2, {
         receiver: evmConfig.marketFactoryAddress,
         report: reportResponse,
         gasConfig: {
@@ -16070,15 +20100,84 @@ function createPredictionMarketEvent(runtime2) {
       runtime2.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
       return txHash;
     };
-    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.event_name, closeTime, resolutionTime]);
-    sendActionReport("createMarket", createPayload);
+    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventName, closeTime, resolutionTime]);
     return `[${evmConfig.chainName}] ok`;
   });
-  return marketFactoryCall.join(", ");
-}
+  const marketFactoryCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList"
+  });
+  const PredictionCallData = encodeFunctionData({
+    abi: PredictionMarketAbi,
+    functionName: "checkResolutionTime"
+  });
+  const sepoConfig = runtime2.config.evms[0];
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: sepoConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const callResult = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress,
+      data: marketFactoryCallData
+    })
+  }).result();
+  const activeEventList = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(callResult.data)
+  });
+  if (activeEventList.length == 0)
+    return "No Active Events";
+  activeEventList.forEach((eventAddress) => {
+    const callResult2 = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: eventAddress,
+        data: PredictionCallData
+      })
+    }).result();
+    const readyForResolve = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "checkResolutionTime",
+      data: bytesToHex(callResult2.data)
+    });
+    if (readyForResolve) {
+      const actionType = "ResolveMarket";
+      const dummyPayload = "0x";
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, dummyPayload]);
+      const reportResponse = runtime2.report({
+        ...prepareReportRequest(encodedReport)
+      }).result();
+      const writeReportResult = evmClient.writeReport(runtime2, {
+        receiver: eventAddress,
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "100000000"
+        }
+      }).result();
+      runtime2.log("Waiting for write report response");
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime2.log(`[${sepoConfig.chainName}] addLiquidity REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+        throw new Error(`addLiquidity failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
+      }
+      const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+      runtime2.log(`Write report transaction succeeded: ${txHash}`);
+      runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+    }
+    runtime2.log(`ready to be resolve ${readyForResolve}}`);
+  });
+  return `${activeEventList.length}`;
+};
 var initWorkflow = (config) => {
   const cron = new CronCapability;
-  return [handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent)];
+  return [handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)];
 };
 async function main() {
   const runner = await Runner.newRunner();

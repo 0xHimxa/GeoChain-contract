@@ -4,7 +4,7 @@ will need to make it posible market facotry to buy to it can try to fix price if
 1) succefully setUp cron to check factory balance for refill
  2)  implemented a Gemini helper function for  creating, resloving and checking for dublicate event
   did created a function that will all worlkflow to write to db
-
+3)  compelete a  creating event handler
 
 
 

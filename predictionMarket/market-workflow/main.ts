@@ -13,7 +13,7 @@ import {
 import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiParameters, parseAbiParameters } from "viem";
 //import { OutcomeTokenAbi } from "./outComeToken";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
-//import { PredictionMarketAbi } from "./predictionMarket";
+import { PredictionMarketAbi } from "./contractsAbi/predictionMarket";
 import {signUpWorkFlow} from "./firebase/firebase";
 
 import {askGemeni} from "./gemini/uniqueEvent";
@@ -335,6 +335,256 @@ return marketFactoryCall.join(", ");
 
 
 
+const resoloveEvent = (runtime: Runtime<Config>): string => {
+
+
+
+
+
+
+
+
+
+
+
+ 
+const eventName = "Will BTC price be above $3,000 in 1 hour?";
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
+//runtime.log(` id token: ${authInfo.idToken} `);
+
+
+const txExplorer = (chainName: string, txHash: string): string => {
+  if (chainName.includes("arbitrum")) {
+    return `https://sepolia.arbiscan.io/tx/${txHash}`;
+  }
+  return `https://sepolia.etherscan.io/tx/${txHash}`;
+};
+
+
+const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true,
+  });
+
+  if (!network) {
+    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+  }
+
+  const evmClient = new EVMClient(network.chainSelector.selector);
+
+  const sendActionReport = (actionType: string, payload: `0x${string}`) => {
+    const encodedReport = encodeAbiParameters(
+      parseAbiParameters("string actionType, bytes payload"),
+      [actionType, payload]
+    );
+
+    const reportResponse = runtime.report({
+      ...prepareReportRequest(encodedReport),
+    }).result();
+
+    const writeReportResult = evmClient.writeReport(runtime, {
+      receiver: evmConfig.marketFactoryAddress,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
+    }).result();
+
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+      throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+    }
+
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);
+    runtime.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
+    return txHash;
+  };
+
+  const createPayload = encodeAbiParameters(
+    parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"),
+    [eventName, closeTime, resolutionTime]
+  );
+
+  //sendActionReport("createMarket", createPayload);
+
+  return `[${evmConfig.chainName}] ok`;
+}); // 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  const marketFactoryCallData = encodeFunctionData({
+  abi: MarketFactoryAbi,
+  functionName: "getActiveEventList"
+});
+
+
+  const PredictionCallData = encodeFunctionData({
+  abi: PredictionMarketAbi,
+  functionName: "checkResolutionTime"
+});
+
+
+
+  const sepoConfig = runtime.config.evms[0];
+  
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: sepoConfig.chainName,
+    isTestnet: true,
+  });
+  
+  if (!network) {
+    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
+  }
+  const evmClient = new EVMClient(network.chainSelector.selector);
+
+  // Perform the call
+  const callResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress as `0x${string}`,
+      data: marketFactoryCallData,
+    }),
+  }).result();
+
+
+
+   const activeEventList:any =  decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(callResult.data),
+  });
+
+ 
+  if(activeEventList.length == 0) return 'No Active Events'
+
+
+ activeEventList.forEach((eventAddress:any) => {
+
+  const callResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: eventAddress as `0x${string}`,
+      data: PredictionCallData,
+    }),
+  }).result();
+
+
+
+   const readyForResolve:any =  decodeFunctionResult({
+    abi: PredictionMarketAbi,
+    functionName: "checkResolutionTime",
+    data: bytesToHex(callResult.data),
+  });
+
+
+
+  if(readyForResolve){
+
+const actionType = "ResolveMarket";
+
+
+
+
+
+
+
+
+
+
+ const dummyPayload = "0x"; 
+
+  // Encode as (string, bytes)
+  const encodedReport = encodeAbiParameters(
+    parseAbiParameters('string actionType, bytes payload'),
+    [actionType, dummyPayload]
+  );
+
+  // Generate the consensus report
+  const reportResponse =  runtime.report({
+    ...prepareReportRequest(encodedReport),
+  }).result();
+
+
+
+    // Step 2: Submit the report to the consumer contract
+  const writeReportResult = evmClient
+    .writeReport(runtime, {
+      receiver: eventAddress  as `0x${string}`,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
+    })
+    .result()
+
+  runtime.log("Waiting for write report response")
+
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    runtime.log(`[${sepoConfig.chainName}] addLiquidity REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+    throw new Error(`addLiquidity failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
+  }
+
+  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+  runtime.log(`Write report transaction succeeded: ${txHash}`);
+  runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  }
+
+
+
+  runtime.log(`ready to be resolve ${readyForResolve}}`)
+
+
+ })
+
+
+
+
+return `${activeEventList.length}`
+}
+
+
+
 
 
 
@@ -342,7 +592,7 @@ return marketFactoryCall.join(", ");
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
-  return [handler(cron.trigger({ schedule: config.schedule }),  createPredictionMarketEvent)];
+  return [handler(cron.trigger({ schedule: config.schedule }),  resoloveEvent)];
 };
 
 export async function main() {

@@ -121,7 +121,7 @@ export const PredictionMarketAbi =  [
                     "internalType": "bool"
                 }
             ],
-            "stateMutability": "nonpayable"
+            "stateMutability": "view"
         },
         {
             "type": "function",
