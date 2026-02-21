@@ -20150,8 +20150,42 @@ var resoloveEvent = (runtime2) => {
     });
     if (readyForResolve) {
       const actionType = "ResolveMarket";
-      const dummyPayload = "0x";
-      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, dummyPayload]);
+      const questionCallData = encodeFunctionData({
+        abi: PredictionMarketAbi,
+        functionName: "s_question"
+      });
+      const questionResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: eventAddress,
+          data: questionCallData
+        })
+      }).result();
+      const marketQuestion = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "s_question",
+        data: bytesToHex(questionResult.data)
+      });
+      const rtCallData = encodeFunctionData({
+        abi: PredictionMarketAbi,
+        functionName: "resolutionTime"
+      });
+      const rtResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: eventAddress,
+          data: rtCallData
+        })
+      }).result();
+      const resTime = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "resolutionTime",
+        data: bytesToHex(rtResult.data)
+      });
+      runtime2.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
+      const resolution = 2;
+      const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [resolution, "https:memee.com"]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, resolvePayload]);
       const reportResponse = runtime2.report({
         ...prepareReportRequest(encodedReport)
       }).result();
@@ -20159,19 +20193,19 @@ var resoloveEvent = (runtime2) => {
         receiver: eventAddress,
         report: reportResponse,
         gasConfig: {
-          gasLimit: "100000000"
+          gasLimit: "10000000"
         }
       }).result();
       runtime2.log("Waiting for write report response");
       if (writeReportResult.txStatus === TxStatus.REVERTED) {
-        runtime2.log(`[${sepoConfig.chainName}] addLiquidity REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
-        throw new Error(`addLiquidity failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
+        runtime2.log(`[${sepoConfig.chainName}] ResolveMarket REVERTED for ${eventAddress}: ${writeReportResult.errorMessage || "unknown"}`);
+        throw new Error(`ResolveMarket failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime2.log(`Write report transaction succeeded: ${txHash}`);
+      runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
       runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
     }
-    runtime2.log(`ready to be resolve ${readyForResolve}}`);
+    runtime2.log(`ready to be resolve ${readyForResolve}`);
   });
   return `${activeEventList.length}`;
 };

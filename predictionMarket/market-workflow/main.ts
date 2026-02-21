@@ -340,97 +340,7 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
 
 
 
-
-
-
-
-
-
-
  
-const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
-//runtime.log(` id token: ${authInfo.idToken} `);
-
-
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) {
-    return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  }
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
-};
-
-
-const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: evmConfig.chainName,
-    isTestnet: true,
-  });
-
-  if (!network) {
-    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-  }
-
-  const evmClient = new EVMClient(network.chainSelector.selector);
-
-  const sendActionReport = (actionType: string, payload: `0x${string}`) => {
-    const encodedReport = encodeAbiParameters(
-      parseAbiParameters("string actionType, bytes payload"),
-      [actionType, payload]
-    );
-
-    const reportResponse = runtime.report({
-      ...prepareReportRequest(encodedReport),
-    }).result();
-
-    const writeReportResult = evmClient.writeReport(runtime, {
-      receiver: evmConfig.marketFactoryAddress,
-      report: reportResponse,
-      gasConfig: {
-        gasLimit: "10000000",
-      },
-    }).result();
-
-    if (writeReportResult.txStatus === TxStatus.REVERTED) {
-      runtime.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
-      throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
-    }
-
-    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-    runtime.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);
-    runtime.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
-    return txHash;
-  };
-
-  const createPayload = encodeAbiParameters(
-    parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"),
-    [eventName, closeTime, resolutionTime]
-  );
-
-  //sendActionReport("createMarket", createPayload);
-
-  return `[${evmConfig.chainName}] ok`;
-}); // 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
 
   const marketFactoryCallData = encodeFunctionData({
   abi: MarketFactoryAbi,
@@ -501,87 +411,134 @@ const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
 
   if(readyForResolve){
 
-const actionType = "ResolveMarket";
+    const actionType = "ResolveMarket";
 
+    // Step 1: Read the market's question from the contract
+    const questionCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "s_question",
+    });
+    const questionResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: eventAddress as `0x${string}`,
+        data: questionCallData,
+      }),
+    }).result();
+    const marketQuestion: any = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "s_question",
+      data: bytesToHex(questionResult.data),
+    });
 
+    // Step 2: Read the market's resolutionTime from the contract
+    const rtCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "resolutionTime",
+    });
+    const rtResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: eventAddress as `0x${string}`,
+        data: rtCallData,
+      }),
+    }).result();
+    const resTime: any = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "resolutionTime",
+      data: bytesToHex(rtResult.data),
+    });
 
+    runtime.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
 
+    // Step 3: Ask Gemini AI for resolution determination
+    const geminiResponse = askGemeniResolve(runtime, {
+      question: marketQuestion as string,
+      resolutionTime: new Date(Number(resTime) * 1000).toISOString(),
+    });
 
+    runtime.log(`Gemini resolution: result=${geminiResponse.result}, confidence=${geminiResponse.confidence}, source_url=${geminiResponse.source_url}`);
 
+    // Step 4: Map Gemini result to Solidity Resolution enum values
+    // Resolution enum: 0=Unset, 1=Yes, 2=No, 3=Inconclusive
+    const resolutionMap: Record<string, number> = { YES: 1, NO: 2, INCONCLUSIVE: 3 };
+   const resolution = resolutionMap[geminiResponse.result] ?? 3;
 
+   
 
+    // Skip sending if source_url is empty (contract requires non-empty proofUrl)
+    if (!geminiResponse.source_url || geminiResponse.source_url.length === 0) {
+      runtime.log(`Skipping resolve for ${eventAddress}: Gemini returned empty source_url`);
+      return;
+    }
 
+    // Step 5: Encode the proper payload as (uint8 outcome, string proofUrl)
+    const resolvePayload = encodeAbiParameters(
+      parseAbiParameters('uint8 outcome, string proofUrl'),
+      [resolution, geminiResponse.source_url]
+    );
 
- const dummyPayload = "0x"; 
+    // Step 6: Encode the full report as (string actionType, bytes payload)
+    const encodedReport = encodeAbiParameters(
+      parseAbiParameters('string actionType, bytes payload'),
+      [actionType, resolvePayload]
+    );
 
-  // Encode as (string, bytes)
-  const encodedReport = encodeAbiParameters(
-    parseAbiParameters('string actionType, bytes payload'),
-    [actionType, dummyPayload]
-  );
+    // Step 7: Generate the consensus report
+    const reportResponse = runtime.report({
+      ...prepareReportRequest(encodedReport),
+    }).result();
 
-  // Generate the consensus report
-  const reportResponse =  runtime.report({
-    ...prepareReportRequest(encodedReport),
-  }).result();
+    // Step 8: Submit the report to the market contract
+     const writeReportResult = evmClient
+       .writeReport(runtime, {
+         receiver: eventAddress as `0x${string}`,
+         report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000",
+         },
+       })
+       .result();
 
+    runtime.log("Waiting for write report response");
 
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    runtime.log(`[${sepoConfig.chainName}] ResolveMarket REVERTED for ${eventAddress}: ${writeReportResult.errorMessage || "unknown"}`);
+      throw new Error(`ResolveMarket failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
+    }
 
-    // Step 2: Submit the report to the consumer contract
-  const writeReportResult = evmClient
-    .writeReport(runtime, {
-      receiver: eventAddress  as `0x${string}`,
-      report: reportResponse,
-      gasConfig: {
-        gasLimit: "10000000",
-      },
-    })
-    .result()
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
+    runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
 
-  runtime.log("Waiting for write report response")
-
-  if (writeReportResult.txStatus === TxStatus.REVERTED) {
-    runtime.log(`[${sepoConfig.chainName}] addLiquidity REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
-    throw new Error(`addLiquidity failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
   }
 
-  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-  runtime.log(`Write report transaction succeeded: ${txHash}`);
-  runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  }
-
-
-
-  runtime.log(`ready to be resolve ${readyForResolve}}`)
-
+  runtime.log(`ready to be resolve ${readyForResolve}`)
 
  })
 
-
-
-
 return `${activeEventList.length}`
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

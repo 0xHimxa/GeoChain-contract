@@ -1,6 +1,12 @@
 will need to make it posible market facotry to buy to it can try to fix price if it getting messy
 
 
+fix:cre reslove reverting if it incolusive which set state to revview
+
+if gemeni responce is incluew will nned to set proof as "https:"
+
+
+
 1) succefully setUp cron to check factory balance for refill
  2)  implemented a Gemini helper function for  creating, resloving and checking for dublicate event
   did created a function that will all worlkflow to write to db
