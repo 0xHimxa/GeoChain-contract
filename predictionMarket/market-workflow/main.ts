@@ -742,6 +742,85 @@ const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string => {
 
 
 
+const createEventHelper = (runtime: Runtime<Config>): string => {
+
+
+
+
+
+const eventName = "Will BTC price be above $3,000 in 1 hour?";
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 50 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 70 * 60);
+//runtime.log(` id token: ${authInfo.idToken} `);
+
+
+const txExplorer = (chainName: string, txHash: string): string => {
+  if (chainName.includes("arbitrum")) {
+    return `https://sepolia.arbiscan.io/tx/${txHash}`;
+  }
+  return `https://sepolia.etherscan.io/tx/${txHash}`;
+};
+
+
+const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
+
+
+
+
+
+    const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true,
+  });
+
+  if (!network) {
+    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+  }
+
+  const evmClient = new EVMClient(network.chainSelector.selector);
+
+  const sendActionReport = (actionType: string, payload: `0x${string}`) => {
+    const encodedReport = encodeAbiParameters(
+      parseAbiParameters("string actionType, bytes payload"),
+      [actionType, payload]
+    );
+
+    const reportResponse = runtime.report({
+      ...prepareReportRequest(encodedReport),
+    }).result();
+
+    const writeReportResult = evmClient.writeReport(runtime, {
+      receiver: evmConfig.marketFactoryAddress,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
+    }).result();
+
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+      throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+    }
+
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);
+    runtime.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
+    return txHash;
+  };
+
+  const createPayload = encodeAbiParameters(
+    parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"),
+    [eventName, closeTime, resolutionTime]
+  );
+
+  sendActionReport("createMarket", createPayload);
+
+  return `[${evmConfig.chainName}] ok`;
+}); // 
+
+return ``
+}
 
 
 
@@ -759,9 +838,9 @@ const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
   return [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
-    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
-    handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
+    handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
+   // handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+  //  handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
   ];
 };
 

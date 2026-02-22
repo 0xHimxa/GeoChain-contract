@@ -21,6 +21,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
 import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "./libraries/MarketTypes.sol";
 import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
+import {CanonicalPricingModule} from "./modules/CanonicalPricingModule.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
 import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
 
@@ -249,18 +250,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev Updates state based on current timestamp before checking
      */
     modifier marketOpen() {
-        _updateState();
-        if (state == State.Resolved) {
-            revert MarketErrors.PredictionMarket__AlreadyResolved();
-        }
-        if (state == State.Closed) {
-            revert MarketErrors.PredictionMarket__Isclosed();
-        }
-        if (state == State.Review) {
-            revert MarketErrors.PredictionMarket__IsUnderManualReview();
-        }
-
-        if (paused()) revert MarketErrors.PredictionMarket__IsPaused();
+        _marketOpen();
         _;
     }
 
@@ -269,23 +259,17 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev Many operations require liquidity to function properly
      */
     modifier seededOnly() {
-        if (!seeded) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
-        }
+        _seededOnly();
         _;
     }
 
     modifier zeroAmountCheck(uint256 amount) {
-        if (amount == 0) {
-            revert MarketErrors.PredictionMarket__AmountCantBeZero();
-        }
+        _zeroAmountCheck(amount);
         _;
     }
 
     modifier onlyCrossChainController() {
-        if (msg.sender != crossChainController) {
-            revert PredictionMarket__OnlyCrossChainController();
-        }
+        _onlyCrossChainController();
         _;
     }
 
@@ -315,13 +299,46 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         }
     }
 
+    function _marketOpen() internal {
+        _updateState();
+        if (state == State.Resolved) {
+            revert MarketErrors.PredictionMarket__AlreadyResolved();
+        }
+        if (state == State.Closed) {
+            revert MarketErrors.PredictionMarket__Isclosed();
+        }
+        if (state == State.Review) {
+            revert MarketErrors.PredictionMarket__IsUnderManualReview();
+        }
+
+        if (paused()) revert MarketErrors.PredictionMarket__IsPaused();
+    }
+
+    function _seededOnly() internal view {
+        if (!seeded) {
+            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
+    }
+
+    function _zeroAmountCheck(uint256 amount) internal pure {
+        if (amount == 0) {
+            revert MarketErrors.PredictionMarket__AmountCantBeZero();
+        }
+    }
+
+    function _onlyCrossChainController() internal view {
+        if (msg.sender != crossChainController) {
+            revert PredictionMarket__OnlyCrossChainController();
+        }
+    }
+
     /**
      * @notice Checks if market is operating in cross-chain canonical pricing mode
      * @return true if crossChainController is set, false otherwise
      * @dev When enabled, swaps use hub-provided prices instead of AMM reserves
      */
     function _isCanonicalPricingMode() internal view returns (bool) {
-        return crossChainController != address(0) && !marketFactory.isHubFactory()
+        return crossChainController != address(0) && !marketFactory.isHubFactory();
     }
 
     /**
@@ -338,27 +355,10 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     // CROSS-CHAIN PRICING HELPERS
     // ========================================
 
-    /// @notice Calculates the local AMM YES price from current reserves
-    /// @return YES price in 1e6 precision (same format as canonical prices)
-    function _localYesPriceE6() internal view returns (uint256) {
-        return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
-    }
-
-    /// @notice Calculates price deviation between local AMM and canonical hub price
-    /// @param localYesPriceE6 The current local AMM YES price
-    /// @return Deviation in basis points (bps)
-    function _deviationBps(uint256 localYesPriceE6) internal view returns (uint256) {
-        uint256 diff = localYesPriceE6 > canonicalYesPriceE6 ? localYesPriceE6 - canonicalYesPriceE6 : canonicalYesPriceE6 - localYesPriceE6;
-        return (diff * MarketConstants.FEE_PRECISION_BPS) / MarketConstants.PRICE_PRECISION;
-    }
-
-    /// @notice Maps deviation bps to the appropriate DeviationBand
-    /// @param deviationBps The current price deviation in bps
-    /// @return The DeviationBand classification
-    function _resolveDeviationBand(uint256 deviationBps) internal view returns (DeviationBand) {
-        if (deviationBps <= softDeviationBps) return DeviationBand.Normal;
-        if (deviationBps <= stressDeviationBps) return DeviationBand.Stress;
-        if (deviationBps <= hardDeviationBps) return DeviationBand.Unsafe;
+    function _bandFromId(uint8 bandId) internal pure returns (DeviationBand) {
+        if (bandId == 0) return DeviationBand.Normal;
+        if (bandId == 1) return DeviationBand.Stress;
+        if (bandId == 2) return DeviationBand.Unsafe;
         return DeviationBand.CircuitBreaker;
     }
 
@@ -384,37 +384,146 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         _ensureCanonicalPriceFresh();
         _validateCanonicalPrices();
 
-        uint256 localYesPriceE6 = _localYesPriceE6();
-        uint256 deviationBps = _deviationBps(localYesPriceE6);
-        DeviationBand band = _resolveDeviationBand(deviationBps);
+        CanonicalPricingModule.SwapControlsParams memory p = CanonicalPricingModule.SwapControlsParams({
+            yesForNo: yesForNo,
+            reserveOut: reserveOut,
+            yesReserve: yesReserve,
+            noReserve: noReserve,
+            pricePrecision: MarketConstants.PRICE_PRECISION,
+            canonicalYesPriceE6: canonicalYesPriceE6,
+            softDeviationBps: softDeviationBps,
+            stressDeviationBps: stressDeviationBps,
+            hardDeviationBps: hardDeviationBps,
+            stressExtraFeeBps: stressExtraFeeBps,
+            stressMaxOutBps: stressMaxOutBps,
+            unsafeMaxOutBps: unsafeMaxOutBps,
+            swapFeeBps: MarketConstants.SWAP_FEE_BPS,
+            feePrecisionBps: MarketConstants.FEE_PRECISION_BPS
+        });
+        (uint8 bandId, uint256 feeBpsOut, uint256 maxOutOut, bool allowDirection) = CanonicalPricingModule.swapControls(p);
 
-        if (band == DeviationBand.CircuitBreaker) {
+        if (bandId == uint8(DeviationBand.CircuitBreaker)) {
             revert PredictionMarket__CanonicalPriceDeviationTooHigh();
         }
-
-        effectiveFeeBps = MarketConstants.SWAP_FEE_BPS;
-        maxOut = type(uint256).max;
-
-        if (band == DeviationBand.Stress) {
-            effectiveFeeBps += stressExtraFeeBps;
-            maxOut = (reserveOut * stressMaxOutBps) / MarketConstants.FEE_PRECISION_BPS;
-        } else if (band == DeviationBand.Unsafe) {
-            effectiveFeeBps += stressExtraFeeBps;
-            maxOut = (reserveOut * unsafeMaxOutBps) / MarketConstants.FEE_PRECISION_BPS;
-
-            bool allowYesForNo = localYesPriceE6 > canonicalYesPriceE6;
-            bool allowNoForYes = localYesPriceE6 < canonicalYesPriceE6;
-
-            if ((yesForNo && !allowYesForNo) || (!yesForNo && !allowNoForYes)) {
-                revert PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
-            }
+        if (!allowDirection) {
+            revert PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
         }
+
+        effectiveFeeBps = feeBpsOut;
+        maxOut = maxOutOut;
     }
 
     function _revertIfLocalResolutionDisabled() internal view {
         if (crossChainController != address(0) && !marketFactory.isHubFactory()) {
             revert PredictionMarket__LocalResolutionDisabled();
         }
+    }
+
+    function _getSwapExecutionParams(bool yesForNo)
+        internal
+        view
+        returns (uint256 reserveIn, uint256 reserveOut, uint256 feeBps, uint256 maxOut)
+    {
+        reserveIn = yesForNo ? yesReserve : noReserve;
+        reserveOut = yesForNo ? noReserve : yesReserve;
+        feeBps = MarketConstants.SWAP_FEE_BPS;
+        maxOut = type(uint256).max;
+
+        if (_isCanonicalPricingMode()) {
+            (feeBps, maxOut) = _getCanonicalSwapControls(yesForNo, reserveOut);
+        }
+    }
+
+    function _quoteSwap(uint256 amountIn, bool yesForNo) internal view returns (uint256 netOut, uint256 fee) {
+        if (amountIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
+            revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
+        }
+
+        (uint256 reserveIn, uint256 reserveOut, uint256 feeBps, uint256 maxOut) = _getSwapExecutionParams(yesForNo);
+        (netOut, fee,,) = AMMLib.getAmountOut(reserveIn, reserveOut, amountIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
+
+        if (netOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
+    }
+
+    function _swap(uint256 amountIn, uint256 minOut, bool yesForNo) internal returns (uint256 amountOut) {
+        IERC20 tokenIn = yesForNo ? IERC20(address(yesToken)) : IERC20(address(noToken));
+        IERC20 tokenOut = yesForNo ? IERC20(address(noToken)) : IERC20(address(yesToken));
+
+        if (tokenIn.balanceOf(msg.sender) < amountIn) {
+            if (yesForNo) {
+                revert MarketErrors.PredictionMarket__SwapYesFoNo_YesExeedBalannce();
+            }
+            revert MarketErrors.PredictionMarket__SwapNoFoYes_NoExeedBalannce();
+        }
+        if (amountIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
+            revert MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed();
+        }
+
+        (uint256 reserveIn, uint256 reserveOut, uint256 feeBps, uint256 maxOut) = _getSwapExecutionParams(yesForNo);
+        uint256 newReserveIn;
+        uint256 newReserveOut;
+        (amountOut,, newReserveIn, newReserveOut) =
+            AMMLib.getAmountOut(reserveIn, reserveOut, amountIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
+
+        if (amountOut > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
+        if (minOut > amountOut) {
+            revert MarketErrors.PredictionMarket__SwapingExceedSlippage();
+        }
+
+        if (yesForNo) {
+            yesReserve = newReserveIn;
+            noReserve = newReserveOut;
+        } else {
+            noReserve = newReserveIn;
+            yesReserve = newReserveOut;
+        }
+
+        tokenIn.safeTransferFrom(msg.sender, address(this), amountIn);
+        tokenOut.safeTransfer(msg.sender, amountOut);
+
+        emit MarketEvents.Trade(msg.sender, yesForNo, amountIn, amountOut);
+    }
+
+    function _finalizeResolution(Resolution _outcome, string memory proofUrl, bool removeFromFactory, bool notifyHub)
+        internal
+    {
+        resolution = _outcome;
+        s_Proof_Url = proofUrl;
+        manualReviewNeeded = false;
+        state = State.Resolved;
+
+        if (removeFromFactory) {
+            marketFactory.removeResolvedMarket(address(this));
+        }
+
+        if (notifyHub && crossChainController != address(0) && marketFactory.isHubFactory()) {
+            marketFactory.onHubMarketResolved(_outcome, proofUrl);
+        }
+
+        emit MarketEvents.Resolved(resolution);
+    }
+
+    function _withdrawResolvedLiquidity(uint256 shares, uint256 userShares, bool yesWon) internal {
+        uint256 reserve = yesWon ? yesReserve : noReserve;
+        uint256 out = AMMLib.calculateProportionalOutput(reserve, shares, totalShares);
+
+        totalShares -= shares;
+        lpShares[msg.sender] = userShares - shares;
+
+        if (yesWon) {
+            yesReserve -= out;
+            yesToken.burn(address(this), out);
+        } else {
+            noReserve -= out;
+            noToken.burn(address(this), out);
+        }
+
+        i_collateral.safeTransfer(msg.sender, out);
+        emit MarketEvents.WithDrawnLiquidity(msg.sender, out, shares);
     }
 
     // ========================================
@@ -493,28 +602,24 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         _ensureCanonicalPriceFresh();
         _validateCanonicalPrices();
 
-        uint256 localYesPriceE6 = _localYesPriceE6();
-        deviationBps = _deviationBps(localYesPriceE6);
-        band = _resolveDeviationBand(deviationBps);
-
-        effectiveFeeBps = MarketConstants.SWAP_FEE_BPS;
-        maxOutBps = MarketConstants.FEE_PRECISION_BPS;
-        allowYesForNo = true;
-        allowNoForYes = true;
-
-        if (band == DeviationBand.Stress) {
-            effectiveFeeBps += stressExtraFeeBps;
-            maxOutBps = stressMaxOutBps;
-        } else if (band == DeviationBand.Unsafe) {
-            effectiveFeeBps += stressExtraFeeBps;
-            maxOutBps = unsafeMaxOutBps;
-            allowYesForNo = localYesPriceE6 > canonicalYesPriceE6;
-            allowNoForYes = localYesPriceE6 < canonicalYesPriceE6;
-        } else if (band == DeviationBand.CircuitBreaker) {
-            allowYesForNo = false;
-            allowNoForYes = false;
-            maxOutBps = 0;
-        }
+        uint8 bandId;
+        CanonicalPricingModule.DeviationStatusParams memory p = CanonicalPricingModule.DeviationStatusParams({
+            yesReserve: yesReserve,
+            noReserve: noReserve,
+            pricePrecision: MarketConstants.PRICE_PRECISION,
+            canonicalYesPriceE6: canonicalYesPriceE6,
+            softDeviationBps: softDeviationBps,
+            stressDeviationBps: stressDeviationBps,
+            hardDeviationBps: hardDeviationBps,
+            stressExtraFeeBps: stressExtraFeeBps,
+            stressMaxOutBps: stressMaxOutBps,
+            unsafeMaxOutBps: unsafeMaxOutBps,
+            swapFeeBps: MarketConstants.SWAP_FEE_BPS,
+            feePrecisionBps: MarketConstants.FEE_PRECISION_BPS
+        });
+        (bandId, deviationBps, effectiveFeeBps, maxOutBps, allowYesForNo, allowNoForYes) =
+            CanonicalPricingModule.deviationStatus(p);
+        band = _bandFromId(bandId);
     }
 
     // ========================================
@@ -571,7 +676,6 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         nonReentrant
         marketOpen
         seededOnly
-        whenNotPaused
     {
         // Validate inputs
         if (yesAmount == 0 && noAmount == 0) {
@@ -627,7 +731,6 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         nonReentrant
         seededOnly
         marketOpen
-        whenNotPaused
     {
         uint256 userShares = lpShares[msg.sender];
 
@@ -676,7 +779,6 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         nonReentrant
         seededOnly
         marketOpen
-        whenNotPaused
     {
         uint256 userShares = lpShares[msg.sender];
 
@@ -770,37 +872,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
         }
 
-        if (resolutionOut == uint256(Resolution.Yes)) {
-            uint256 winningOut = AMMLib.calculateProportionalOutput(yesReserve, shares, totalShares);
-            totalShares -= shares;
-            lpShares[msg.sender] = userShares - shares;
-
-            yesReserve -= winningOut;
-
-            // Burn the matched YES pair from contract balance
-            yesToken.burn(address(this), winningOut);
-
-            // Transfer net collateral to user
-            i_collateral.safeTransfer(msg.sender, winningOut);
-
-            emit MarketEvents.WithDrawnLiquidity(msg.sender, winningOut, shares);
-        }
-
-        if (resolutionOut == uint256(Resolution.No)) {
-            uint256 noOut = AMMLib.calculateProportionalOutput(noReserve, shares, totalShares);
-            totalShares -= shares;
-            lpShares[msg.sender] = userShares - shares;
-
-            noReserve -= noOut;
-
-            // Burn the matched NO pair from contract balance
-            noToken.burn(address(this), noOut);
-
-            // Transfer net collateral to user
-            i_collateral.safeTransfer(msg.sender, noOut);
-
-            emit MarketEvents.WithDrawnLiquidity(msg.sender, noOut, shares);
-        }
+        _withdrawResolvedLiquidity(shares, userShares, resolutionOut == uint256(Resolution.Yes));
     }
 
     /**
@@ -879,7 +951,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      *      Receives (amount - fee) of collateral back
      *      This allows users to exit positions and retrieve collateral
      */
-    function redeemCompleteSets(uint256 amount) external nonReentrant marketOpen whenNotPaused zeroAmountCheck(amount) {
+    function redeemCompleteSets(uint256 amount) external nonReentrant marketOpen zeroAmountCheck(amount) {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__RedeemCompletesetLessThanMinAllowed();
         }
@@ -924,48 +996,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         nonReentrant
         marketOpen
         seededOnly
-        whenNotPaused
         zeroAmountCheck(yesIn)
     {
-        if (yesToken.balanceOf(msg.sender) < yesIn) {
-            revert MarketErrors.PredictionMarket__SwapYesFoNo_YesExeedBalannce();
-        }
-        if (yesIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
-            revert MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed();
-        }
-
-        uint256 noOut;
-        uint256 newYesReserve;
-        uint256 newNoReserve;
-        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
-        uint256 maxOut = type(uint256).max;
-
-        if (_isCanonicalPricingMode()) {
-            (feeBps, maxOut) = _getCanonicalSwapControls(true, noReserve);
-        }
-
-        // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
-        (noOut,, newYesReserve, newNoReserve) = AMMLib.getAmountOut(
-            yesReserve, noReserve, yesIn, feeBps, MarketConstants.FEE_PRECISION_BPS
-        );
-        if (noOut > maxOut) {
-            revert PredictionMarket__TradeSizeExceedsBandLimit();
-        }
-
-        // Validate output meets slippage requirements
-        if (minNoOut > noOut) {
-            revert MarketErrors.PredictionMarket__SwapingExceedSlippage();
-        }
-
-        // Update reserves
-        yesReserve = newYesReserve;
-        noReserve = newNoReserve;
-
-        // Transfer tokens
-        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), yesIn);
-        IERC20(address(noToken)).safeTransfer(msg.sender, noOut);
-
-        emit MarketEvents.Trade(msg.sender, true, yesIn, noOut);
+        _swap(yesIn, minNoOut, true);
     }
 
     /**
@@ -980,48 +1013,9 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         nonReentrant
         marketOpen
         seededOnly
-        whenNotPaused
         zeroAmountCheck(noIn)
     {
-        if (noToken.balanceOf(msg.sender) < noIn) {
-            revert MarketErrors.PredictionMarket__SwapNoFoYes_NoExeedBalannce();
-        }
-        if (noIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
-            revert MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed();
-        }
-
-        uint256 yesOut;
-        uint256 newNoReserve;
-        uint256 newYesReserve;
-        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
-        uint256 maxOut = type(uint256).max;
-
-        if (_isCanonicalPricingMode()) {
-            (feeBps, maxOut) = _getCanonicalSwapControls(false, yesReserve);
-        }
-
-        // Execute on local AMM curve. Canonical price acts as a guardrail, not execution source.
-        (yesOut,, newNoReserve, newYesReserve) = AMMLib.getAmountOut(
-            noReserve, yesReserve, noIn, feeBps, MarketConstants.FEE_PRECISION_BPS
-        );
-        if (yesOut > maxOut) {
-            revert PredictionMarket__TradeSizeExceedsBandLimit();
-        }
-
-        // Validate output meets slippage requirements
-        if (minYesOut > yesOut) {
-            revert MarketErrors.PredictionMarket__SwapingExceedSlippage();
-        }
-
-        // Update reserves
-        noReserve = newNoReserve;
-        yesReserve = newYesReserve;
-
-        // Transfer tokens
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), noIn);
-        IERC20(address(yesToken)).safeTransfer(msg.sender, yesOut);
-
-        emit MarketEvents.Trade(msg.sender, false, noIn, yesOut);
+        _swap(noIn, minYesOut, false);
     }
 
     // ========================================
@@ -1063,16 +1057,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             return;
         }
 
-        resolution = _outcome;
-        s_Proof_Url = proofUrl;
-
-        state = State.Resolved;
-        marketFactory.removeResolvedMarket(address(this));
-        if (crossChainController != address(0) && marketFactory.isHubFactory()) {
-            marketFactory.onHubMarketResolved(_outcome, proofUrl);
-        }
-
-        emit MarketEvents.Resolved(resolution);
+        _finalizeResolution(_outcome, proofUrl, true, true);
     }
 
     /**
@@ -1136,16 +1121,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
 
-        resolution = _outcome;
-        s_Proof_Url = proofUrl;
-
-        manualReviewNeeded = false;
-        state = State.Resolved;
-        if (crossChainController != address(0) && marketFactory.isHubFactory()) {
-            marketFactory.onHubMarketResolved(_outcome, proofUrl);
-        }
-
-        emit MarketEvents.Resolved(resolution);
+        _finalizeResolution(_outcome, proofUrl, false, true);
     }
 
     // ========================================
@@ -1177,13 +1153,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
             revert MarketErrors.PredictionMarket__AlreadyResolved();
         }
 
-        resolution = _outcome;
-        s_Proof_Url = proofUrl;
-        manualReviewNeeded = false;
-        state = State.Resolved;
-        marketFactory.removeResolvedMarket(address(this));
-
-        emit MarketEvents.Resolved(resolution);
+        _finalizeResolution(_outcome, proofUrl, true, false);
     }
 
     /// @notice Applies hub canonical prices to this market (used by UIs/quoting guards on spokes)
@@ -1231,7 +1201,6 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     ///      Returns true only when the current timestamp has passed both closeTime and resolutionTime.
     /// @return resolveReady True if the market is eligible for resolution
     function checkResolutionTime() external view returns (bool resolveReady) {
-        
         resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
     }
 
@@ -1252,24 +1221,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         zeroAmountCheck(yesIn)
         returns (uint256 netOut, uint256 fee)
     {
-        if (yesIn == 0) {
-            revert MarketErrors.PredictionMarket__AmountCantBeZero();
-        }
-        if (yesIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
-            revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
-        }
-
-        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
-        uint256 maxOut = type(uint256).max;
-        if (_isCanonicalPricingMode()) {
-            (feeBps, maxOut) = _getCanonicalSwapControls(true, noReserve);
-        }
-
-        (netOut, fee,,) =
-            AMMLib.getAmountOut(yesReserve, noReserve, yesIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
-        if (netOut > maxOut) {
-            revert PredictionMarket__TradeSizeExceedsBandLimit();
-        }
+        return _quoteSwap(yesIn, true);
     }
 
     /**
@@ -1280,21 +1232,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      * @dev Useful for UI to show expected trade output before execution
      */
     function getNoForYesQuote(uint256 noIn) external view zeroAmountCheck(noIn) returns (uint256 netOut, uint256 fee) {
-        if (noIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
-            revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
-        }
-
-        uint256 feeBps = MarketConstants.SWAP_FEE_BPS;
-        uint256 maxOut = type(uint256).max;
-        if (_isCanonicalPricingMode()) {
-            (feeBps, maxOut) = _getCanonicalSwapControls(false, yesReserve);
-        }
-
-        (netOut, fee,,) =
-            AMMLib.getAmountOut(noReserve, yesReserve, noIn, feeBps, MarketConstants.FEE_PRECISION_BPS);
-        if (netOut > maxOut) {
-            revert PredictionMarket__TradeSizeExceedsBandLimit();
-        }
+        return _quoteSwap(noIn, false);
     }
 
     /**
@@ -1364,22 +1302,20 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      *      - Winning token redemption fees
      *      Owner must ensure sufficient balance exists before withdrawal
      */
-    function withdrawProtocolFees(uint256 amount) external zeroAmountCheck(amount) onlyOwner {
+    function withdrawProtocolFees() external zeroAmountCheck(amount){
+        if(msg.sender != owner() || msg.sender !=  crossChainController) revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
         }
 
         uint256 contractBalance = i_collateral.balanceOf(address(this));
 
-        if (protocolCollateralFees < amount) {
+        
+        if (contractBalance < protocolCollateralFees) {
             revert MarketErrors.PredictionMarket__WithDrawLiquidity_Insufficientfee();
         }
 
-        if (contractBalance < amount) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_Insufficientfee();
-        }
-
-        i_collateral.safeTransfer(owner(), amount);
-        protocolCollateralFees -= amount;
+        i_collateral.safeTransfer(msg.sender, protocolCollateralFees);
+        protocolCollateralFees = 0 ;
     }
 }

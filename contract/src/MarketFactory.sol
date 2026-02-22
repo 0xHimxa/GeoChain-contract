@@ -146,6 +146,21 @@ uint256  private initailEventLiquidity;
         uint256 deviationAfterBps
     );
 
+    struct UnsafeArbContext {
+        address marketAddress;
+        PredictionMarket market;
+        uint256 deviationBefore;
+        uint256 effectiveFeeBps;
+        uint256 maxOutBps;
+        bool yesForNo;
+        uint256 reserveIn;
+        uint256 reserveOut;
+        uint256 maxOut;
+        uint256 bestSpend;
+        uint256 swapIn;
+        uint256 deviationAfter;
+    }
+
     // ========================================
     // ERRORS
     // ========================================
@@ -636,42 +651,50 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
 
  function _arbitrateUnsafeMarket(uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) internal{
-
-
- address marketAddress = marketById[marketId];
-        if (marketAddress == address(0)) revert MarketFactory__MarketNotFound();
+        UnsafeArbContext memory ctx;
+        ctx.marketAddress = marketById[marketId];
+        if (ctx.marketAddress == address(0)) revert MarketFactory__MarketNotFound();
         if (maxSpendCollateral == 0) revert MarketFactory__ArbZeroAmount();
 
-        PredictionMarket m = PredictionMarket(marketAddress);
+        ctx.market = PredictionMarket(ctx.marketAddress);
 
-        (
-            PredictionMarket.DeviationBand band,
-            uint256 deviationBefore,
-            uint256 effectiveFeeBps,
-            uint256 maxOutBps,
-            bool allowYesForNo,
-            bool allowNoForYes
-        ) = m.getDeviationStatus();
+        PredictionMarket.DeviationBand band;
+        bool allowYesForNo;
+        bool allowNoForYes;
+        (band, ctx.deviationBefore, ctx.effectiveFeeBps, ctx.maxOutBps, allowYesForNo, allowNoForYes) =
+            ctx.market.getDeviationStatus();
 
         if (band != PredictionMarket.DeviationBand.Unsafe) revert MarketFactory__ArbNotUnsafe();
         if (!allowYesForNo && !allowNoForYes) revert MarketFactory__ArbNoDirection();
 
-        uint256 spend = maxSpendCollateral;
+        ctx.yesForNo = allowYesForNo;
+        ctx.reserveIn = ctx.yesForNo ? ctx.market.yesReserve() : ctx.market.noReserve();
+        ctx.reserveOut = ctx.yesForNo ? ctx.market.noReserve() : ctx.market.yesReserve();
+        ctx.maxOut = (ctx.reserveOut * ctx.maxOutBps) / MarketConstants.FEE_PRECISION_BPS;
+        if (ctx.maxOut == 0) revert MarketFactory__ArbZeroAmount();
 
-        bool yesForNo = allowYesForNo;
-        uint256 reserveIn = yesForNo ? m.yesReserve() : m.noReserve();
-        uint256 reserveOut = yesForNo ? m.noReserve() : m.yesReserve();
-        uint256 maxOut = (reserveOut * maxOutBps) / MarketConstants.FEE_PRECISION_BPS;
-        if (maxOut == 0) revert MarketFactory__ArbZeroAmount();
+        ctx.bestSpend =
+            _capSpendForMaxOut(maxSpendCollateral, ctx.reserveIn, ctx.reserveOut, ctx.effectiveFeeBps, ctx.maxOut);
+        if (ctx.bestSpend == 0) revert MarketFactory__ArbZeroAmount();
 
-        uint256 bestSpend =
-            _capSpendForMaxOut(spend, reserveIn, reserveOut, effectiveFeeBps, maxOut);
-        if (bestSpend == 0) revert MarketFactory__ArbZeroAmount();
+        _ensureAllowance(collateral, ctx.marketAddress, ctx.bestSpend);
+        ctx.market.mintCompleteSets(ctx.bestSpend);
 
-        _ensureAllowance(collateral, marketAddress, bestSpend);
-        m.mintCompleteSets(bestSpend);
+        ctx.swapIn = _netOutcomeFromCollateral(ctx.bestSpend);
+        _executeUnsafeArbSwap(ctx.market, ctx.marketAddress, ctx.yesForNo, ctx.swapIn);
 
-        uint256 swapIn = _netOutcomeFromCollateral(bestSpend);
+        (, ctx.deviationAfter,,,,) = ctx.market.getDeviationStatus();
+        if (ctx.deviationBefore <= ctx.deviationAfter) revert MarketFactory__ArbInsufficientImprovement();
+        if (ctx.deviationBefore - ctx.deviationAfter < minDeviationImprovementBps) {
+            revert MarketFactory__ArbInsufficientImprovement();
+        }
+
+        emit UnsafeArbitrageExecuted(
+            ctx.marketAddress, ctx.yesForNo, ctx.bestSpend, ctx.deviationBefore, ctx.deviationAfter
+        );
+ }
+
+    function _executeUnsafeArbSwap(PredictionMarket m, address marketAddress, bool yesForNo, uint256 swapIn) internal {
         if (yesForNo) {
             _ensureAllowance(IERC20(address(m.yesToken())), marketAddress, swapIn);
             m.swapYesForNo(swapIn, 0);
@@ -679,17 +702,7 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
             _ensureAllowance(IERC20(address(m.noToken())), marketAddress, swapIn);
             m.swapNoForYes(swapIn, 0);
         }
-
-        (, uint256 deviationAfter,,,,) = m.getDeviationStatus();
-        if (deviationBefore <= deviationAfter) revert MarketFactory__ArbInsufficientImprovement();
-        if (deviationBefore - deviationAfter < minDeviationImprovementBps) {
-            revert MarketFactory__ArbInsufficientImprovement();
-        }
-
-        emit UnsafeArbitrageExecuted(marketAddress, yesForNo, bestSpend, deviationBefore, deviationAfter);
-
-
- }
+    }
 
 
 

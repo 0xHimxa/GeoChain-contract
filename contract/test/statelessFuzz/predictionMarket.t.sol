@@ -10,10 +10,15 @@ import {MarketConstants, MarketErrors, Resolution} from "src/libraries/MarketTyp
 contract MockMarketFactoryFuzz {
     address public lastRemoved;
     uint256 public removeCount;
+    bool public isHubFactory;
 
     function removeResolvedMarket(address market) external {
         lastRemoved = market;
         removeCount++;
+    }
+
+    function setIsHubFactory(bool value) external {
+        isHubFactory = value;
     }
 }
 

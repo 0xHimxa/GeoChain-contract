@@ -151,6 +151,8 @@ library MarketErrors {
     error PredictionMarket__SwapNoFoYes_NoExeedBalannce();
     error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
     error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
+    error PredictionMarket__NotOwner_Or_CrossChainController();
+      
     error PredictionMarket__AmountLessThanMinAllwed();
     /// @notice Thrown when a user's cumulative collateral exposure exceeds MAX_RISK_EXPOSURE in a single market
     error PredictionMarket__RiskExposureExceeded();
