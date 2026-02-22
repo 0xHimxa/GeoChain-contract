@@ -92,10 +92,13 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 
     /// @notice Highest applied hub resolution nonce per market
     mapping(uint256 => uint64) public resolutionNonceByMarketId;
+    /// @notice Highest nonce applied by direct CRE spoke syncs per market
+    mapping(uint256 => uint64) public directPriceSyncNonceByMarketId;
 
 
     //CRE Ation types
     bytes32 private hashed_BroadCastPrice;
+    bytes32 private hashed_SyncSpokeCanonicalPrice;
     bytes32 private hashed_BroadCastResolution;
     bytes32 private hashed_CreateMarket;
     bytes32 private hashed_PriceCorrection; 
@@ -194,6 +197,7 @@ uint256 private initialCanonicalPriceE6;
   
     error MarketFactory__ArbInsufficientImprovement();
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+    error MarketFactory__NotSpokeFactory();
 
 
 
@@ -232,6 +236,7 @@ uint256 private initialCanonicalPriceE6;
         Amount_Funding_Factory = 100000e6;
         
         hashed_BroadCastPrice = keccak256( abi.encode("broadCastPrice"));
+        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
         hashed_BroadCastResolution = keccak256(abi.encode("broadCastResolution"));
         hashed_CreateMarket = keccak256(abi.encode("createMarket"));
         hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
@@ -250,6 +255,7 @@ uint256 private initialCanonicalPriceE6;
     /// @dev Call via upgradeToAndCall on the proxy during upgrade.
     function initializeV2() external reinitializer(2) onlyOwner {
         ccipNonce = 1;
+        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
          initialCanonicalPriceWindow = 30 minutes;
 
         initailEventLiquidity = 30000e6;
@@ -580,6 +586,27 @@ uint256 private initialCanonicalPriceE6;
         revert MarketFactory__UnknownSyncMessageType();
     }
 
+    /// @notice Applies canonical prices directly on spoke markets using CRE reports (CCIP bypass).
+    function _syncSpokeCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
+        internal
+    {
+        if (isHubFactory) revert MarketFactory__NotSpokeFactory();
+
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0)) revert MarketFactory__MarketNotFound();
+
+        PredictionMarket market = PredictionMarket(marketAddress);
+        uint64 nextNonce = market.canonicalPriceNonce() + 1;
+        uint64 trackedNonce = directPriceSyncNonceByMarketId[marketId];
+        if (trackedNonce >= nextNonce) {
+            nextNonce = trackedNonce + 1;
+        }
+
+        directPriceSyncNonceByMarketId[marketId] = nextNonce;
+        market.syncCanonicalPriceFromHub(yesPriceE6, noPriceE6, validUntil, nextNonce);
+        emit CanonicalPriceMessageReceived(marketId, yesPriceE6, noPriceE6, nextNonce);
+    }
+
     /// @notice ERC165 support declaration used by CCIP OffRamp to detect receivers
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
         return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || super.supportsInterface(interfaceId);
@@ -590,10 +617,19 @@ uint256 private initialCanonicalPriceE6;
     function _processReport(bytes calldata report) internal override {
       (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
       bytes32 actionTypeHash = keccak256(abi.encode(actionType));
+      bytes32 syncSpokeActionHash = hashed_SyncSpokeCanonicalPrice;
+      if (syncSpokeActionHash == bytes32(0)) {
+        syncSpokeActionHash = keccak256(abi.encode("syncSpokeCanonicalPrice"));
+      }
 
       if (actionTypeHash == hashed_BroadCastPrice) {
         (uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil) = abi.decode(payload, (uint256, uint256, uint256, uint256));
       _broadcastCanonicalPrice( marketId,  yesPriceE6,  noPriceE6,  validUntil);
+
+      } else if (actionTypeHash == syncSpokeActionHash) {
+        (uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil) =
+            abi.decode(payload, (uint256, uint256, uint256, uint256));
+        _syncSpokeCanonicalPrice(marketId, yesPriceE6, noPriceE6, validUntil);
       
       } else if (actionTypeHash == hashed_BroadCastResolution) {
         (uint256 marketId, Resolution outcome, string memory proofUrl) = abi.decode(payload, (uint256, Resolution, string));

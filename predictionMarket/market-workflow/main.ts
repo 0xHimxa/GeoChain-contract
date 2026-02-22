@@ -463,29 +463,44 @@ return `${activeEventList.length}`
 
 
 const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
-  if (runtime.config.evms.length === 0) {
-    return "No EVM config found";
+  if (runtime.config.evms.length < 2) {
+    return "Need at least one hub and one spoke EVM config";
   }
 
   const hubConfig = runtime.config.evms[0];
-  const network = getNetwork({
+  const spokeConfigs = runtime.config.evms.slice(1);
+  const hubNetwork = getNetwork({
     chainFamily: "evm",
     chainSelectorName: hubConfig.chainName,
     isTestnet: true,
   });
 
-  if (!network) {
+  if (!hubNetwork) {
     throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
   }
 
-  const evmClient = new EVMClient(network.chainSelector.selector);
+  const hubClient = new EVMClient(hubNetwork.chainSelector.selector);
+  const spokeClients = spokeConfigs.map((spokeConfig) => {
+    const spokeNetwork = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: spokeConfig.chainName,
+      isTestnet: true,
+    });
+    if (!spokeNetwork) {
+      throw new Error(`Unknown chain name: ${spokeConfig.chainName}`);
+    }
+    return {
+      config: spokeConfig,
+      client: new EVMClient(spokeNetwork.chainSelector.selector),
+    };
+  });
 
   const activeMarketCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList",
   });
 
-  const activeMarketResult = evmClient.callContract(runtime, {
+  const activeMarketResult = hubClient.callContract(runtime, {
     call: encodeCallMsg({
       from: sender,
       to: hubConfig.marketFactoryAddress as `0x${string}`,
@@ -503,7 +518,8 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
     return "No active markets to sync";
   }
 
-  let broadcastedCount = 0;
+  let attemptedWrites = 0;
+  let successfulWrites = 0;
 
   for (const marketAddress of activeMarketList) {
     const marketIdCallData = encodeFunctionData({
@@ -512,7 +528,7 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       args: [marketAddress],
     });
 
-    const marketIdCallResult = evmClient.callContract(runtime, {
+    const marketIdCallResult = hubClient.callContract(runtime, {
       call: encodeCallMsg({
         from: sender,
         to: hubConfig.marketFactoryAddress as `0x${string}`,
@@ -540,7 +556,7 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       functionName: "getNoPriceProbability",
     });
 
-    const yesPriceResult = evmClient.callContract(runtime, {
+    const yesPriceResult = hubClient.callContract(runtime, {
       call: encodeCallMsg({
         from: sender,
         to: marketAddress,
@@ -548,7 +564,7 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       }),
     }).result();
 
-    const noPriceResult = evmClient.callContract(runtime, {
+    const noPriceResult = hubClient.callContract(runtime, {
       call: encodeCallMsg({
         from: sender,
         to: marketAddress,
@@ -575,32 +591,34 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
     );
     const encodedReport = encodeAbiParameters(
       parseAbiParameters("string actionType, bytes payload"),
-      ["broadCastPrice", pricePayload]
+      ["syncSpokeCanonicalPrice", pricePayload]
     );
     const reportResponse = runtime.report({
       ...prepareReportRequest(encodedReport),
     }).result();
 
-    const writeReportResult = evmClient.writeReport(runtime, {
-      receiver: hubConfig.marketFactoryAddress,
-      report: reportResponse,
-      gasConfig: {
-        gasLimit: "10000000",
-      },
-    }).result();
+    for (const spoke of spokeClients) {
+      attemptedWrites += 1;
+      const writeReportResult = spoke.client.writeReport(runtime, {
+        receiver: spoke.config.marketFactoryAddress,
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000",
+        },
+      }).result();
 
-    if (writeReportResult.txStatus === TxStatus.REVERTED) {
-      runtime.log(`[${hubConfig.chainName}] broadCastPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
-      throw new Error(`broadCastPrice failed on ${hubConfig.chainName}: ${writeReportResult.errorMessage}`);
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+        continue;
+      }
+
+      const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+      runtime.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice tx for marketId=${marketId}: ${txHash}`);
+      successfulWrites += 1;
     }
-
-    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-    runtime.log(`[${hubConfig.chainName}] broadCastPrice tx for marketId=${marketId}: ${txHash}`);
-    runtime.log(`[${hubConfig.chainName}] https://sepolia.etherscan.io/tx/${txHash}`);
-    broadcastedCount += 1;
   }
 
-  return `Broadcasted price updates for ${broadcastedCount}/${activeMarketList.length} markets`;
+  return `Synced ${activeMarketList.length} markets from hub to ${spokeClients.length} spokes (successful writes: ${successfulWrites}/${attemptedWrites})`;
 }
 
 const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string => {
@@ -840,8 +858,8 @@ const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
   return [
-    handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
-   // handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+   // handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
   //  handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
   ];
 };

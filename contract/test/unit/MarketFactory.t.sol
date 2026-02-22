@@ -135,13 +135,52 @@ contract MarketFactoryTest is Test {
         assertEq(PredictionMarket(created).owner(), marketOwner);
     }
 
+    function testForwarderOnReportSyncSpokeCanonicalPricePass() external {
+        vm.prank(marketOwner);
+        address created = market.createMarket("q", block.timestamp + 100, block.timestamp + 200, initialLiquidity);
+
+        bytes memory payload = abi.encode(uint256(1), uint256(530_000), uint256(470_000), uint256(block.timestamp + 1 days));
+        bytes memory report = abi.encode("syncSpokeCanonicalPrice", payload);
+
+        vm.prank(forwarder);
+        vm.expectEmit(true, true, false, true);
+        emit CanonicalPriceMessageReceived(1, 530_000, 470_000, 2);
+        market.onReport("", report);
+
+        PredictionMarket prediction = PredictionMarket(created);
+        assertEq(prediction.canonicalYesPriceE6(), 530_000);
+        assertEq(prediction.canonicalNoPriceE6(), 470_000);
+        assertEq(prediction.canonicalPriceNonce(), 2);
+        assertEq(market.directPriceSyncNonceByMarketId(1), 2);
+
+        vm.prank(forwarder);
+        market.onReport("", report);
+        assertEq(prediction.canonicalPriceNonce(), 3);
+        assertEq(market.directPriceSyncNonceByMarketId(1), 3);
+    }
+
+    function testForwarderOnReportSyncSpokeCanonicalPriceRevertWhenHubFactory() external {
+        vm.prank(marketOwner);
+        market.createMarket("q", block.timestamp + 100, block.timestamp + 200, initialLiquidity);
+
+        vm.prank(marketOwner);
+        market.setCcipConfig(address(router), address(feeToken), true);
+
+        bytes memory payload = abi.encode(uint256(1), uint256(510_000), uint256(490_000), uint256(block.timestamp + 1 days));
+        bytes memory report = abi.encode("syncSpokeCanonicalPrice", payload);
+
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactory.MarketFactory__NotSpokeFactory.selector);
+        market.onReport("", report);
+    }
+
     function testArbitrateUnsafeMarketImprovesDeviation() external {
         vm.startPrank(marketOwner);
         address created = market.createMarket("arb market", block.timestamp + 1000, block.timestamp + 20000, initialLiquidity);
         vm.stopPrank();
 
         vm.prank(address(market));
-        PredictionMarket(created).syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+        PredictionMarket(created).syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 2);
 
         vm.prank(marketOwner);
         market.arbitrateUnsafeMarket(1, 1000e6, 1);
@@ -512,7 +551,7 @@ contract MarketFactoryTest is Test {
             yesPriceE6: 510_000,
             noPriceE6: 490_000,
             validUntil: block.timestamp + 1 days,
-            nonce: 1
+            nonce: 2
         });
         Client.EVMTokenAmount[] memory emptyAmounts = new Client.EVMTokenAmount[](0);
         Client.Any2EVMMessage memory message = Client.Any2EVMMessage({
