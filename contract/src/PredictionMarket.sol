@@ -8,11 +8,11 @@ pragma solidity 0.8.33;
 // OpenZeppelin ERC20 utilities for safe token operations
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 // OpenZeppelin security and access control utilities
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 // Custom outcome token for YES/NO positions
 import {OutcomeToken} from "./OutcomeToken.sol";
@@ -23,7 +23,7 @@ import {AMMLib} from "./libraries/AMMLib.sol";
 import {FeeLib} from "./libraries/FeeLib.sol";
 import {CanonicalPricingModule} from "./modules/CanonicalPricingModule.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
-import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
+import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
 
 /**
  * @title PredictionMarket
@@ -40,7 +40,7 @@ import {ReceiverTemplate} from "script/interfaces/ReceiverTemplate.sol";
  * - Owner-controlled resolution with binary outcome
  * - Fee collection on swaps and complete set operations
  */
-contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
+contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable, ReceiverTemplateUpgradeable {
     using SafeERC20 for IERC20;
 
     // ========================================
@@ -56,19 +56,19 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     string public s_Proof_Url;
 
     /// @notice The ERC20 token used as collateral (e.g., USDC, DAI)
-    IERC20 public immutable i_collateral;
+    IERC20 public i_collateral;
 
     /// @notice YES outcome token contract
-    OutcomeToken public immutable yesToken;
+    OutcomeToken public yesToken;
 
     /// @notice NO outcome token contract
-    OutcomeToken public immutable noToken;
+    OutcomeToken public noToken;
 
     /// @notice Timestamp when market closes for trading
-    uint256 public immutable closeTime;
+    uint256 public closeTime;
 
     /// @notice Timestamp when market can be resolved by owner
-    uint256 public immutable resolutionTime;
+    uint256 public resolutionTime;
 
     /* ─────────── Protocol Fee Accumulator ─────────── */
 
@@ -110,7 +110,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
     /// @notice Reference to the parent MarketFactory that deployed this market
     /// @dev Used to notify the factory when this market resolves (removes itself from activeMarkets list)
-    MarketFactory private immutable marketFactory;
+    MarketFactory private marketFactory;
 
     // ========================================
     // CROSS-CHAIN PRICING STATE
@@ -142,44 +142,61 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     // These control how the market responds when local AMM prices diverge from canonical hub prices
 
     /// @notice Deviation threshold in bps for normal operations (no restrictions)
-    uint16 public softDeviationBps = 150;
+    uint16 public softDeviationBps;
     /// @notice Deviation threshold in bps where stress controls become active (extra fees + output caps)
-    uint16 public stressDeviationBps = 300;
+    uint16 public stressDeviationBps;
     /// @notice Deviation threshold in bps above which swaps are hard-stopped (circuit breaker)
-    uint16 public hardDeviationBps = 500;
+    uint16 public hardDeviationBps;
     /// @notice Additional fee (bps) applied in stress/unsafe bands to disincentivize large trades
-    uint16 public stressExtraFeeBps = 100;
+    uint16 public stressExtraFeeBps;
     /// @notice Max output size as bps of output reserve in stress band (2% of reserve)
-    uint16 public stressMaxOutBps = 200;
+    uint16 public stressMaxOutBps;
     /// @notice Max output size as bps of output reserve in unsafe band (0.5% of reserve)
-    uint16 public unsafeMaxOutBps = 50;
+    uint16 public unsafeMaxOutBps;
 
     bytes32 private constant hashed_ResolveMarket = keccak256(abi.encodePacked("ResolveMarket"));
 
 
     // ========================================
-    // CONSTRUCTOR
+    // INITIALIZATION
     // ========================================
 
     /**
-     * @notice Initializes a new prediction market
+     * @notice Locks the implementation contract for direct initialization
+     */
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @notice Initializes a new prediction market clone
      * @param _question The prediction question
      * @param _collateral Address of the ERC20 collateral token
      * @param _closeTime Timestamp when market closes for trading
      * @param _resolutionTime Timestamp when market can be resolved
      * @param _marketfactory Address of market facory the contract
+     * @param _forwarderAddress Forwarder allowed to call onReport
+     * @param _initialOwner Initial market owner
      * @dev Creates YES and NO outcome tokens and sets initial state to Open
      */
-    constructor(
+    function initialize(
         string memory _question,
         address _collateral,
         uint256 _closeTime,
         uint256 _resolutionTime,
         address _marketfactory,
-        address _forwarderAddress
-    ) ReceiverTemplate(_forwarderAddress, _marketfactory) {
-        // Validate constructor arguments
-        if (_collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0) {
+        address _forwarderAddress,
+        address _initialOwner
+    ) external initializer {
+        __Pausable_init();
+        __ReceiverTemplateUpgradeable_init(_forwarderAddress, _initialOwner);
+
+        // Validate initialization arguments
+        if (
+            _collateral == address(0) || _closeTime == 0 || _resolutionTime == 0 || bytes(_question).length == 0
+                || _initialOwner == address(0)
+        ) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
         }
 
@@ -203,6 +220,12 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
         // Initialize market as Open
         state = State.Open;
+        softDeviationBps = 150;
+        stressDeviationBps = 300;
+        hardDeviationBps = 500;
+        stressExtraFeeBps = 100;
+        stressMaxOutBps = 200;
+        unsafeMaxOutBps = 50;
 
         // Store reference to the deploying factory so we can notify it on resolution
         marketFactory = MarketFactory(_marketfactory);
@@ -1295,7 +1318,6 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
     /**
      * @notice Withdraws accumulated protocol fees (owner only)
-     * @param amount Amount of collateral fees to withdraw
      * @dev Can only be called after market is resolved
      *      Protocol fees accumulate from:
      *      - Swap fees (portion kept in reserves)

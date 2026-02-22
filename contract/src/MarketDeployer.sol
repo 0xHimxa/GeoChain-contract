@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {PredictionMarket} from "./PredictionMarket.sol";
 
 /**
@@ -12,6 +13,15 @@ import {PredictionMarket} from "./PredictionMarket.sol";
  *      Only the registered factory address is allowed to trigger deployments.
  */
 contract MarketDeployer {
+    address public immutable i_marketImplementation;
+
+    error MarketDeployer__ZeroImplementation();
+
+    constructor(address marketImplementation) {
+        if (marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+        i_marketImplementation = marketImplementation;
+    }
+
     /// @notice Deploys a new PredictionMarket for the calling factory
     /// @param question  The binary question the market will resolve
     /// @param collateral Address of the ERC20 collateral token (e.g., USDC)
@@ -26,8 +36,9 @@ contract MarketDeployer {
         uint256 resolutionTime,
         address forwarder
     ) external returns (address market) {
-        market = address(new PredictionMarket(
-            question, collateral, closeTime, resolutionTime, msg.sender, forwarder
-        ));
+        market = Clones.clone(i_marketImplementation);
+        PredictionMarket(market).initialize(
+            question, collateral, closeTime, resolutionTime, msg.sender, forwarder, msg.sender
+        );
     }
 }

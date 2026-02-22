@@ -4,16 +4,30 @@ pragma solidity 0.8.33;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
+import {MarketDeployer} from "src/MarketDeployer.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
 import {MarketConstants} from "src/libraries/MarketTypes.sol";
 import {PredictionMarketHandler} from "test/statefullFuzz/PredictionMarketHandler.t.sol";
 
 contract MockMarketFactoryInvariant {
     function removeResolvedMarket(address) external {}
+
+    function deployMarket(
+        MarketDeployer deployer,
+        string memory question,
+        address collateral,
+        uint256 closeTime,
+        uint256 resolutionTime,
+        address forwarder
+    ) external returns (address) {
+        return deployer.deployPredictionMarket(question, collateral, closeTime, resolutionTime, forwarder);
+    }
 }
 
 contract PredictionMarketInvariantTest is StdInvariant, Test {
     PredictionMarket internal market;
+    PredictionMarket internal implementation;
+    MarketDeployer internal marketDeployer;
     OutcomeToken internal collateral;
     PredictionMarketHandler internal handler;
     MockMarketFactoryInvariant internal mockFactory;
@@ -25,14 +39,18 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
 
         mockFactory = new MockMarketFactoryInvariant();
+        implementation = new PredictionMarket();
+        marketDeployer = new MarketDeployer(address(implementation));
 
-        market = new PredictionMarket(
-            "Will ETH close above 5k?",
-            address(collateral),
-            block.timestamp + 1 days,
-            block.timestamp + 2 days,
-            address(mockFactory),
-            FORWARDER
+        market = PredictionMarket(
+            mockFactory.deployMarket(
+                marketDeployer,
+                "Will ETH close above 5k?",
+                address(collateral),
+                block.timestamp + 1 days,
+                block.timestamp + 2 days,
+                FORWARDER
+            )
         );
 
         vm.prank(address(mockFactory));

@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
+import {MarketDeployer} from "src/MarketDeployer.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
 import {AMMLib} from "src/libraries/AMMLib.sol";
 import {MarketConstants, MarketErrors, Resolution} from "src/libraries/MarketTypes.sol";
@@ -20,11 +21,24 @@ contract MockMarketFactoryFuzz {
     function setIsHubFactory(bool value) external {
         isHubFactory = value;
     }
+
+    function deployMarket(
+        MarketDeployer deployer,
+        string memory question,
+        address collateral,
+        uint256 closeTime,
+        uint256 resolutionTime,
+        address forwarder
+    ) external returns (address) {
+        return deployer.deployPredictionMarket(question, collateral, closeTime, resolutionTime, forwarder);
+    }
 }
 
 contract PredictionMarketStatelessFuzzTest is Test {
     OutcomeToken internal collateral;
     PredictionMarket internal market;
+    PredictionMarket internal implementation;
+    MarketDeployer internal marketDeployer;
     MockMarketFactoryFuzz internal mockFactory;
 
     address internal alice = makeAddr("alice");
@@ -36,14 +50,18 @@ contract PredictionMarketStatelessFuzzTest is Test {
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
         mockFactory = new MockMarketFactoryFuzz();
+        implementation = new PredictionMarket();
+        marketDeployer = new MarketDeployer(address(implementation));
 
-        market = new PredictionMarket(
-            "Will ETH close above 5k?",
-            address(collateral),
-            block.timestamp + 1 days,
-            block.timestamp + 2 days,
-            address(mockFactory),
-            FORWARDER
+        market = PredictionMarket(
+            mockFactory.deployMarket(
+                marketDeployer,
+                "Will ETH close above 5k?",
+                address(collateral),
+                block.timestamp + 1 days,
+                block.timestamp + 2 days,
+                FORWARDER
+            )
         );
 
         vm.prank(address(mockFactory));
@@ -192,7 +210,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
         assertEq(collateral.balanceOf(alice), beforeCollateral + expectedOut);
     }
 
-    function testFuzz_WithdrawProtocolFees_AfterResolution(uint96 mintRaw, uint96 withdrawRaw) external {
+    function testFuzz_WithdrawProtocolFees_AfterResolution(uint96 mintRaw) external {
         uint256 mintAmount = bound(uint256(mintRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
         _mintAndApprove(alice, mintAmount);
 
@@ -201,14 +219,14 @@ contract PredictionMarketStatelessFuzzTest is Test {
 
         uint256 feeBalance = market.protocolCollateralFees();
         vm.assume(feeBalance > 0);
+        market.setCrossChainController(address(this));
 
-        uint256 withdrawAmount = bound(uint256(withdrawRaw), 1, feeBalance);
         uint256 beforeOwnerBalance = collateral.balanceOf(address(this));
 
-        market.withdrawProtocolFees(withdrawAmount);
+        market.withdrawProtocolFees();
 
-        assertEq(collateral.balanceOf(address(this)), beforeOwnerBalance + withdrawAmount);
-        assertEq(market.protocolCollateralFees(), feeBalance - withdrawAmount);
+        assertEq(collateral.balanceOf(address(this)), beforeOwnerBalance + feeBalance);
+        assertEq(market.protocolCollateralFees(), 0);
     }
 
     function testFuzz_SyncCanonicalPrice_StoresFreshState(uint32 yesPriceRaw, uint64 nonceRaw, uint32 validForRaw) external {
