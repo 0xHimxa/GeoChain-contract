@@ -100,6 +100,7 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     bytes32 private hashed_CreateMarket;
     bytes32 private hashed_PriceCorrection; 
     bytes32  private hashed_AddLiquidityToFactory;
+    bytes32  private hashed_WithCollatralAndFee;
    
 
 uint256  private initailEventLiquidity;
@@ -230,7 +231,7 @@ uint256  private initailEventLiquidity;
         hashed_CreateMarket = keccak256(abi.encode("createMarket"));
         hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
         hashed_AddLiquidityToFactory = keccak256(abi.encode("addLiquidityToFactory"));
-
+         hashed_WithCollatralAndFee = keccak256(abi.encode("WithCollatralAndFee"));
         initailEventLiquidity = 30000e6;
 
         s_supportedChainSelector[16281711391670634445] = true;
@@ -589,7 +590,10 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
       }else if(actionTypeHash == hashed_AddLiquidityToFactory){
         _addLiquidityToFactory();
         
-        }
+        }else if(actionTypeHash ==  hashed_WithCollatralAndFee)
+        (uint256 marketId) = abi.decode(payload, (uint256));
+         _withdrawCollateralFromEvents(_marketId);
+    _withdrawEventFeeWhenResolved(_marketId);
       
       else{
          revert MarketFactory__ActionNotRecognized();
@@ -749,7 +753,17 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
 
 
-function withdrawCollateralFromEvents(uint256 _marketId) external onlyOwner{
+function withdrawMarketFactoryCollateralAndFee(uint256 _marketId) public onlyOwner{
+
+    _withdrawCollateralFromEvents(_marketId);
+    _withdrawEventFeeWhenResolved(_marketId);
+}
+
+
+
+
+
+function _withdrawCollateralFromEvents(uint256 _marketId) internal {
 
 address marketAddress = marketById[_marketId];
  if(marketAddress == address(0)) revert MarketFactory__MarketNotFound();
@@ -765,7 +779,7 @@ address marketAddress = marketById[_marketId];
 }
 
 
-function withdrawEventFeeWhenResolved(uint256 _marketId) external onlyOwner{
+function _withdrawEventFeeWhenResolved(uint256 _marketId) internal{
 address marketAddress = marketById[_marketId];
  if(marketAddress == address(0)) revert MarketFactory__MarketNotFound();
 

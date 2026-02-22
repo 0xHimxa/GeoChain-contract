@@ -1035,9 +1035,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
     function _resolve(Resolution _outcome, string memory proofUrl) internal {
         _revertIfLocalResolutionDisabled();
         _updateState();
-        if (bytes(proofUrl).length == 0) {
-            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
-        }
+       
 
         if (block.timestamp < resolutionTime) {
             revert MarketErrors.PredictionMarket__ResolveTimeNotReached();
@@ -1055,6 +1053,10 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
 
             emit MarketEvents.IsUnderManualReview(_outcome);
             return;
+        }
+
+         if (bytes(proofUrl).length == 0) {
+            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
         }
 
         _finalizeResolution(_outcome, proofUrl, true, true);
@@ -1307,6 +1309,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
         }
+        if(protocolCollateralFees == 0)return; 
 
         uint256 contractBalance = i_collateral.balanceOf(address(this));
 
