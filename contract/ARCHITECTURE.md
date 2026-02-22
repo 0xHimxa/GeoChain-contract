@@ -1,436 +1,80 @@
-# GeoChain Prediction Market - Technical Architecture
+# GeoChain Prediction Market – System Architecture
 
-This document provides a comprehensive technical overview of the prediction market protocol architecture, design decisions, and implementation details.
+A decentralized, AMM‑based prediction market optimized for cross‑chain canonical pricing, owner‑administered resolution, and automated workflows driven by Chainlink CRE/CCIP.
 
-## Table of Contents
+## Repository Layout
 
-- [System Overview](#system-overview)
-- [Contract Architecture](#contract-architecture)
-- [Market Lifecycle](#market-lifecycle)
-- [AMM Mechanism](#amm-mechanism)
-- [Liquidity Provision](#liquidity-provision)
-- [Fee Structure](#fee-structure)
-- [Security Model](#security-model)
+- `src/`: Solidity contracts. Core tenants live here (`MarketFactory`, `PredictionMarket`, `OutcomeToken`) plus CCIP helpers, shared libraries, and the upgradeable factory variant.
+- `lib/`: Forked OpenZeppelin and Foundry standard libraries needed by the contracts (`forge-std`, `openzeppelin-contracts`, `openzeppelin-contracts-upgradeable`).
+- `script/`: Foundry scripts for deployment and upgrades plus interface helpers (`ReceiverTemplateUpgradeable`).
+- `test/`: Unit (`unit/`), stateless fuzz (`statelessFuzz/`), and future stateful fuzz (`statefullFuzz/`) coverage helpers with README guidance for naming conventions, verbosity flags, and CI expectations.
+- `predictionMarket/market-workflow/`: Off-chain automation (Chainlink CRE + Gemini + Firestore) that monitors collaterals, proposes markets/resolution data, and writes CRE reports back to the contracts.
 
-## System Overview
+## Core Solidity Components
 
-The GeoChain Prediction Market is a decentralized protocol for creating and trading binary outcome markets. It uses an automated market maker (AMM) with a constant product formula to enable permissionless trading of outcome tokens.
-
-### Core Components
-
-```mermaid
-graph TD
-    A[MarketFactory] -->|deploys| B[PredictionMarket]
-    B -->|deploys| C[YesToken]
-    B -->|deploys| D[NoToken]
-    E[User] -->|interacts| A
-    E -->|trades| B
-    E -->|holds| C
-    E -->|holds| D
-    F[Collateral USDC] -->|locked in| B
-```
-
-### Key Design Principles
-
-1. **Decentralization**: No external oracle dependencies for pricing
-2. **Permissionless Trading**: Anyone can trade once a market is created
-3. **Self-Custody**: Users maintain control of their tokens
-4. **Transparency**: All logic is on-chain and verifiable
-5. **Capital Efficiency**: Complete sets can be minted/redeemed 1:1 with collateral
-
-## Contract Architecture
-
-### MarketFactory
-
-**Purpose**: Factory pattern for deploying and tracking prediction markets
-
-**Responsibilities**:
-- Deploy new PredictionMarket contracts
-- Maintain registry of all created markets
-- Handle initial liquidity seeding
-- Transfer ownership to market creator
-
-**Key Functions**:
-```solidity
-function createMarket(
-    string calldata question,
-    uint256 closeTime,
-    uint256 resolutionTime,
-    uint256 initialLiquidity
-) external onlyOwner returns (address market)
-```
+### MarketFactory (UUPS Upgradeable Hub)
+- Upgradeable owner-controlled factory that deploys markets through `MarketDeployer` to stay within the EVM size limit.
+- Holds the collateral token (initially a mintable USDC mock for tests) and seeds newly created markets with equal YES/NO reserves.
+- Tracks every active market in `activeMarkets`/`marketToIndex` for iteration and arbitrage.
+- Maintains cross-chain state: `isHubFactory` distinguishes hub vs. spoke, `trustedRemoteBySelector` + `ccipReceive` handle CCIP messages, and `broadcastCanonicalPrice`/`broadcastResolution` push hub updates to spokes.
+- Processes CCIP inbound price/resolution payloads, verifies source selectors, syncs canonical prices on spokes, and routes hub resolutions into local markets (`PredictionMarket.resolveFromHub`).
+- Offers maintenance helpers: `arbitrateUnsafeMarket` (capped swaps via AMM math), liquidity top-ups `addLiquidityToFactory`, and `withdrawCollateralFromEvents` after resolution.
 
 ### PredictionMarket
-
-**Purpose**: Core market contract implementing AMM, lifecycle management, and resolution
-
-**Responsibilities**:
-- Manage YES/NO token reserves using constant product AMM
-- Handle liquidity provision and LP share accounting
-- Enable complete set minting/redemption
-- Control market lifecycle (Open → Closed → Resolved)
-- Collect and distribute fees
-- Resolve market outcome
-
-**State Variables**:
-```solidity
-// Market Configuration
-string public immutable s_question;
-IERC20 public immutable i_collateral;
-OutcomeToken public immutable yesToken;
-OutcomeToken public immutable noToken;
-uint256 public immutable closeTime;
-uint256 public immutable resolutionTime;
-
-// AMM State
-uint256 public yesReserve;
-uint256 public noReserve;
-uint256 public totalShares;
-mapping(address => uint256) public lpShares;
-
-// Market State
-State public state; // Open, Closed, Resolved
-Resolution public resolution; // Unset, Yes, No, Invalid
-```
+- Core AMM market contract; deploys two `OutcomeToken` instances for YES/NO (6 decimals to match USDC) and uses `ReceiverTemplateUpgradeable` for Chainlink CRE reports.
+- Market lifecycle: Open → Closed (automatically at `closeTime`) → Review (if owner initially sets INCONCLUSIVE) → Resolved.
+- AMM logic: constant product formula `k = yesReserve * noReserve`, swap fees stay in the pool, and LP shares minted/burned with proportional accounting (`AMMLib`).
+- Liquidity management: `seedLiquidity`, `addLiquidity`, `removeLiquidity`, `removeLiquidityAndRedeemCollateral`, `withdrawLiquidityCollateral`, and LP share transfers with slippage allowances.
+- Complete set mint/redeem with hardcoded fee schedule; tracks `userRiskExposure` to cap per-user collateral in a market and supports exemptions.
+- Swap routing respects canonical pricing when enabled (`crossChainController` + `marketFactory.isHubFactory()`), gating trades with deviation bands (Normal/Stress/Unsafe/CircuitBreaker) calculated by `CanonicalPricingModule` and `setDeviationPolicy`.
+- Resolution flows: `resolve` (owner, requires proof URL), `manualResolveMarket`, cross-chain `resolveFromHub`, and canonical price callbacks (`syncCanonicalPriceFromHub`). On-chain chainlink automation via `_processReport` (receives `ResolveMarket` from CRE).
+- Quote utilities: `getYesForNoQuote`, `getNoForYesQuote`, `getYesPriceProbability`, `getNoPriceProbability` expose deterministic pricing for UIs.
+- Protocol treasury: `protocolCollateralFees` accumulates fees; `withdrawProtocolFees` lets the owner or cross-chain controller claim fees after resolution.
 
 ### OutcomeToken
+- Minimal `ERC20` with `Ownable` to restrict mint/burn to its parent market.
+- Fixed 6 decimal places, aligning with USDC collateral.
 
-**Purpose**: ERC20 token representing a specific outcome (YES or NO)
+## Libraries & Modules
 
-**Responsibilities**:
-- Standard ERC20 functionality
-- Mint/burn controlled by market contract
-- 6 decimals to match USDC collateral
+- `MarketTypes`: Shared enums (`State`, `Resolution`), constants (`SWAP_FEE_BPS`, `PRICE_PRECISION`, `MAX_RISK_EXPOSURE`), custom events, and errors used across contracts.
+- `AMMLib`: Pure math for CPMM swaps, probability queries, and LP share calculations.
+- `FeeLib`: Centralized fee deduction helpers used during mint/redeem and swap settlement.
+- `CanonicalPricingModule`: Stateless utility that computes deviation bands (Normal → CircuitBreaker), extra fee overlays, max output caps, and direction permissions when operating under hub-provided prices.
 
-**Key Features**:
-- Immutable market address
-- Only market can mint/burn
-- Matches collateral decimals (6)
+## Liquidity, Fees & Risk Controls
 
-## Market Lifecycle
+1. **Liquidity provisioning**: Markets seed equal YES/NO reserves and assign LP shares 1:1 with collateral. `addLiquidity`/`removeLiquidity` keep ratios using `AMMLib.calculateShares` and enforce minimum share sizes (`MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE`).
+2. **Trading**: Users swap YES ↔ NO via `_swap`; fees (4%) remain inside reserves, benefitting LPs. Price discovery derives from reserve ratios; deviation policy dynamically increases fees and applies output caps when canonical prices diverge.
+3. **Complete sets**: Minting/redeeming charges 3%/2% fees, respects `MAX_RISK_EXPOSURE` per address, and uses `FeeLib.deductFee`. `removeLiquidityAndRedeemCollateral` burns matched pairs, takes redemption fees, and refunds leftovers.
+4. **Resolution & Redemption**: Owner resolves (or Chainlink CRE / hub) and winners redeem 1:1 collateral (fee applies). Losing tokens become worthless. Manual review handles inconclusive outcomes.
+5. **Risk controls**: `userRiskExposure` prevents single entities from dominating (10,000 USDC cap), while `isRiskExempt` can whitelist trusted actors. `DeviationBand` guards ensure harmful arbitrage is disallowed or limited.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Open: Market Created
-    Open --> Closed: block.timestamp >= closeTime
-    Closed --> Resolved: owner.resolve()
-    Resolved --> [*]: Users redeem winnings
-    
-    note right of Open
-        - Trading enabled
-        - Liquidity operations enabled
-        - Complete sets enabled
-    end note
-    
-    note right of Closed
-        - Trading disabled
-        - Awaiting resolution
-        - Cannot add/remove liquidity
-    end note
-    
-    note right of Resolved
-        - Winners redeem tokens 1:1
-        - Losers get nothing
-        - Market finalized
-    end note
-```
+## Cross-Chain & Automation Flow
 
-### State Transitions
+1. **Hub vs Spoke**: The hub factory (`isHubFactory = true`) broadcasts canonical prices/resolutions over CCIP to trusted spoke selectors. Spokes mirror market IDs via `setMarketIdMapping` and trust only configured selectors.
+2. **CCIP messaging**: `broadcastCanonicalPrice` and `broadcastResolution` encode payloads (with nonces) and iterate over `s_spokeSelectors`. Incoming CCIP `ccipReceive` enforces trusted sender, replay protection, and dispatches to `PredictionMarket.syncCanonicalPriceFromHub` or `PredictionMarket.resolveFromHub`.
+3. **Chainlink CRE**: Both factory and markets inherit `ReceiverTemplateUpgradeable`, so Chainlink CRE forwarders can call `onReport`. Markets decode `ResolveMarket` payloads and trigger `_resolve`; `checkResolutionTime` lets automation know when a market is eligible.
+4. **Off-chain workflow**: `predictionMarket/market-workflow/main.ts` ties everything together—authenticates via Firebase, queries Gemini for event/resolution data, top-ups factory collateral, and writes CRE reports to `sendReport`. It also observes CCIP state (collateral balances) and emits automation (e.g., `addLiquidityToFactory`, `createMarket`, `broadCast` actions) via encoded reports.
 
-1. **Open**: Market is active
-   - Users can trade YES ↔ NO tokens
-   - Liquidity can be added/removed
-   - Complete sets can be minted/redeemed
+## Deployment & Maintenance
 
-2. **Closed**: Trading period ended
-   - Automatically transitions when `block.timestamp >= closeTime`
-   - No trading or liquidity operations allowed
-   - Awaiting owner resolution
+- Use Foundry scripts: `script/deployMarketFactory.s.sol` for fresh deployments, `script/upgradeMarketFactory.s.sol` for UUPS upgrades. Both require `.env` variables (`PRIVATE_KEY`, `RPC_URL`, `COLLATERAL_TOKEN_ADDRESS`, etc.) documented in `script/README.md`.
+- Factory owner mints test USDC via `addLiquidityToFactory` when running locally. `MarketDeployer` clones a `PredictionMarket` implementation and calls `initialize`, which also mints YES/NO tokens.
+- Off-chain automation may also call encoded actions (`createMarket`, `priceCorrection`, `addLiquidityToFactory`) through `MarketFactory._processReport`. These hooks are guarded by hashed action identifiers.
+- Logging/events: Swap/trade events, liquidity events, canonical/CCIP messaging, and deviation changes emit discrete events tracked by tooling.
 
-3. **Resolved**: Outcome determined
-   - Owner calls `resolve(true/false)` after `resolutionTime`
-   - Winning token holders can redeem 1:1 for collateral
-   - Market is finalized
+## Testing & CI
 
-## AMM Mechanism
+- Run `forge test` for units, `forge test --match-path test/statelessFuzz/predictionMarket.t.sol` for fuzzing, `forge coverage` or `forge coverage --report lcov` for coverage data.
+- Tests reuse `MockERC20` (USDC) with 6 decimals, and the suite is documented inside `test/README.md` including commands for `forge test -vv`, `forge test --gas-report`, etc.
+- Continuous integration should run all tests, gas reports, and coverage checks before merging.
 
-### Constant Product Formula
+## Known Constraints
 
-The AMM uses the constant product market maker (CPMM) formula:
+- Resolution is currently centralized to the owner or hub-controlled cross-chain controller (owner must remain honest). Manual review handles contested outcomes.
+- Protocol fees accumulate on contract and must be withdrawn via `withdrawProtocolFees` once the market resolves.
+- Canonical price/reward enforcement assumes CCIP messages stay timely; stale prices block trading until refreshed.
 
-```
-k = yesReserve * noReserve
-```
-
-Where `k` is maintained constant for each trade.
-
-### Swap Mechanics
-
-**YES → NO Swap**:
-```solidity
-// Calculate new reserves
-k = yesReserve * noReserve
-newYesReserve = yesReserve + yesIn
-newNoReserve = k / newYesReserve
-
-// Calculate output (before fee)
-grossNoOut = noReserve - newNoReserve
-
-// Apply 4% fee
-fee = grossNoOut * 400 / 10000
-netNoOut = grossNoOut - fee
-
-// Update reserves (fee stays in pool)
-yesReserve = newYesReserve
-noReserve = newNoReserve + fee
-```
-
-**Key Properties**:
-- Larger trades have higher slippage
-- Fee benefits liquidity providers (stays in pool)
-- Reserves always increase overall due to fees
-- Price is determined by reserve ratio: `price = yesReserve / noReserve`
-
-### Price Discovery
-
-The market price for YES token is implicitly:
-```
-Price(YES) = yesReserve / (yesReserve + noReserve)
-Price(NO) = noReserve / (yesReserve + noReserve)
-Price(YES) + Price(NO) = 1
-```
-
-## Liquidity Provision
-
-### Initial Seeding
-
-The market creator provides initial liquidity through the factory:
-
-```solidity
-// Factory transfers collateral to market
-collateral.transferFrom(creator, market, initialLiquidity);
-
-// Market creates equal YES/NO reserves
-yesReserve = initialLiquidity;
-noReserve = initialLiquidity;
-
-// Mint LP shares 1:1 with collateral
-totalShares = initialLiquidity;
-lpShares[creator] = initialLiquidity;
-```
-
-### Adding Liquidity
-
-Users add liquidity by depositing YES and NO tokens:
-
-```solidity
-// Calculate proportional shares
-yesShare = (yesAmount * totalShares) / yesReserve;
-noShare = (noAmount * totalShares) / noReserve;
-shares = min(yesShare, noShare);
-
-// Use only the required amounts
-usedYes = (shares * yesReserve) / totalShares;
-usedNo = (shares * noReserve) / totalShares;
-
-// Update reserves and mint shares
-yesReserve += usedYes;
-noReserve += usedNo;
-totalShares += shares;
-lpShares[user] += shares;
-```
-
-### Removing Liquidity
-
-LPs can withdraw proportional amounts:
-
-```solidity
-// Calculate proportional outputs
-yesOut = (yesReserve * shares) / totalShares;
-noOut = (noReserve * shares) / totalShares;
-
-// Burn shares and return tokens
-totalShares -= shares;
-lpShares[user] -= shares;
-yesReserve -= yesOut;
-noReserve -= noOut;
-```
-
-### LP Profitability
-
-LPs earn from:
-1. **Swap fees** (4% of all swaps stay in pool)
-2. **Complete set fees** if they provide the initial liquidity
-
-LPs are exposed to:
-1. **Impermanent loss** if reserves become imbalanced
-2. **Resolution risk** if holding unbalanced positions
-
-## Fee Structure
-
-| Operation | Fee | Recipient | Purpose |
-|-----------|-----|-----------|---------|
-| Swap YES ↔ NO | 4% | Liquidity Pool | Compensate LPs for providing liquidity |
-| Mint Complete Sets | 3% | Protocol | Revenue for creating new supply |
-| Redeem Complete Sets | 2% | Protocol | Revenue for burning supply |
-
-### Fee Distribution
-
-- **Swap Fees**: Stay in pool, benefit all LPs proportionally
-- **Protocol Fees**: Accumulate in `protocolCollateralFees`, not currently withdrawable
-
-### Fee Calculation
-
-All fees use basis points (BPS) for precision:
-```solidity
-FEE_PRECISION_BPS = 10,000 // 100%
-SWAP_FEE_BPS = 400          // 4%
-MINT_COMPLETE_SETS_FEE_BPS = 300  // 3%
-REDEEM_COMPLETE_SETS_FEE_BPS = 200  // 2%
-
-fee = amount * FEE_BPS / FEE_PRECISION_BPS
-netAmount = amount - fee
-```
-
-## Complete Sets
-
-A "complete set" is 1 YES token + 1 NO token, which is economically equivalent to 1 collateral token (since one outcome must occur).
-
-### Minting Complete Sets
-
-```solidity
-// User deposits collateral
-collateral.transferFrom(user, market, amount);
-
-// Calculate net amount after fee
-fee = amount * 3% 
-netAmount = amount - fee
-
-// Mint equal YES and NO tokens
-yesToken.mint(user, netAmount);
-noToken.mint(user, netAmount);
-```
-
-**Use Cases**:
-- Acquire tokens to trade
-- Provide liquidity
-- Arbitrage if market price deviates from 1
-
-### Redeeming Complete Sets
-
-```solidity
-// Burn YES and NO tokens
-yesToken.burn(user, amount);
-noToken.burn(user, amount);
-
-// Calculate net amount after fee
-fee = amount * 2%
-netAmount = amount - fee
-
-// Return collateral
-collateral.transfer(user, netAmount);
-```
-
-**Use Cases**:
-- Exit position without price impact
-- Arbitrage if market price deviates from 1
-- Lock in profits on both sides
-
-## Security Model
-
-### Access Control
-
-| Function | Access | Justification |
-|----------|--------|---------------|
-| `createMarket` | Factory Owner | Quality control on markets |
-| `seedLiquidity` | Market Owner | One-time initialization |
-| `resolve` | Market Owner | Trusted outcome determination |
-| `pause/unpause` | Market Owner | Emergency controls |
-| Trading functions | Anyone | Permissionless after creation |
-
-### Reentrancy Protection
-
-All state-changing functions use OpenZeppelin's `ReentrancyGuard`:
-```solidity
-function swap() external nonReentrant { ... }
-```
-
-### Checks-Effects-Interactions Pattern
-
-The code follows CEI pattern where possible:
-1. **Checks**: Validate inputs and conditions
-2. **Effects**: Update state variables
-3. **Interactions**: External calls to tokens
-
-### Time-Based Controls
-
-```solidity
-// Market automatically closes at closeTime
-modifier marketOpen() {
-    _updateState();
-    require(state == State.Open);
-    _;
-}
-
-// Resolution only after resolutionTime
-function resolve(bool outcome) external {
-    require(block.timestamp >= resolutionTime);
-    require(state == State.Closed);
-    ...
-}
-```
-
-### Slippage Protection
-
-All trades include minimum output parameters:
-```solidity
-function swapYesForNo(uint256 yesIn, uint256 minNoOut) {
-    uint256 noOut = calculateOutput(yesIn);
-    if (noOut < minNoOut) revert SlippageExceeded();
-    ...
-}
-```
-
-### Pausability
-
-Markets can be paused in emergencies:
-```solidity
-function pause() external onlyOwner {
-    _pause(); // Blocks all trading and liquidity operations
-}
-```
-
-## Upgrade Path
-
-**Current State**: Contracts are NOT upgradeable
-
-**Rationale**: 
-- Simpler security model
-- Immutability provides guarantees to users
-- Reduces attack surface
-
-**Future Considerations**:
-- Unused upgradeable imports have been removed
-- Could be added via proxy pattern if needed
-- Would require UUPS or Transparent Proxy pattern
-
-## Known Limitations
-
-1. **Centralized Resolution**: Market outcome determined by owner
-2. **No Invalid Outcome**: Currently commented out in code
-3. **Fixed Fee Structure**: Fees are hardcoded constants
-4. **No Fee Withdrawal**: Protocol fees accumulate but can't be withdrawn
-5. **Binary Outcomes Only**: No multi-outcome markets
-
-## Gas Optimization Notes
-
-1. **Immutable Variables**: `s_question`, `i_collateral`, tokens, and timestamps save gas
-2. **Custom Errors**: More gas-efficient than string reverts
-3. **Unchecked Math**: Could be added where overflow impossible
-4. **Pack Storage**: State variables ordered by size where possible
-
----
-
-**Last Updated**: 2026-02-12  
-**Version**: 1.0.0  
-**Author**: 0xHimxa
+**Last Updated**: 2026-02-22
+**Version**: 1.1.0

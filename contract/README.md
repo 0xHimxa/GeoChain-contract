@@ -1,224 +1,112 @@
 # GeoChain Prediction Market Contracts
 
-A decentralized prediction market protocol built on Ethereum, allowing users to create, trade, and resolve binary outcome markets using an automated market maker (AMM) mechanism.
+A full-stack Solidity implementation of a decentralized prediction market built around a constant-product AMM, cross-chain canonical pricing, and Chainlink automation.
 
-## 📋 Overview
+## Vision
 
-This project implements a fully decentralized prediction market where users can:
-- Create binary (YES/NO) prediction markets
-- Provide liquidity to earn fees
-- Trade outcome tokens using a constant product AMM
-- Mint and redeem complete sets
-- Resolve markets and redeem winning positions
+Users create binary YES/NO markets backed by USDC collateral, trade via an AMM, mint/redeem complete sets, and unlock winnings once the market resolves. The system ships with safety nets (risk caps, deviation bands, manual review) and supports hub/spoke deployments with Chainlink CCIP + CRE automation.
 
-The protocol uses USDC (or any ERC20 token) as collateral and implements a constant product formula (x * y = k) for automated market making.
+## Key Components
 
-## 🏗️ Architecture
+| Piece | Responsibility |
+| --- | --- |
+| `MarketFactory` | Upgradeable hub/spoke factory that deploys markets via `MarketDeployer`, seeds collateral, tracks `activeMarkets`, and relays canonical price/resolution updates through CCIP. Hub factories broadcast prices/resolutions; spokes trust incoming selectors and enforce canonical gates. |
+| `PredictionMarket` | Core market: AMM swaps, LP accounting, complete sets, resolution (owner + Chainlink CRE + cross-chain controller), manual reviews, canonical price enforcement, and protocol fee accumulation. Implements `ReceiverTemplateUpgradeable` so Chainlink CRE forwarders can call `onReport`. |
+| `OutcomeToken` | 6-decimal ERC20 whose mint/burn rights are limited to the parent market. |
+| `Libraries/Modules` | `AMMLib` for CPMM math, `FeeLib` for standardized fee handling, `MarketTypes` for shared enums/errors/constants, and `CanonicalPricingModule` for deviation fee caps. |
+| `predictionMarket/market-workflow` | Off-chain automation that talks to Firestore + Gemini, monitors market factory balances, reports CRE actions (price broadcast, resolution, liquidity top-ups, event creation), and pushes reports through Chainlink CRE/CCIP. |
 
-### Core Contracts
-
-- **MarketFactory.sol**: Deploys and tracks new prediction markets with initial liquidity
-- **PredictionMarket.sol**: Main market contract implementing AMM logic, liquidity provision, and resolution
-- **OutcomeToken.sol**: ERC20 tokens representing YES and NO outcomes (6 decimals)
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed technical documentation.
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
-- Solidity ^0.8.20
-- Git
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- Solidity ^0.8.33
+- Node.js (for off-chain workflow tooling)
+- A collateral ERC20 (mock USDC for local tests, real USDC for mainnet)
 
-### Installation
+### Setup
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd contracts
-
-# Install dependencies
+git clone <repo>
+cd contract
 forge install
-
-# Build contracts
-forge build
 ```
 
-### Running Tests
+Copy the sample environment (used by scripts):
 
-```bash
-# Run all tests
-forge test
-
-# Run tests with verbosity
-forge test -vv
-
-# Run specific test file
-forge test --match-path test/unit/PredictionMarket.t.sol
-
-# Run fuzz tests
-forge test --match-path test/statelessFuzz/predictionMarket.t.sol
-
-# Generate gas report
-forge test --gas-report
-
-# Generate coverage report
-forge coverage
-```
-
-## 📝 Usage
-
-### Creating a Market
-
-```solidity
-// Deploy factory with USDC as collateral
-MarketFactory factory = new MarketFactory(usdcAddress);
-
-// Create a market (owner only)
-address market = factory.createMarket(
-    "Will ETH be above $5000 on Dec 31, 2024?",
-    closeTime,      // When trading closes
-    resolutionTime, // When market can be resolved
-    1000e6          // Initial liquidity (1000 USDC)
-);
-```
-
-### Trading on a Market
-
-```solidity
-PredictionMarket market = PredictionMarket(marketAddress);
-
-// Mint complete sets (1 USDC → 1 YES + 1 NO token, minus fee)
-usdc.approve(address(market), 100e6);
-market.mintCompleteSets(100e6);
-
-// Swap YES for NO tokens
-yesToken.approve(address(market), amount);
-market.swapYesForNo(amount, minNoOut);
-
-// Add liquidity
-market.addLiquidity(yesAmount, noAmount, minShares);
-
-// Redeem complete sets back to collateral
-market.redeemCompleteSets(amount);
-```
-
-### Resolving a Market
-
-```solidity
-// After resolutionTime, owner can resolve (owner only)
-market.resolve(true); // true for YES, false for NO
-
-// Winners redeem their tokens 1:1 for collateral
-market.redeem(winningTokenBalance);
-```
-
-## 💡 Key Features
-
-### Automated Market Maker (AMM)
-- Constant product formula: `k = yesReserve * noReserve`
-- 4% swap fee that benefits liquidity providers
-- Slippage protection on all trades
-
-### Liquidity Provision
-- Earn fees by providing YES and NO tokens
-- Proportional LP shares
-- Add or remove liquidity at any time (before market closes)
-
-### Fee Structure
-- **Swap Fee**: 4% (stays in pool for LPs)
-- **Mint Complete Sets Fee**: 3%
-- **Redeem Complete Sets Fee**: 2%
-
-### Security Features
-- ReentrancyGuard on all state-changing functions
-- Pausable for emergency stops
-- Owner-controlled resolution
-- Time-based market lifecycle (Open → Closed → Resolved)
-
-## 🔒 Security
-
-This codebase has been analyzed with [Aderyn](https://github.com/Cyfrin/aderyn) static analysis tool. See [report.md](./report.md) for the complete security analysis.
-
-### Key Security Considerations
-
-1. **Reentrancy Protection**: All external calls are protected with `nonReentrant` modifier
-2. **Access Control**: Critical functions are owner-only
-3. **Time Locks**: Markets can only be resolved after `resolutionTime`
-4. **Slippage Protection**: All trades include minimum output parameters
-
-See [SECURITY.md](./SECURITY.md) for responsible disclosure policy and detailed security information.
-
-## 📊 Contract Deployment
-
-### Environment Setup
-
-1. Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
 
-2. Fill in your environment variables:
-```
-PRIVATE_KEY=your_private_key
-RPC_URL=https://eth-mainnet.alchemyapi.io/v2/your_key
-ETHERSCAN_API_KEY=your_etherscan_key
-COLLATERAL_TOKEN_ADDRESS=0x... # USDC or other ERC20
-```
-
-### Deploy to Network
+### Building
 
 ```bash
-# Deploy to testnet
-forge script script/deployMarketFactory.s.sol --rpc-url $RPC_URL --broadcast --verify
-
-# Deploy to mainnet (use with caution!)
-forge script script/deployMarketFactory.s.sol --rpc-url $RPC_URL --broadcast --verify --legacy
+forge build
 ```
 
-See [script/README.md](./script/README.md) for detailed deployment instructions.
+## Running Tests
 
-## 🧪 Testing
+```bash
+forge test             # unit + fuzz
+forge test -vv         # console logs
+forge test --gas-report
+forge coverage         # coverage report
+```
 
-The test suite is organized into:
-- **Unit Tests** (`test/unit/`): Test individual contract functions
-- **Stateless Fuzz Tests** (`test/statelessFuzz/`): Property-based testing
-- **Stateful Fuzz Tests** (`test/statefullFuzz/`): Invariant testing (coming soon)
+For more guidance, check `test/README.md` (organization, naming, common values, CI notes).
 
-See [test/README.md](./test/README.md) for detailed testing documentation.
+## Deployment & Automation
 
-## 🤝 Contributing
+- `script/deployMarketFactory.s.sol`: deploys a UUPS proxy for `MarketFactory`, initializes collateral, and sets the Chainlink forwarder.
+- `script/upgradeMarketFactory.s.sol`: upgrades the proxy; remember to call `initialize` on new implementations if needed or redeploy a fresh proxy.
+- Both scripts respect `.env` parameters (`PRIVATE_KEY`, `RPC_URL`, `COLLATERAL_TOKEN_ADDRESS`, `MARKET_FACTORY_PROXY`, `UPGRADE_CALLDATA`).
+- The factory can mint test USDC via `addLiquidityToFactory` for staging.
 
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Off-chain workflows under `predictionMarket/market-workflow/`:
 
-### Development Workflow
+1. Authenticate with Firebase and pull pending events.
+2. Use Gemini helpers to source new event data and resolution predictions.
+3. Call Chainlink CRE workflows (`runtime.report`) with encoded actions (`ResolveMarket`, `CreateMarket`, `AddLiquidityToFactory`, `PriceCorrection`).
+4. Automate liquidity top-ups (`marketFactoryBalanceTopUp`), market creation, and price corrections while respecting CRE workflow metadata.
 
-1. Create a feature branch
-2. Write tests for new functionality
-3. Ensure all tests pass: `forge test`
-4. Run static analysis: `aderyn ./src`
-5. Submit a pull request
+## Typical On-chain Flow
 
-## 📄 License
+1. Owner calls `MarketFactory.createMarket(...)` → `MarketDeployer` clones `PredictionMarket` → factory transfers collateral → market seeds liquidity and mint YES/NO tokens.
+2. Users mint complete sets, swap via `swapYesForNo`/`swapNoForYes`, and add/remove liquidity. The constant-product AMM ensures `k` increases because swap fees stay in reserves.
+3. Owner resolves the market (or Chainlink CRE/hub controller). Manual review handles inconclusive outcomes, and resolved liquidity can be withdrawn by LPs.
+4. `protocolCollateralFees` accumulates fees from swaps and complete set operations; owner/cross-chain controller can claim via `withdrawProtocolFees` once the market is resolved.
+5. Hub factories broadcast canonical prices/resolutions via CCIP to spokes; spokes sync prices/resolutions and limit swaps when deviation between local AMM and hub price exceeds tolerance.
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Cross-Chain & Automation Highlights
 
-## 🔗 Links
+- **CCIP**: Factory sends `CanonicalPriceSync` and `ResolutionSync` payloads to trusted selectors; spokes guard messages with `trustedRemoteBySelector`, `processedCcipMessages`, and nonces.
+- **Canonical Pricing**: Markets enforce deviation thresholds (`softDeviationBps`, `stressDeviationBps`, `hardDeviationBps`) computed in `CanonicalPricingModule`. In unsafe bands, direction restrictions, extra fees, and max output caps activate; circuit breaker halts trading.
+- **Chainlink CRE**: `ReceiverTemplateUpgradeable` verifies reports via forwarder metadata. Markets handle `ResolveMarket` payloads; factories expose hashed actions for `_processReport` so CRE automation can trigger `createMarket`, `broadcast` actions, or `arbitrateUnsafeMarket`.
+- **Deviation Management**: `setDeviationPolicy` adjusts thresholds; `getDeviationStatus` exposes band info for UI/automation.
 
-- **Documentation**: [ARCHITECTURE.md](./ARCHITECTURE.md)
-- **Security**: [SECURITY.md](./SECURITY.md)
-- **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- **Audit Report**: [report.md](./report.md)
+## Security & Risk Controls
 
-## ⚠️ Disclaimer
+- **Access control**: `onlyOwner`, `onlyCrossChainController`, and `paused` modifiers protect sensitive paths.
+- **Reentrancy / CEI**: `ReentrancyGuard` and checks-effects-interactions appear in all state-changing functions.
+- **Exposure cap**: `userRiskExposure` limits per-address minting to `MAX_RISK_EXPOSURE` (10k USDC); the factory can mark exempt addresses.
+- **Manual review**: If owner flags an outcome as `Inconclusive`, markets enter `Review`, requiring a second `manualResolveMarket` call.
+- **Protocol fees**: `protocolCollateralFees` is a single on-chain bucket; owner must withdraw after resolution to avoid stranded funds.
+- **Automation watchers**: `predictionMarket/market-workflow/main.ts` observes factory balances, uses CRE to top-up liquidity, and tracks Gemini event data to ensure markets resolve with evidence URLs stored on-chain.
 
-This software is provided "as is", without warranty of any kind. Use at your own risk. This code has not been professionally audited and should not be used in production without thorough security review.
+## Directory Quick Guide
 
-## 📞 Support
+- `src/`: production contracts plus CCIP modules (`ccip/Client.sol`, `IAny2EVMMessageReceiver.sol`, `IRouterClient.sol`) and modules (`CanonicalPricingModule`).
+- `script/interfaces`: `ReceiverTemplate` helpers used by both `MarketFactory` and `PredictionMarket` for CRE reporting.
+- `test/`: organizes `unit`, `statelessFuzz`, `statefullFuzz` tests and the shared `README` describing how to use cheatcodes, pranks, and warp.
+- `predictionMarket/market-workflow`: Node/TypeScript automation hooking into Firebase + Gemini + Chainlink CRE; consult `predictionMarket/market-workflow/README.md` for workflow keys and scheduling (Cron + `Runner`).
 
-For questions, issues, or feedback, please open an issue on GitHub.
+## Further Reading
+
+- `ARCHITECTURE.md`: this live architecture overview.
+- `SECURITY.md`: responsible disclosure and threat model.
+- `test/README.md`: testing patterns and coverage goals.
+- `script/README.md`: deployment flags, environment variables, and upgrade instructions.
 
 ---
-
-Built with ❤️ by 0xHimxa
+Need a quick reminder? Ping the team and reference `predictionMarket/market-workflow/README.md` for automation-specific instructions.
