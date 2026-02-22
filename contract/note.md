@@ -1,5 +1,8 @@
 send verified nullifie and adddress to contracts
 
+base destination chain
+
+arb source chain
 
 dont forget to call initailaize when upgrading, or  deploy a new proxy again: redploy the proxy again will be much better
 

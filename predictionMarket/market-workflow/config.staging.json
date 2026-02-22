@@ -2,13 +2,15 @@
   "schedule": "*/30 * * * * *",
   "evms": [
     {
-      "marketFactoryAddress": "0x7c7fe235fC63509969E329E5D660E073EeFa5d39",
-      "chainName": "ethereum-testnet-sepolia"
-
+      
+"marketFactoryAddress": "0x12d57BCc25356Eda609505874B9074F8Fd196F1e",
+      "chainName": "ethereum-testnet-sepolia-arbitrum-1"
     },
       {
-      "marketFactoryAddress": "0x015a4e609ED01012ff4B9401a274BE84C89052E6",
-      "chainName": "ethereum-testnet-sepolia-arbitrum-1"
+      
+
+      "marketFactoryAddress": "0x02b0E40A0D3E6A0fb27aBBb5FA4f39B40e131bd3",
+      "chainName": "ethereum-testnet-sepolia-base-1"
 
     }
 
