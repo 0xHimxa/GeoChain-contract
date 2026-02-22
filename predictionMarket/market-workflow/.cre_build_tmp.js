@@ -20088,117 +20088,140 @@ var PredictionMarketAbi = [
   }
 ];
 var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
-var resoloveEvent = (runtime2) => {
-  const marketFactoryCallData = encodeFunctionData({
+var syncCanonicalPrice = (runtime2) => {
+  if (runtime2.config.evms.length < 2) {
+    return "Need at least one hub and one spoke EVM config";
+  }
+  const hubConfig = runtime2.config.evms[0];
+  const spokeConfigs = runtime2.config.evms.slice(1);
+  const hubNetwork = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: hubConfig.chainName,
+    isTestnet: true
+  });
+  if (!hubNetwork) {
+    throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
+  }
+  const hubClient = new ClientCapability(hubNetwork.chainSelector.selector);
+  const spokeClients = spokeConfigs.map((spokeConfig) => {
+    const spokeNetwork = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: spokeConfig.chainName,
+      isTestnet: true
+    });
+    if (!spokeNetwork) {
+      throw new Error(`Unknown chain name: ${spokeConfig.chainName}`);
+    }
+    return {
+      config: spokeConfig,
+      client: new ClientCapability(spokeNetwork.chainSelector.selector)
+    };
+  });
+  const activeMarketCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList"
   });
-  const PredictionCallData = encodeFunctionData({
-    abi: PredictionMarketAbi,
-    functionName: "checkResolutionTime"
-  });
-  const sepoConfig = runtime2.config.evms[0];
-  const network248 = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: sepoConfig.chainName,
-    isTestnet: true
-  });
-  if (!network248) {
-    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
-  }
-  const evmClient = new ClientCapability(network248.chainSelector.selector);
-  const callResult = evmClient.callContract(runtime2, {
+  const activeMarketResult = hubClient.callContract(runtime2, {
     call: encodeCallMsg({
       from: sender,
-      to: sepoConfig.marketFactoryAddress,
-      data: marketFactoryCallData
+      to: hubConfig.marketFactoryAddress,
+      data: activeMarketCallData
     })
   }).result();
-  const activeEventList = decodeFunctionResult({
+  const activeMarketList = decodeFunctionResult({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList",
-    data: bytesToHex(callResult.data)
+    data: bytesToHex(activeMarketResult.data)
   });
-  if (activeEventList.length == 0)
-    return "No Active Events";
-  activeEventList.forEach((eventAddress) => {
-    const callResult2 = evmClient.callContract(runtime2, {
+  if (activeMarketList.length === 0) {
+    return "No active markets to sync";
+  }
+  let attemptedWrites = 0;
+  let successfulWrites = 0;
+  for (const marketAddress of activeMarketList) {
+    const marketIdCallData = encodeFunctionData({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      args: [marketAddress]
+    });
+    const marketIdCallResult = hubClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: sender,
-        to: eventAddress,
-        data: PredictionCallData
+        to: hubConfig.marketFactoryAddress,
+        data: marketIdCallData
       })
     }).result();
-    const readyForResolve = decodeFunctionResult({
-      abi: PredictionMarketAbi,
-      functionName: "checkResolutionTime",
-      data: bytesToHex(callResult2.data)
+    const marketId = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      data: bytesToHex(marketIdCallResult.data)
     });
-    if (readyForResolve) {
-      const actionType = "ResolveMarket";
-      const questionCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "s_question"
-      });
-      const questionResult = evmClient.callContract(runtime2, {
-        call: encodeCallMsg({
-          from: sender,
-          to: eventAddress,
-          data: questionCallData
-        })
-      }).result();
-      const marketQuestion = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "s_question",
-        data: bytesToHex(questionResult.data)
-      });
-      const rtCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime"
-      });
-      const rtResult = evmClient.callContract(runtime2, {
-        call: encodeCallMsg({
-          from: sender,
-          to: eventAddress,
-          data: rtCallData
-        })
-      }).result();
-      const resTime = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime",
-        data: bytesToHex(rtResult.data)
-      });
-      runtime2.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
-      const resolution = 1;
-      const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [resolution, "https:working"]);
-      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, resolvePayload]);
-      const reportResponse = runtime2.report({
-        ...prepareReportRequest(encodedReport)
-      }).result();
-      const writeReportResult = evmClient.writeReport(runtime2, {
-        receiver: eventAddress,
+    if (marketId === 0n) {
+      runtime2.log(`Skipping ${marketAddress}: marketIdByAddress returned 0`);
+      continue;
+    }
+    const yesPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability"
+    });
+    const noPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability"
+    });
+    const yesPriceResult = hubClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: yesPriceCallData
+      })
+    }).result();
+    const noPriceResult = hubClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: noPriceCallData
+      })
+    }).result();
+    const yesPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability",
+      data: bytesToHex(yesPriceResult.data)
+    });
+    const noPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability",
+      data: bytesToHex(noPriceResult.data)
+    });
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+    const pricePayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"), [marketId, yesPriceE6, noPriceE6, validUntil]);
+    const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), ["syncSpokeCanonicalPrice", pricePayload]);
+    const reportResponse = runtime2.report({
+      ...prepareReportRequest(encodedReport)
+    }).result();
+    for (const spoke of spokeClients) {
+      attemptedWrites += 1;
+      const writeReportResult = spoke.client.writeReport(runtime2, {
+        receiver: spoke.config.marketFactoryAddress,
         report: reportResponse,
         gasConfig: {
           gasLimit: "10000000"
         }
       }).result();
-      runtime2.log("Waiting for write report response");
       if (writeReportResult.txStatus === TxStatus.REVERTED) {
-        runtime2.log(`[${sepoConfig.chainName}] ResolveMarket REVERTED for ${eventAddress}: ${writeReportResult.errorMessage || "unknown"}`);
-        throw new Error(`ResolveMarket failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
+        runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+        continue;
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
-      runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+      runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice tx for marketId=${marketId}: ${txHash}`);
+      successfulWrites += 1;
     }
-    runtime2.log(`ready to be resolve ${readyForResolve}`);
-  });
-  return `${activeEventList.length}`;
+  }
+  return `Synced ${activeMarketList.length} markets from hub to ${spokeClients.length} spokes (successful writes: ${successfulWrites}/${attemptedWrites})`;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
+    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice)
   ];
 };
 async function main() {

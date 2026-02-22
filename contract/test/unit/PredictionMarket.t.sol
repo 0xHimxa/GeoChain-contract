@@ -382,6 +382,39 @@ contract PredictionMarketTest is Test {
         assertEq(market.noToken().balanceOf(alice), mintedNet - noIn);
     }
 
+    function testProbabilitySumAfterMintAndSwapIs1e6() external {
+        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
+        _approveOutcomeTokens(alice);
+
+        vm.prank(alice);
+        market.swapYesForNo(mintedNet, 0);
+
+        uint256 yesProbability = market.getYesPriceProbability();
+        uint256 noProbability = market.getNoPriceProbability();
+
+        assertEq(yesProbability + noProbability, 1_000_000);
+    }
+
+    function testDirectReserveProbabilityMathSumAfterMintAndSwap() external {
+        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
+        _approveOutcomeTokens(alice);
+
+        vm.prank(alice);
+        market.swapYesForNo(mintedNet, 0);
+
+        uint256 yesReserve = market.yesReserve();
+        uint256 noReserve = market.noReserve();
+        uint256 total = yesReserve + noReserve;
+
+        uint256 yesFromReserve = (noReserve * 1_000_000) / total;
+        uint256 noFromReserve = (yesReserve * 1_000_000) / total;
+
+        assertEq(yesFromReserve + noFromReserve, 999_999);
+
+        uint256 noAsComplement = 1_000_000 - yesFromReserve;
+        assertEq(yesFromReserve + noAsComplement, 1_000_000);
+    }
+
     function testSwapRevertWhenBelowMinimumAmount() external {
         _mintCompleteSets(alice, 10e6);
         _approveOutcomeTokens(alice);

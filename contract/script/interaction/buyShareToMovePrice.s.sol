@@ -13,7 +13,7 @@ import {PredictionMarket} from "src/PredictionMarket.sol";
 contract BuyShareToMovePrice is Script {
     function run() external {
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddress = 0x86b40f16925376ee7A42FEff6Cc0D53fb94b655a;
+        address marketAddress = 0x5bdC597B2547297E70A0276e2a5d4D88Ca7825C1;
         uint256 collateralIn = 200_000_000;
         string memory side = "NO";
 
@@ -29,6 +29,8 @@ contract BuyShareToMovePrice is Script {
         uint256 yesBalBefore = IERC20(address(market.yesToken())).balanceOf(trader);
         uint256 noBalBefore = IERC20(address(market.noToken())).balanceOf(trader);
         market.mintCompleteSets(collateralIn);
+// 3. ADD THESE LINES: Approve the market to spend your outcome tokens
+ IERC20(address(market.yesToken())).approve(address(market), 194e6);
 
         uint256 mintedYes = IERC20(address(market.yesToken())).balanceOf(trader) - yesBalBefore;
         uint256 mintedNo = IERC20(address(market.noToken())).balanceOf(trader) - noBalBefore;

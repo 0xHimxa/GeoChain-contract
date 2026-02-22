@@ -584,7 +584,7 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       data: bytesToHex(noPriceResult.data),
     }) as bigint;
 
-    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3 * 60);
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
     const pricePayload = encodeAbiParameters(
       parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"),
       [marketId, yesPriceE6, noPriceE6, validUntil]
@@ -769,8 +769,8 @@ const createEventHelper = (runtime: Runtime<Config>): string => {
 
 
 const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 40 * 60);
-const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 70 * 60);
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 45 * 60);
 //runtime.log(` id token: ${authInfo.idToken} `);
 
 

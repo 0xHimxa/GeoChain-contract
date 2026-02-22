@@ -1293,7 +1293,8 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
             return canonicalNoPriceE6;
         }
 
-        return AMMLib.getNoProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+        uint256 yesProbability = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+        return MarketConstants.PRICE_PRECISION - yesProbability;
     }
 
     // ========================================

@@ -343,14 +343,14 @@ uint256 private initialCanonicalPriceE6;
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
         m.setCrossChainController(address(this));
-
+       uint64  nonce = ++ccipNonce;
 
         if (!isHubFactory) {
             m.syncCanonicalPriceFromHub(
                 initialCanonicalPriceE6,
                 initialCanonicalPriceE6,
                 block.timestamp + initialCanonicalPriceWindow,
-                ccipNonce++
+              nonce
             );
         }
 
