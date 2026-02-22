@@ -18,7 +18,7 @@ contract UpgradeMarketFactory is Script {
        
         address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
         proxyAddress = 0x02b0E40A0D3E6A0fb27aBBb5FA4f39B40e131bd3;
-        bytes memory upgradeCallData = abi.encodeCall(MarketFactory.initializeV2, ());
+        bytes memory upgradeCallData = "";
 
         vm.startBroadcast(owner);
 

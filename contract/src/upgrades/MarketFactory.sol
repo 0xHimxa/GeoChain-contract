@@ -244,23 +244,19 @@ uint256 private initialCanonicalPriceE6;
          hashed_WithCollatralAndFee = keccak256(abi.encode("WithCollatralAndFee"));
         initailEventLiquidity = 30000e6;
 
-        s_supportedChainSelector[16281711391670634445] = true;
+        s_supportedChainSelector[10344971235874465080] = true;
         s_supportedChainSelector[3478487238524512106] = true;
-        s_supportedChainSelector[16015286601757825753] = true;
+        
+
+        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
+         initialCanonicalPriceWindow = 5 minutes;
+
+        initailEventLiquidity = 30000e6;
+        initialCanonicalPriceE6 = 500_000;
     
 
     }
 
-    /// @notice Upgrade-only initializer for v2 state.
-    /// @dev Call via upgradeToAndCall on the proxy during upgrade.
-    function initializeV2() external reinitializer(2) onlyOwner {
-        ccipNonce = 1;
-        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
-         initialCanonicalPriceWindow = 30 minutes;
-
-        initailEventLiquidity = 30000e6;
-        initialCanonicalPriceE6 = 500_000;
-    }
 
     /// @notice Updates the MarketDeployer helper contract address (owner only)
     /// @param _marketDeployer New deployer address; reverts on zero address
@@ -354,7 +350,7 @@ uint256 private initialCanonicalPriceE6;
                 initialCanonicalPriceE6,
                 initialCanonicalPriceE6,
                 block.timestamp + initialCanonicalPriceWindow,
-                1
+                ccipNonce++
             );
         }
 

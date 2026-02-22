@@ -32,7 +32,7 @@ function run() external{
 
 
 vm.startBroadcast(owner);
-MarketFactory(0x02b0E40A0D3E6A0fb27aBBb5FA4f39B40e131bd3).setTrustedRemote(3478487238524512106,0x12d57BCc25356Eda609505874B9074F8Fd196F1e);
+MarketFactory(0x7D47B241083a6627C6c23A4CF0deb3890163bf7b).setTrustedRemote(3478487238524512106,0xEc8C747069FE9066504211d7b57406CcFD89322E);
 vm.stopBroadcast();
 
 }
