@@ -1304,7 +1304,7 @@ contract PredictionMarket is ReentrancyGuard, Pausable, ReceiverTemplate {
      *      - Winning token redemption fees
      *      Owner must ensure sufficient balance exists before withdrawal
      */
-    function withdrawProtocolFees() external zeroAmountCheck(amount){
+    function withdrawProtocolFees() external{
         if(msg.sender != owner() || msg.sender !=  crossChainController) revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();

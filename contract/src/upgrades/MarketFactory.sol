@@ -237,9 +237,7 @@ uint256  private initailEventLiquidity;
         s_supportedChainSelector[16281711391670634445] = true;
         s_supportedChainSelector[3478487238524512106] = true;
         s_supportedChainSelector[16015286601757825753] = true;
-        s_supportedChainSelector[11155111] = true;
-        s_supportedChainSelector[80002] = true;
-        s_supportedChainSelector[84532] = true;
+    
 
     }
 
@@ -587,16 +585,14 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
       }else if(actionTypeHash == hashed_PriceCorrection){
         (uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps) = abi.decode(payload, (uint256, uint256, uint256));
  _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps); 
-      }else if(actionTypeHash == hashed_AddLiquidityToFactory){
+      } else if (actionTypeHash == hashed_AddLiquidityToFactory) {
         _addLiquidityToFactory();
-        
-        }else if(actionTypeHash ==  hashed_WithCollatralAndFee)
-        (uint256 marketId) = abi.decode(payload, (uint256));
-         _withdrawCollateralFromEvents(_marketId);
-    _withdrawEventFeeWhenResolved(_marketId);
-      
-      else{
-         revert MarketFactory__ActionNotRecognized();
+      } else if (actionTypeHash == hashed_WithCollatralAndFee) {
+        uint256 marketId = abi.decode(payload, (uint256));
+        _withdrawCollateralFromEvents(marketId);
+        _withdrawEventFeeWhenResolved(marketId);
+      } else {
+        revert MarketFactory__ActionNotRecognized();
       }
 
 

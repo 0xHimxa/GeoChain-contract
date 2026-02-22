@@ -1,6 +1,8 @@
 send verified nullifie and adddress to contracts
 
 
+dont forget to call initailaize when upgrading, or  deploy a new proxy again: redploy the proxy again will be much better
+
 
 
 will  use cre to check if hub price has changed compare to spoke if so sendbroadcast to them
