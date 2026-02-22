@@ -1,38 +1,7 @@
-export const PredictionMarketAbi =  [
+export const PredictionMarketAbi =   [
         {
             "type": "constructor",
-            "inputs": [
-                {
-                    "name": "_question",
-                    "type": "string",
-                    "internalType": "string"
-                },
-                {
-                    "name": "_collateral",
-                    "type": "address",
-                    "internalType": "address"
-                },
-                {
-                    "name": "_closeTime",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                },
-                {
-                    "name": "_resolutionTime",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                },
-                {
-                    "name": "_marketfactory",
-                    "type": "address",
-                    "internalType": "address"
-                },
-                {
-                    "name": "_forwarderAddress",
-                    "type": "address",
-                    "internalType": "address"
-                }
-            ],
+            "inputs": [],
             "stateMutability": "nonpayable"
         },
         {
@@ -338,6 +307,49 @@ export const PredictionMarketAbi =  [
                 }
             ],
             "stateMutability": "view"
+        },
+        {
+            "type": "function",
+            "name": "initialize",
+            "inputs": [
+                {
+                    "name": "_question",
+                    "type": "string",
+                    "internalType": "string"
+                },
+                {
+                    "name": "_collateral",
+                    "type": "address",
+                    "internalType": "address"
+                },
+                {
+                    "name": "_closeTime",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                },
+                {
+                    "name": "_resolutionTime",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                },
+                {
+                    "name": "_marketfactory",
+                    "type": "address",
+                    "internalType": "address"
+                },
+                {
+                    "name": "_forwarderAddress",
+                    "type": "address",
+                    "internalType": "address"
+                },
+                {
+                    "name": "_initialOwner",
+                    "type": "address",
+                    "internalType": "address"
+                }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
         },
         {
             "type": "function",
@@ -1054,13 +1066,7 @@ export const PredictionMarketAbi =  [
         {
             "type": "function",
             "name": "withdrawProtocolFees",
-            "inputs": [
-                {
-                    "name": "amount",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                }
-            ],
+            "inputs": [],
             "outputs": [],
             "stateMutability": "nonpayable"
         },
@@ -1243,6 +1249,19 @@ export const PredictionMarketAbi =  [
                     "type": "address",
                     "indexed": true,
                     "internalType": "address"
+                }
+            ],
+            "anonymous": false
+        },
+        {
+            "type": "event",
+            "name": "Initialized",
+            "inputs": [
+                {
+                    "name": "version",
+                    "type": "uint64",
+                    "indexed": false,
+                    "internalType": "uint64"
                 }
             ],
             "anonymous": false
@@ -1539,6 +1558,11 @@ export const PredictionMarketAbi =  [
         },
         {
             "type": "error",
+            "name": "InvalidInitialization",
+            "inputs": []
+        },
+        {
+            "type": "error",
             "name": "InvalidSender",
             "inputs": [
                 {
@@ -1584,6 +1608,11 @@ export const PredictionMarketAbi =  [
                     "internalType": "bytes10"
                 }
             ]
+        },
+        {
+            "type": "error",
+            "name": "NotInitializing",
+            "inputs": []
         },
         {
             "type": "error",
@@ -1760,6 +1789,11 @@ export const PredictionMarketAbi =  [
         {
             "type": "error",
             "name": "PredictionMarket__MintingCompleteset__AmountLessThanMinimu",
+            "inputs": []
+        },
+        {
+            "type": "error",
+            "name": "PredictionMarket__NotOwner_Or_CrossChainController",
             "inputs": []
         },
         {

@@ -1,4 +1,4 @@
-export const MarketFactoryAbi = [
+export const MarketFactoryAbi =[
         {
             "type": "constructor",
             "inputs": [],
@@ -841,13 +841,8 @@ export const MarketFactoryAbi = [
         },
         {
             "type": "function",
-            "name": "withdrawCollateralFromEvents",
+            "name": "withdrawMarketFactoryCollateralAndFee",
             "inputs": [
-                {
-                    "name": "share",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                },
                 {
                     "name": "_marketId",
                     "type": "uint256",

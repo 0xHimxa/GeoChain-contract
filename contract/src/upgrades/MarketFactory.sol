@@ -749,7 +749,7 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
 
 
 
-function withdrawMarketFactoryCollateralAndFee(uint256 _marketId) public onlyOwner{
+function withdrawMarketFactoryCollateralAndFee(uint256 _marketId) external onlyOwner{
 
     _withdrawCollateralFromEvents(_marketId);
     _withdrawEventFeeWhenResolved(_marketId);
