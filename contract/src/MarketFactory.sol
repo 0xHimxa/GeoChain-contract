@@ -102,6 +102,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
    
 
 uint256  private initailEventLiquidity;
+uint256 private initialCanonicalPriceE6;
+uint256 private initialCanonicalPriceWindow;
 
     enum SyncMessageType {
         Price,
@@ -231,6 +233,8 @@ uint256  private initailEventLiquidity;
         hashed_AddLiquidityToFactory = keccak256(abi.encode("addLiquidityToFactory"));
 
         initailEventLiquidity = 30000e6;
+        initialCanonicalPriceE6 = 500_000;
+        initialCanonicalPriceWindow = 30 minutes;
 
         s_supportedChainSelector[16281711391670634445] = true;
         s_supportedChainSelector[3478487238524512106] = true;
@@ -326,6 +330,14 @@ uint256  private initailEventLiquidity;
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
         m.setCrossChainController(address(this));
+        if (!isHubFactory) {
+            m.syncCanonicalPriceFromHub(
+                initialCanonicalPriceE6,
+                initialCanonicalPriceE6,
+                block.timestamp + initialCanonicalPriceWindow,
+                1
+            );
+        }
 
  // Transfer market ownership from the factory to the caller (deployer/admin)
         m.transferOwnership(owner());

@@ -388,30 +388,32 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
     runtime.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
 
     // Step 3: Ask Gemini AI for resolution determination
-    const geminiResponse = askGemeniResolve(runtime, {
-      question: marketQuestion as string,
-      resolutionTime: new Date(Number(resTime) * 1000).toISOString(),
-    });
+   // const geminiResponse = askGemeniResolve(runtime, {
+   //   question: marketQuestion as string,
+    //  resolutionTime: new Date(Number(resTime) * 1000).toISOString(),
+  //  });
 
-    runtime.log(`Gemini resolution: result=${geminiResponse.result}, confidence=${geminiResponse.confidence}, source_url=${geminiResponse.source_url}`);
+    //runtime.log(`Gemini resolution: result=${geminiResponse.result}, confidence=${geminiResponse.confidence}, source_url=${geminiResponse.source_url}`);
 
     // Step 4: Map Gemini result to Solidity Resolution enum values
     // Resolution enum: 0=Unset, 1=Yes, 2=No, 3=Inconclusive
-    const resolutionMap: Record<string, number> = { YES: 1, NO: 2, INCONCLUSIVE: 3 };
-   const resolution = resolutionMap[geminiResponse.result] ?? 3;
+   // const resolutionMap: Record<string, number> = { YES: 1, NO: 2, INCONCLUSIVE: 3 };
+   //const resolution = resolutionMap[geminiResponse.result] ?? 3;
+  const resolution = 1;
 
    
 
     // Skip sending if source_url is empty (contract requires non-empty proofUrl)
-    if (!geminiResponse.source_url || geminiResponse.source_url.length === 0) {
-      runtime.log(`Skipping resolve for ${eventAddress}: Gemini returned empty source_url`);
-      return;
-    }
+   // if (!geminiResponse.source_url || geminiResponse.source_url.length === 0) {
+     // runtime.log(`Skipping resolve for ${eventAddress}: Gemini returned empty source_url`);
+      //return;
+   // }
 
     // Step 5: Encode the proper payload as (uint8 outcome, string proofUrl)
     const resolvePayload = encodeAbiParameters(
       parseAbiParameters('uint8 outcome, string proofUrl'),
-      [resolution, geminiResponse.source_url]
+      // geminiResponse.source_url
+      [resolution,"https:working"]
     );
 
     // Step 6: Encode the full report as (string actionType, bytes payload)
@@ -749,7 +751,7 @@ const createEventHelper = (runtime: Runtime<Config>): string => {
 
 
 const eventName = "Will BTC price be above $3,000 in 1 hour?";
-const closeTime = BigInt(Math.floor(Date.now() / 1000) + 50 * 60);
+const closeTime = BigInt(Math.floor(Date.now() / 1000) + 40 * 60);
 const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 70 * 60);
 //runtime.log(` id token: ${authInfo.idToken} `);
 
@@ -758,7 +760,7 @@ const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) {
     return `https://sepolia.arbiscan.io/tx/${txHash}`;
   }
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
+  return `https://sepolia.basescan.org/tx/${txHash}`;
 };
 
 

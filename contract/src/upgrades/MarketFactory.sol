@@ -163,6 +163,11 @@ uint256  private initailEventLiquidity;
         uint256 deviationAfter;
     }
 
+uint256 private initialCanonicalPriceWindow;
+uint256 private initialCanonicalPriceE6;
+
+
+
     // ========================================
     // ERRORS
     // ========================================
@@ -239,6 +244,16 @@ uint256  private initailEventLiquidity;
         s_supportedChainSelector[16015286601757825753] = true;
     
 
+    }
+
+    /// @notice Upgrade-only initializer for v2 state.
+    /// @dev Call via upgradeToAndCall on the proxy during upgrade.
+    function initializeV2() external reinitializer(2) onlyOwner {
+        ccipNonce = 1;
+         initialCanonicalPriceWindow = 30 minutes;
+
+        initailEventLiquidity = 30000e6;
+        initialCanonicalPriceE6 = 500_000;
     }
 
     /// @notice Updates the MarketDeployer helper contract address (owner only)
@@ -326,6 +341,16 @@ uint256  private initailEventLiquidity;
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
         m.setCrossChainController(address(this));
+
+
+        if (!isHubFactory) {
+            m.syncCanonicalPriceFromHub(
+                initialCanonicalPriceE6,
+                initialCanonicalPriceE6,
+                block.timestamp + initialCanonicalPriceWindow,
+                1
+            );
+        }
 
  // Transfer market ownership from the factory to the caller (deployer/admin)
         m.transferOwnership(owner());

@@ -15740,13 +15740,13 @@ init_exports();
 init_encodeAbiParameters();
 var createEventHelper = (runtime2) => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";
-  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 50 * 60);
-  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 70 * 60);
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 2 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 4 * 60);
   const txExplorer = (chainName, txHash) => {
     if (chainName.includes("arbitrum")) {
       return `https://sepolia.arbiscan.io/tx/${txHash}`;
     }
-    return `https://sepolia.etherscan.io/tx/${txHash}`;
+    return `https://sepolia.basescan.org/tx/${txHash}`;
   };
   const marketFactoryCall = runtime2.config.evms.map((evmConfig) => {
     const network248 = getNetwork({
