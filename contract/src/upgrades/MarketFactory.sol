@@ -253,6 +253,7 @@ uint256 private initialCanonicalPriceE6;
 
         initailEventLiquidity = 30000e6;
         initialCanonicalPriceE6 = 500_000;
+
     
 
     }
@@ -265,6 +266,12 @@ uint256 private initialCanonicalPriceE6;
         if (_marketDeployer == address(0)) revert MarketFactory__ZeroAddress();
         marketDeployer = MarketDeployer(_marketDeployer);
     }
+   
+    function setNewMarketDeployerImplemntation(address _newPredictionMarketImplementation) external onlyOwner {
+        if (_newPredictionMarketImplementation == address(0)) revert MarketFactory__ZeroAddress();
+        MarketDeployer(address(marketDeployer)).setImplementation(_newPredictionMarketImplementation);
+    }
+   
 
     /// @notice UUPS upgrade authorization hook — only the owner can upgrade the implementation
     /// @param newImplementation Address of the new implementation contract; must not be zero

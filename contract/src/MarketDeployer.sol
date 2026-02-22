@@ -13,14 +13,21 @@ import {PredictionMarket} from "./PredictionMarket.sol";
  *      Only the registered factory address is allowed to trigger deployments.
  */
 contract MarketDeployer {
-    address public immutable i_marketImplementation;
+    address public marketImplementation;
 
     error MarketDeployer__ZeroImplementation();
 
     constructor(address marketImplementation) {
         if (marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
-        i_marketImplementation = marketImplementation;
+        marketImplementation = marketImplementation;
     }
+
+
+    function setImplementation(address marketImplementation) external{
+               if (marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+        marketImplementation = marketImplementation;
+    }
+
 
     /// @notice Deploys a new PredictionMarket for the calling factory
     /// @param question  The binary question the market will resolve
@@ -36,7 +43,7 @@ contract MarketDeployer {
         uint256 resolutionTime,
         address forwarder
     ) external returns (address market) {
-        market = Clones.clone(i_marketImplementation);
+        market = Clones.clone(marketImplementation);
         PredictionMarket(market).initialize(
             question, collateral, closeTime, resolutionTime, msg.sender, forwarder, msg.sender
         );
