@@ -4,7 +4,8 @@ will need to make it posible market facotry to buy to it can try to fix price if
 fix:cre reslove reverting if it incolusive which set state to revview
 
 if gemeni responce is incluew will nned to set proof as "https:"
-
+ 
+a event handler that resolve marker factory the moment event resolved 
 
 
 1) succefully setUp cron to check factory balance for refill
