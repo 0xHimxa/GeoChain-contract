@@ -12,6 +12,8 @@ if gemeni responce is incluew will nned to set proof as "https:"
   did created a function that will all worlkflow to write to db
 3)  compelete a  creating event handler
 4) complested resloving market handler
+5) completed price sycn
+6) completed arbitrage fixing
 
 
 
