@@ -49,7 +49,7 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         PredictionMarket marketImplementation = new PredictionMarket();
 
         // 3. Deploy the MarketDeployer helper that clones from marketImplementation
-        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation));
+        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation),initialOwner);
 
         // 4. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
@@ -77,6 +77,7 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         MarketFactory(proxyAddress).addLiquidityToFactory();
         MarketFactory(proxyAddress).addLiquidityToFactory();
         MarketFactory(proxyAddress).setCcipConfig(router, link, false);
+        marketDeployer.setNewOwner(proxyAddress);
 
         vm.stopBroadcast();
 

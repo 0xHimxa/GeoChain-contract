@@ -60,7 +60,7 @@ contract PredictionMarketTest is Test {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
         mockFactory = new MockMarketFactory();
         implementation = new PredictionMarket();
-        marketDeployer = new MarketDeployer(address(implementation));
+        marketDeployer = new MarketDeployer(address(implementation),address(this));
 
         market = PredictionMarket(
             mockFactory.deployMarket(

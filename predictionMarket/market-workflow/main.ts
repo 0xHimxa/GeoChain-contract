@@ -10,8 +10,7 @@ import {
   prepareReportRequest,
   TxStatus,
 } from "@chainlink/cre-sdk";
-import { decodeErrorResult, encodeFunctionData, decodeFunctionResult,encodeAbiParameters, parseAbiParameters } from "viem";
-//import { OutcomeTokenAbi } from "./outComeToken";
+import {encodeFunctionData, decodeFunctionResult,encodeAbiParameters, parseAbiParameters } from "viem";
 import { MarketFactoryAbi } from "./contractsAbi/marketFactory";
 import { PredictionMarketAbi } from "./contractsAbi/predictionMarket";
 import {signUpWorkFlow} from "./firebase/firebase";
@@ -43,44 +42,10 @@ export type Config = {
 
 const ARB_MAX_SPEND_COLLATERAL = 200_000_000n; // 200 USDC (6 decimals)
 const ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n; // 0.10%
-const FACTORY_WITHDRAW_ACTION = "WithCollatralAndFee";
-const RESOLVED_STATE = 3;
+const PROCESS_PENDING_WITHDRAWALS_ACTION = "processPendingWithdrawals";
+const WITHDRAW_BATCH_SIZE = 20n;
 
-const runFactoryWithdrawByMarketId = (
-  runtime: Runtime<Config>,
-  evmClient: EVMClient,
-  evmConfig: EvmConfig,
-  marketId: bigint
-): boolean => {
-  const withdrawPayload = encodeAbiParameters(
-    parseAbiParameters("uint256 marketId"),
-    [marketId]
-  );
-  const withdrawEncodedReport = encodeAbiParameters(
-    parseAbiParameters("string actionType, bytes payload"),
-    [FACTORY_WITHDRAW_ACTION, withdrawPayload]
-  );
-  const withdrawReportResponse = runtime.report({
-    ...prepareReportRequest(withdrawEncodedReport),
-  }).result();
 
-  const withdrawWriteResult = evmClient.writeReport(runtime, {
-    receiver: evmConfig.marketFactoryAddress as `0x${string}`,
-    report: withdrawReportResponse,
-    gasConfig: {
-      gasLimit: "10000000",
-    },
-  }).result();
-
-  if (withdrawWriteResult.txStatus === TxStatus.REVERTED) {
-    runtime.log(`[${evmConfig.chainName}] ${FACTORY_WITHDRAW_ACTION} REVERTED for marketId=${marketId}: ${withdrawWriteResult.errorMessage || "unknown"}`);
-    return false;
-  }
-
-  const withdrawTxHash = bytesToHex(withdrawWriteResult.txHash || new Uint8Array(32));
-  runtime.log(`[${evmConfig.chainName}] ${FACTORY_WITHDRAW_ACTION} tx for marketId=${marketId}: ${withdrawTxHash}`);
-  return true;
-};
 
 const isHubFactoryConfig = (runtime: Runtime<Config>, evmConfig: EvmConfig, evmClient: EVMClient): boolean => {
   const isHubCallData = encodeFunctionData({
@@ -105,10 +70,11 @@ const isHubFactoryConfig = (runtime: Runtime<Config>, evmConfig: EvmConfig, evmC
   return isHub;
 };
 
-const withdrawResolvedMarketsOnSpokes = (runtime: Runtime<Config>): string => {
-  let attempted = 0;
-  let succeeded = 0;
-  let skipped = 0;
+
+
+const processPendingWithdrawalsHandler = (runtime: Runtime<Config>): string => {
+  let attemptedWrites = 0;
+  let successfulWrites = 0;
 
   for (const evmConfig of runtime.config.evms) {
     const network = getNetwork({
@@ -122,113 +88,38 @@ const withdrawResolvedMarketsOnSpokes = (runtime: Runtime<Config>): string => {
     }
 
     const evmClient = new EVMClient(network.chainSelector.selector);
-    const isHub = isHubFactoryConfig(runtime, evmConfig, evmClient);
-    if (isHub) {
+    const payload = encodeAbiParameters(
+      parseAbiParameters("uint256 maxItems"),
+      [WITHDRAW_BATCH_SIZE]
+    );
+    const encodedReport = encodeAbiParameters(
+      parseAbiParameters("string actionType, bytes payload"),
+      [PROCESS_PENDING_WITHDRAWALS_ACTION, payload]
+    );
+    const reportResponse = runtime.report({
+      ...prepareReportRequest(encodedReport),
+    }).result();
+
+    attemptedWrites += 1;
+    const writeReportResult = evmClient.writeReport(runtime, {
+      receiver: evmConfig.marketFactoryAddress,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000",
+      },
+    }).result();
+
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime.log(`[${evmConfig.chainName}] ${PROCESS_PENDING_WITHDRAWALS_ACTION} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
       continue;
     }
 
-    const marketCountCallData = encodeFunctionData({
-      abi: MarketFactoryAbi,
-      functionName: "marketCount",
-    });
-
-    const marketCountResult = evmClient.callContract(runtime, {
-      call: encodeCallMsg({
-        from: sender,
-        to: evmConfig.marketFactoryAddress as `0x${string}`,
-        data: marketCountCallData,
-      }),
-    }).result();
-
-    const marketCount = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "marketCount",
-      data: bytesToHex(marketCountResult.data),
-    }) as bigint;
-
-    for (let marketId = 1n; marketId <= marketCount; marketId++) {
-      const marketByIdCallData = encodeFunctionData({
-        abi: MarketFactoryAbi,
-        functionName: "marketById",
-        args: [marketId],
-      });
-
-      const marketByIdResult = evmClient.callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: evmConfig.marketFactoryAddress as `0x${string}`,
-          data: marketByIdCallData,
-        }),
-      }).result();
-
-      const marketAddress = decodeFunctionResult({
-        abi: MarketFactoryAbi,
-        functionName: "marketById",
-        data: bytesToHex(marketByIdResult.data),
-      }) as `0x${string}`;
-
-      if (marketAddress === "0x0000000000000000000000000000000000000000") {
-        skipped += 1;
-        continue;
-      }
-
-      const stateCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "state",
-      });
-
-      const stateResult = evmClient.callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: marketAddress,
-          data: stateCallData,
-        }),
-      }).result();
-
-      const marketState = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "state",
-        data: bytesToHex(stateResult.data),
-      }) as number;
-
-      if (Number(marketState) !== RESOLVED_STATE) {
-        skipped += 1;
-        continue;
-      }
-
-      const lpSharesCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "lpShares",
-        args: [evmConfig.marketFactoryAddress as `0x${string}`],
-      });
-
-      const lpSharesResult = evmClient.callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: marketAddress,
-          data: lpSharesCallData,
-        }),
-      }).result();
-
-      const factoryShares = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "lpShares",
-        data: bytesToHex(lpSharesResult.data),
-      }) as bigint;
-
-      if (factoryShares === 0n) {
-        skipped += 1;
-        continue;
-      }
-
-      attempted += 1;
-      if (runFactoryWithdrawByMarketId(runtime, evmClient, evmConfig, marketId)) {
-        succeeded += 1;
-      }
-    }
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime.log(`[${evmConfig.chainName}] ${PROCESS_PENDING_WITHDRAWALS_ACTION} tx: ${txHash}`);
+    successfulWrites += 1;
   }
 
-  return `spoke withdraw sweep attempted=${attempted}, succeeded=${succeeded}, skipped=${skipped}`;
+  return `pending-withdrawal batch writes=${successfulWrites}/${attemptedWrites}, batchSize=${WITHDRAW_BATCH_SIZE.toString()}`;
 };
 
 
@@ -663,7 +554,6 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
     const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
     runtime.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
     runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
-    runFactoryWithdrawByMarketId(runtime, evmClient, sepoConfig, marketId);
 
   }
 
@@ -671,8 +561,8 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
 
  })
 
-
-return `active=${activeEventList.length};`
+const queueSummary = processPendingWithdrawalsHandler(runtime);
+return `active=${activeEventList.length}; ${queueSummary}`
 }
 
 

@@ -40,7 +40,7 @@ contract DeployMarketFactory is Script {
         PredictionMarket marketImplementation = new PredictionMarket();
 
         // 3. Deploy the MarketDeployer helper that clones from marketImplementation
-        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation));
+        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation),initialOwner);
 
         // 4. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
@@ -66,7 +66,7 @@ contract DeployMarketFactory is Script {
 
         // 8. Fund the factory with 100,000 testnet USDC (minted via addLiquidityToFactory)
         MarketFactory(proxyAddress).addLiquidityToFactory();
-
+ marketDeployer.setNewOwner(proxyAddress);
         vm.stopBroadcast();
 
         // Log deployed addresses for verification

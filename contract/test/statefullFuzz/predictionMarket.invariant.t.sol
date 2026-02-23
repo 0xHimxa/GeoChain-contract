@@ -40,7 +40,7 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
 
         mockFactory = new MockMarketFactoryInvariant();
         implementation = new PredictionMarket();
-        marketDeployer = new MarketDeployer(address(implementation));
+        marketDeployer = new MarketDeployer(address(implementation),address(this));
 
         market = PredictionMarket(
             mockFactory.deployMarket(

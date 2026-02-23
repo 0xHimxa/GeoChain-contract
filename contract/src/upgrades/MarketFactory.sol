@@ -9,7 +9,7 @@ import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "../PredictionMarket.sol";
 import {MarketDeployer} from "../MarketDeployer.sol";
 import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors, Resolution, MarketConstants} from "../libraries/MarketTypes.sol";
+import {MarketErrors, Resolution, MarketConstants, State} from "../libraries/MarketTypes.sol";
 import {AMMLib} from "../libraries/AMMLib.sol";
 import {OutcomeToken} from "../OutcomeToken.sol";
 import {Client} from "../ccip/Client.sol";
@@ -43,12 +43,6 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     /// @notice Fixed amount of testnet USDC to mint into the factory (100,000 USDC with 6 decimals)
     /// @dev On mainnet this will be replaced with a real USDC funding flow instead of minting
     uint256 private Amount_Funding_Factory;
-
-    /// @notice Tracks whether an address has been verified via World ID (Sybil-resistance)
-    mapping(address => bool) public isVerified;
-
-    /// @notice Records used World ID nullifier hashes to prevent the same human from verifying multiple wallets
-    mapping(uint256 => bool) internal nullifierHashes;
 
     /// @notice Ordered list of all currently active (unresolved) market addresses
     /// @dev Markets are appended on creation and removed via swap-and-pop when resolved
@@ -108,9 +102,14 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
     bytes32 private hashed_PriceCorrection; 
     bytes32  private hashed_AddLiquidityToFactory;
     bytes32  private hashed_WithCollatralAndFee;
+    bytes32  private hashed_ProcessPendingWithdrawals;
    
 
 uint256  private initailEventLiquidity;
+
+    uint256[] private pendingWithdrawQueue;
+    uint256 private pendingWithdrawHead;
+    mapping(uint256 => bool) private isPendingWithdrawQueued;
 
     enum SyncMessageType {
         Price,
@@ -155,6 +154,14 @@ uint256  private initailEventLiquidity;
         uint256 deviationBeforeBps,
         uint256 deviationAfterBps
     );
+    event WithdrawEnqueued(uint256 indexed marketId);
+    event WithdrawDequeued(uint256 indexed marketId);
+    event WithdrawProcessed(uint256 indexed marketId);
+    event WithdrawRequeued(uint256 indexed marketId);
+    event WithdrawSkippedNoShares(uint256 indexed marketId);
+    event WithdrawSkippedNotResolved(uint256 indexed marketId);
+  event MarkertFactor_ReslovedEventReomved(uint256 indexed marketId);
+event NewPredictionImplementationSet(address indexed newPredictionMarketImplementation);
 
     struct UnsafeArbContext {
         address marketAddress;
@@ -205,6 +212,8 @@ address public predictionMarketBridge;
     error MarketFactory__ArbInsufficientImprovement();
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
     error MarketFactory__NotSpokeFactory();
+    error MarketFactory__InvalidMaxBatch();
+   
 
 
 
@@ -249,6 +258,7 @@ address public predictionMarketBridge;
         hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
         hashed_AddLiquidityToFactory = keccak256(abi.encode("addLiquidityToFactory"));
          hashed_WithCollatralAndFee = keccak256(abi.encode("WithCollatralAndFee"));
+        hashed_ProcessPendingWithdrawals = keccak256(abi.encode("processPendingWithdrawals"));
         initailEventLiquidity = 30000e6;
 
         s_supportedChainSelector[10344971235874465080] = true;
@@ -257,8 +267,6 @@ address public predictionMarketBridge;
 
         hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
          initialCanonicalPriceWindow = 5 minutes;
-
-        initailEventLiquidity = 30000e6;
         initialCanonicalPriceE6 = 500_000;
 
     
@@ -277,6 +285,7 @@ address public predictionMarketBridge;
     function setNewMarketDeployerImplemntation(address _newPredictionMarketImplementation) external onlyOwner {
         if (_newPredictionMarketImplementation == address(0)) revert MarketFactory__ZeroAddress();
         MarketDeployer(address(marketDeployer)).setImplementation(_newPredictionMarketImplementation);
+        emit NewPredictionImplementationSet(_newPredictionMarketImplementation);
     }
    
 
@@ -500,6 +509,7 @@ address public predictionMarketBridge;
     function onHubMarketResolved(Resolution outcome, string calldata proofUrl) external {
         uint256 marketId = marketIdByAddress[msg.sender];
         if (marketId == 0 || marketById[marketId] != msg.sender) revert MarketFactory__OnlyRegisteredMarket();
+        _enqueueWithdraw(marketId);
         _broadcastResolution(marketId, outcome, proofUrl);
     }
 
@@ -565,6 +575,7 @@ address public predictionMarketBridge;
         activeMarkets.pop();
 
         delete marketToIndex[market];
+        emit MarkertFactor_ReslovedEventReomved(marketId);
     }
 
     /// @inheritdoc IAny2EVMMessageReceiver
@@ -600,6 +611,7 @@ address public predictionMarketBridge;
 
             resolutionNonceByMarketId[r.marketId] = r.nonce;
             PredictionMarket(market).resolveFromHub(Resolution(r.outcome), r.proofUrl);
+            _enqueueWithdraw(r.marketId);
             emit ResolutionMessageReceived(r.marketId, Resolution(r.outcome), r.nonce);
             return;
         }
@@ -673,6 +685,9 @@ _createMarket( question, closeTime,  resolutionTime, initailEventLiquidity);
         uint256 marketId = abi.decode(payload, (uint256));
         _withdrawCollateralFromEvents(marketId);
         _withdrawEventFeeWhenResolved(marketId);
+      } else if (actionTypeHash == hashed_ProcessPendingWithdrawals) {
+        uint256 maxItems = abi.decode(payload, (uint256));
+        _processPendingWithdrawals(maxItems);
       } else {
         revert MarketFactory__ActionNotRecognized();
       }
@@ -863,6 +878,103 @@ address marketAddress = marketById[_marketId];
 
  PredictionMarket(marketAddress).withdrawProtocolFees();
 
+}
+
+function enqueueWithdraw(uint256 marketId) external onlyOwner {
+    _enqueueWithdraw(marketId);
+}
+
+function _enqueueWithdraw(uint256 marketId) internal {
+    if (marketId == 0) return;
+    if (isPendingWithdrawQueued[marketId]) return;
+    if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
+
+    isPendingWithdrawQueued[marketId] = true;
+    pendingWithdrawQueue.push(marketId);
+    emit WithdrawEnqueued(marketId);
+}
+
+function processPendingWithdrawals(uint256 maxItems)
+   external
+    onlyOwner
+    returns (uint256 attempted, uint256 succeeded, uint256 remaining)
+{
+    return _processPendingWithdrawals(maxItems);
+}
+
+function _processPendingWithdrawals(uint256 maxItems)
+    internal
+    returns (uint256 attempted, uint256 succeeded, uint256 remaining)
+{
+    if (maxItems == 0) revert MarketFactory__InvalidMaxBatch();
+
+    uint256 head = pendingWithdrawHead;
+    uint256 len = pendingWithdrawQueue.length;
+
+    while (attempted < maxItems && head < len) {
+        uint256 marketId = pendingWithdrawQueue[head];
+        head++;
+        attempted++;
+
+        isPendingWithdrawQueued[marketId] = false;
+        emit WithdrawDequeued(marketId);
+
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0)) {
+            continue;
+        }
+
+        if (uint256(PredictionMarket(marketAddress).state()) != uint256(State.Resolved)) {
+            _enqueueWithdraw(marketId);
+            emit WithdrawRequeued(marketId);
+            emit WithdrawSkippedNotResolved(marketId);
+            continue;
+        }
+
+        if (PredictionMarket(marketAddress).lpShares(address(this)) == 0) {
+            emit WithdrawSkippedNoShares(marketId);
+            continue;
+        }
+
+        _withdrawCollateralFromEvents(marketId);
+        _withdrawEventFeeWhenResolved(marketId);
+        succeeded++;
+        emit WithdrawProcessed(marketId);
+    }
+
+    pendingWithdrawHead = head;
+    _compactPendingWithdrawQueue();
+    remaining = pendingWithdrawQueue.length - pendingWithdrawHead;
+}
+
+function getPendingWithdrawCount() external view returns (uint256) {
+    return pendingWithdrawQueue.length - pendingWithdrawHead;
+}
+
+function getPendingWithdrawAt(uint256 indexFromHead) external view returns (uint256) {
+    uint256 idx = pendingWithdrawHead + indexFromHead;
+    if (idx >= pendingWithdrawQueue.length) revert MarketFactory__MarketNotFound();
+    return pendingWithdrawQueue[idx];
+}
+
+function _compactPendingWithdrawQueue() internal {
+    uint256 head = pendingWithdrawHead;
+    uint256 len = pendingWithdrawQueue.length;
+    if (head < 50 || head * 2 < len) {
+        return;
+    }
+
+    uint256 remaining = len - head;
+    uint256[] memory tmp = new uint256[](remaining);
+    for (uint256 i = 0; i < remaining; i++) {
+        tmp[i] = pendingWithdrawQueue[head + i];
+    }
+
+    delete pendingWithdrawQueue;
+    for (uint256 j = 0; j < remaining; j++) {
+        pendingWithdrawQueue.push(tmp[j]);
+    }
+    pendingWithdrawHead = 0;
 }
 
 

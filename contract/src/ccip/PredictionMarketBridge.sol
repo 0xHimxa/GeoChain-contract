@@ -135,6 +135,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     uint16 public wrappedClaimBuybackBps;
     address public buybackUnlockReceiver;
     address public marketFactory;
+    uint256 public constant CCIP_BRIEGE_GASLIMIT = 700_000;
 
     mapping(uint64 => bool) public supportedChainSelector;
     mapping(uint64 => bytes) public trustedRemoteBySelector;
@@ -149,13 +150,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         buybackUnlockReceiver = initialOwner;
     }
 
-    modifier onlyOwnerOrFactoryMapper() {
-        if (msg.sender != owner() && msg.sender != marketFactory) {
-            revert PredictionMarketBridge__NotAuthorizedMarketMapper();
-        }
-        _;
-    }
-
+ 
     function setCcipConfig(address router, address feeToken) external onlyOwner {
         if (router == address(0) || feeToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         ccipRouter = router;
@@ -191,7 +186,10 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         emit MarketFactoryUpdated(factory);
     }
 
-    function setMarketIdMapping(uint256 marketId, address market) external onlyOwnerOrFactoryMapper {
+    function setMarketIdMapping(uint256 marketId, address market) external  {
+        if (msg.sender != owner() && msg.sender != marketFactory) {
+            revert PredictionMarketBridge__NotAuthorizedMarketMapper();
+        }
         if (market == address(0)) revert PredictionMarketBridge__ZeroAddress();
         marketById[marketId] = market;
         emit MarketMapped(marketId, market);
@@ -389,7 +387,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
             tokenAmounts: tokenAmounts,
             feeToken: ccipFeeToken,
             extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV2({gasLimit: 700_000, allowOutOfOrderExecution: true})
+                Client.EVMExtraArgsV2({gasLimit: CCIP_BRIEGE_GASLIMIT, allowOutOfOrderExecution: true})
             )
         });
         fee = IRouterClient(ccipRouter).getFee(destinationChainSelector, message);
@@ -504,7 +502,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
             tokenAmounts: tokenAmounts,
             feeToken: ccipFeeToken,
             extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV2({gasLimit: 700_000, allowOutOfOrderExecution: true})
+                Client.EVMExtraArgsV2({gasLimit: CCIP_BRIEGE_GASLIMIT, allowOutOfOrderExecution: true})
             )
         });
 
@@ -519,10 +517,10 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     {
         string memory outcomeLabel = useYesToken ? "YES" : "NO";
         string memory name = string(
-            abi.encodePacked("Wrapped Claim ", outcomeLabel, " M", Strings.toString(marketId), " S", Strings.toString(sourceChainSelector))
+            abi.encode("Wrapped Claim ", outcomeLabel, " M", Strings.toString(marketId), " S", Strings.toString(sourceChainSelector))
         );
         string memory symbol = string(
-            abi.encodePacked("wC", outcomeLabel, Strings.toString(marketId))
+            abi.encode("wC", outcomeLabel, Strings.toString(marketId))
         );
 
         CcipWrappedClaimToken token = new CcipWrappedClaimToken(name, symbol, address(this));

@@ -349,7 +349,7 @@ contract MarketFactoryTest is Test {
 
     function testSetMarketDeployerPass() external {
         PredictionMarket implementation = new PredictionMarket();
-        MarketDeployer newDeployer = new MarketDeployer(address(implementation));
+        MarketDeployer newDeployer = new MarketDeployer(address(implementation),address(this));
         vm.prank(marketOwner);
         market.setMarketDeployer(address(newDeployer));
     }

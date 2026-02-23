@@ -101,6 +101,12 @@ library MarketEvents {
 
     /// @notice Emitted when market is placed under manual review
     event IsUnderManualReview(Resolution indexed outcome);
+    event CrossChainControllerSet(address indexed controller);
+    event MarketIdSet(uint256 indexed marketId);
+    event MarketIdAlreadySet();
+    event  SyncCanonicalPrice(uint256 indexed yesPriceE6,uint256 indexed noPriceE6,uint256 indexed validUntil, uint64 nonce);
+    event WithdrawProtocolFees(address indexed owner,uint256 amount);
+    
 }
 
 // ========================================

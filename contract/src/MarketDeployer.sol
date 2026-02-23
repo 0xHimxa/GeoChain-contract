@@ -14,18 +14,44 @@ import {PredictionMarket} from "./PredictionMarket.sol";
  */
 contract MarketDeployer {
     address public marketImplementation;
+    address public owner;
+
+event NewPrediction_ImplementationSet(address indexed market);
+event MarketDeployer__NewOwnerSet(address indexed owner);
+
+
 
     error MarketDeployer__ZeroImplementation();
+    error MarketDeployer__OnlyOwner();
+   error MarketDeployer__NewOwnerCantbeAddressZero();
 
-    constructor(address _marketImplementation) {
-        if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+
+modifier onlyOnwer() {
+    if (msg.sender != owner) revert MarketDeployer__OnlyOwner();
+    _;
+}
+
+
+    constructor(address _marketImplementation,address _owner) {
+        if (_marketImplementation == address(0) || _owner == address(0)) revert MarketDeployer__ZeroImplementation();
         marketImplementation = _marketImplementation;
+        owner = _owner;
+
     }
 
 
-    function setImplementation(address _marketImplementation) external{
+    function setImplementation(address _marketImplementation) external onlyOnwer{
                if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
         marketImplementation = _marketImplementation;
+        emit NewPrediction_ImplementationSet(marketImplementation);
+    }
+
+
+function setNewOwner(address _owner) external onlyOnwer{
+               if (_owner == address(0)) revert MarketDeployer__NewOwnerCantbeAddressZero();
+        owner = _owner;
+        emit MarketDeployer__NewOwnerSet(_owner);
+
     }
 
 
@@ -42,7 +68,7 @@ contract MarketDeployer {
         uint256 closeTime,
         uint256 resolutionTime,
         address forwarder
-    ) external returns (address market) {
+    ) external onlyOnwer returns (address market) {
         market = Clones.clone(marketImplementation);
         PredictionMarket(market).initialize(
             question, collateral, closeTime, resolutionTime, msg.sender, forwarder, msg.sender

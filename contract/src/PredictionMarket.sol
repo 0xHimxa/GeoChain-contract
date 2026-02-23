@@ -1166,6 +1166,7 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
             revert MarketErrors.PredictionMarket__CrossChainControllerCantBeZero();
         }
         crossChainController = controller;
+        emit MarketEvents.CrossChainControllerSet(controller);
     }
 
     /// @notice Sets the market ID for easier off-chain indexing and UI reads.
@@ -1177,6 +1178,7 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
         if (_marketId == 0) revert PredictionMarket__InvalidMarketId();
         if (marketId != 0) revert PredictionMarket__MarketIdAlreadySet();
         marketId = _marketId;
+        emit MarketEvents.MarketIdSet(_marketId);
     }
 
     /// @notice Applies hub resolution on spoke markets (CCIP path)
@@ -1215,6 +1217,8 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
         canonicalNoPriceE6 = noPriceE6;
         canonicalPriceValidUntil = validUntil;
         canonicalPriceNonce = nonce;
+
+        emit MarketEvents.SyncCanonicalPrice(yesPriceE6, noPriceE6, validUntil, nonce);
     }
 
     // ========================================
@@ -1344,7 +1348,7 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
      *      Owner must ensure sufficient balance exists before withdrawal
      */
     function withdrawProtocolFees() external{
-        if(msg.sender != owner() || msg.sender !=  crossChainController) revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
+        if(msg.sender != owner() && msg.sender !=  crossChainController) revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
         }
@@ -1359,5 +1363,7 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
 
         i_collateral.safeTransfer(msg.sender, protocolCollateralFees);
         protocolCollateralFees = 0 ;
+
+        emit MarketEvents.WithdrawProtocolFees(msg.sender, protocolCollateralFees);
     }
 }
