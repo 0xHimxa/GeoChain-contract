@@ -25,6 +25,6 @@ contract CcipWrappedClaimToken is ERC20, Ownable {
     }
 
     function burn(uint256 amount) external onlyOwner {
-        _burn(address(this), amount);
+        _burn(msg.sender, amount);
     }
 }
