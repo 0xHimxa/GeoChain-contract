@@ -43,6 +43,193 @@ export type Config = {
 
 const ARB_MAX_SPEND_COLLATERAL = 200_000_000n; // 200 USDC (6 decimals)
 const ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n; // 0.10%
+const FACTORY_WITHDRAW_ACTION = "WithCollatralAndFee";
+const RESOLVED_STATE = 3;
+
+const runFactoryWithdrawByMarketId = (
+  runtime: Runtime<Config>,
+  evmClient: EVMClient,
+  evmConfig: EvmConfig,
+  marketId: bigint
+): boolean => {
+  const withdrawPayload = encodeAbiParameters(
+    parseAbiParameters("uint256 marketId"),
+    [marketId]
+  );
+  const withdrawEncodedReport = encodeAbiParameters(
+    parseAbiParameters("string actionType, bytes payload"),
+    [FACTORY_WITHDRAW_ACTION, withdrawPayload]
+  );
+  const withdrawReportResponse = runtime.report({
+    ...prepareReportRequest(withdrawEncodedReport),
+  }).result();
+
+  const withdrawWriteResult = evmClient.writeReport(runtime, {
+    receiver: evmConfig.marketFactoryAddress as `0x${string}`,
+    report: withdrawReportResponse,
+    gasConfig: {
+      gasLimit: "10000000",
+    },
+  }).result();
+
+  if (withdrawWriteResult.txStatus === TxStatus.REVERTED) {
+    runtime.log(`[${evmConfig.chainName}] ${FACTORY_WITHDRAW_ACTION} REVERTED for marketId=${marketId}: ${withdrawWriteResult.errorMessage || "unknown"}`);
+    return false;
+  }
+
+  const withdrawTxHash = bytesToHex(withdrawWriteResult.txHash || new Uint8Array(32));
+  runtime.log(`[${evmConfig.chainName}] ${FACTORY_WITHDRAW_ACTION} tx for marketId=${marketId}: ${withdrawTxHash}`);
+  return true;
+};
+
+const isHubFactoryConfig = (runtime: Runtime<Config>, evmConfig: EvmConfig, evmClient: EVMClient): boolean => {
+  const isHubCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "isHubFactory",
+  });
+
+  const isHubResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: evmConfig.marketFactoryAddress as `0x${string}`,
+      data: isHubCallData,
+    }),
+  }).result();
+
+  const isHub = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "isHubFactory",
+    data: bytesToHex(isHubResult.data),
+  }) as boolean;
+
+  return isHub;
+};
+
+const withdrawResolvedMarketsOnSpokes = (runtime: Runtime<Config>): string => {
+  let attempted = 0;
+  let succeeded = 0;
+  let skipped = 0;
+
+  for (const evmConfig of runtime.config.evms) {
+    const network = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true,
+    });
+
+    if (!network) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+    }
+
+    const evmClient = new EVMClient(network.chainSelector.selector);
+    const isHub = isHubFactoryConfig(runtime, evmConfig, evmClient);
+    if (isHub) {
+      continue;
+    }
+
+    const marketCountCallData = encodeFunctionData({
+      abi: MarketFactoryAbi,
+      functionName: "marketCount",
+    });
+
+    const marketCountResult = evmClient.callContract(runtime, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress as `0x${string}`,
+        data: marketCountCallData,
+      }),
+    }).result();
+
+    const marketCount = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "marketCount",
+      data: bytesToHex(marketCountResult.data),
+    }) as bigint;
+
+    for (let marketId = 1n; marketId <= marketCount; marketId++) {
+      const marketByIdCallData = encodeFunctionData({
+        abi: MarketFactoryAbi,
+        functionName: "marketById",
+        args: [marketId],
+      });
+
+      const marketByIdResult = evmClient.callContract(runtime, {
+        call: encodeCallMsg({
+          from: sender,
+          to: evmConfig.marketFactoryAddress as `0x${string}`,
+          data: marketByIdCallData,
+        }),
+      }).result();
+
+      const marketAddress = decodeFunctionResult({
+        abi: MarketFactoryAbi,
+        functionName: "marketById",
+        data: bytesToHex(marketByIdResult.data),
+      }) as `0x${string}`;
+
+      if (marketAddress === "0x0000000000000000000000000000000000000000") {
+        skipped += 1;
+        continue;
+      }
+
+      const stateCallData = encodeFunctionData({
+        abi: PredictionMarketAbi,
+        functionName: "state",
+      });
+
+      const stateResult = evmClient.callContract(runtime, {
+        call: encodeCallMsg({
+          from: sender,
+          to: marketAddress,
+          data: stateCallData,
+        }),
+      }).result();
+
+      const marketState = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "state",
+        data: bytesToHex(stateResult.data),
+      }) as number;
+
+      if (Number(marketState) !== RESOLVED_STATE) {
+        skipped += 1;
+        continue;
+      }
+
+      const lpSharesCallData = encodeFunctionData({
+        abi: PredictionMarketAbi,
+        functionName: "lpShares",
+        args: [evmConfig.marketFactoryAddress as `0x${string}`],
+      });
+
+      const lpSharesResult = evmClient.callContract(runtime, {
+        call: encodeCallMsg({
+          from: sender,
+          to: marketAddress,
+          data: lpSharesCallData,
+        }),
+      }).result();
+
+      const factoryShares = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "lpShares",
+        data: bytesToHex(lpSharesResult.data),
+      }) as bigint;
+
+      if (factoryShares === 0n) {
+        skipped += 1;
+        continue;
+      }
+
+      attempted += 1;
+      if (runFactoryWithdrawByMarketId(runtime, evmClient, evmConfig, marketId)) {
+        succeeded += 1;
+      }
+    }
+  }
+
+  return `spoke withdraw sweep attempted=${attempted}, succeeded=${succeeded}, skipped=${skipped}`;
+};
 
 
 //this triger will check the market factory that create event, fix arbtrage balance after cartain time
@@ -303,6 +490,10 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
     throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
   }
   const evmClient = new EVMClient(network.chainSelector.selector);
+  const hubFlag = isHubFactoryConfig(runtime, sepoConfig, evmClient);
+  if (!hubFlag) {
+    return `Configured resolver chain is not hub: ${sepoConfig.chainName}`;
+  }
 
   // Perform the call
   const callResult = evmClient.callContract(runtime, {
@@ -326,6 +517,30 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
 
 
  activeEventList.forEach((eventAddress:any) => {
+  const marketIdCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "marketIdByAddress",
+    args: [eventAddress as `0x${string}`],
+  });
+
+  const marketIdResult = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress as `0x${string}`,
+      data: marketIdCallData,
+    }),
+  }).result();
+
+  const marketId = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "marketIdByAddress",
+    data: bytesToHex(marketIdResult.data),
+  }) as bigint;
+
+  if (marketId === 0n) {
+    runtime.log(`Skipping ${eventAddress}: marketIdByAddress returned 0`);
+    return;
+  }
 
   const callResult = evmClient.callContract(runtime, {
     call: encodeCallMsg({
@@ -448,6 +663,7 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
     const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
     runtime.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
     runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+    runFactoryWithdrawByMarketId(runtime, evmClient, sepoConfig, marketId);
 
   }
 
@@ -455,7 +671,8 @@ const resoloveEvent = (runtime: Runtime<Config>): string => {
 
  })
 
-return `${activeEventList.length}`
+
+return `active=${activeEventList.length};`
 }
 
 
