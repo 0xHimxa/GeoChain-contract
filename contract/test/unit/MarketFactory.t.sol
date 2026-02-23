@@ -2,7 +2,7 @@
 pragma solidity 0.8.33;
 
 import {Test, console} from "forge-std/Test.sol";
-import {MarketFactory} from "src/MarketFactory.sol";
+import {MarketFactory} from "src/upgrades/MarketFactory.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
 import {MarketDeployer} from "src/MarketDeployer.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
@@ -35,6 +35,21 @@ contract MockRouter is IRouterClient {
         lastReceiver = message.receiver;
         messageId = keccak256(abi.encode(destinationChainSelector, sentCount));
     }
+}
+
+struct CanonicalPriceSync {
+    uint256 marketId;
+    uint256 yesPriceE6;
+    uint256 noPriceE6;
+    uint256 validUntil;
+    uint64 nonce;
+}
+
+struct ResolutionSync {
+    uint256 marketId;
+    uint8 outcome;
+    string proofUrl;
+    uint64 nonce;
 }
 
 contract MarketFactoryTest is Test {
@@ -95,7 +110,7 @@ contract MarketFactoryTest is Test {
         vm.expectRevert(MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor.selector);
 
         market.createMarket("", block.timestamp + 1000, block.timestamp + 1000, initialLiquidity);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroLiquidity.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroLiquidity()")));
 
         market.createMarket("will rain fall", block.timestamp + 1000, block.timestamp + 10001, 0);
 
@@ -170,7 +185,7 @@ contract MarketFactoryTest is Test {
         bytes memory report = abi.encode("syncSpokeCanonicalPrice", payload);
 
         vm.prank(forwarder);
-        vm.expectRevert(MarketFactory.MarketFactory__NotSpokeFactory.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__NotSpokeFactory()")));
         market.onReport("", report);
     }
 
@@ -225,20 +240,20 @@ contract MarketFactoryTest is Test {
 
     function testSetTrustedRemoteRevert() external {
         vm.startPrank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroAddress.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroAddress()")));
         market.setTrustedRemote(33155, address(0));
 
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectorCantbezero.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectorCantbezero()")));
         market.setTrustedRemote(0, address(100));
 
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectornNotSupported()")));
         market.setTrustedRemote(1, address(100));
         vm.stopPrank();
     }
 
     function testSetSupportedChainSelectorRevertZeroSelector() external {
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectorCantbezero.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectorCantbezero()")));
         market.setSupportedChainSelector(0, true);
     }
 
@@ -296,10 +311,10 @@ contract MarketFactoryTest is Test {
 
     function testRemoveTrustedRemoteRevert() external {
         vm.startPrank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectorCantbezero.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectorCantbezero()")));
         market.removeTrustedRemote(0);
 
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectornNotSupported()")));
         market.removeTrustedRemote(33137);
         vm.stopPrank();
     }
@@ -307,7 +322,7 @@ contract MarketFactoryTest is Test {
     function testRemoveTrustedRemoteRevertWhenSelectorSupportDisabled() external {
         vm.startPrank(marketOwner);
         market.setSupportedChainSelector(sepoChainSelector, false);
-        vm.expectRevert(MarketFactory.MarketFactory__ChainSelectornNotSupported.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ChainSelectornNotSupported()")));
         market.removeTrustedRemote(sepoChainSelector);
         vm.stopPrank();
     }
@@ -343,7 +358,7 @@ contract MarketFactoryTest is Test {
 
     function testSetMarketDeployerRevertZeroAddress() external {
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroAddress.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroAddress()")));
         market.setMarketDeployer(address(0));
     }
 
@@ -356,11 +371,11 @@ contract MarketFactoryTest is Test {
 
     function testSetCcipConfigRevertZeroAddress() external {
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroAddress.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroAddress()")));
         market.setCcipConfig(address(0), address(feeToken), true);
 
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroAddress.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroAddress()")));
         market.setCcipConfig(address(router), address(0), true);
     }
 
@@ -377,7 +392,7 @@ contract MarketFactoryTest is Test {
 
     function testSetMarketIdMappingRevertZeroAddress() external {
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__ZeroAddress.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__ZeroAddress()")));
         market.setMarketIdMapping(99, address(0));
     }
 
@@ -392,7 +407,7 @@ contract MarketFactoryTest is Test {
 
     function testBroadcastCanonicalPriceRevertNotHubFactory() external {
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__NotHubFactory.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__NotHubFactory()")));
         market.broadcastCanonicalPrice(1, 500_000, 500_000, block.timestamp + 1 days);
     }
 
@@ -401,7 +416,7 @@ contract MarketFactoryTest is Test {
         market.setCcipConfig(address(router), address(feeToken), true);
 
         vm.prank(marketOwner);
-        vm.expectRevert(MarketFactory.MarketFactory__MarketNotFound.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__MarketNotFound()")));
         market.broadcastCanonicalPrice(1, 500_000, 500_000, block.timestamp + 1 days);
     }
 
@@ -441,7 +456,7 @@ contract MarketFactoryTest is Test {
         vm.startPrank(marketOwner);
         market.setCcipConfig(address(router), address(feeToken), true);
         market.setTrustedRemote(sepoChainSelector, address(100));
-        vm.expectRevert(MarketFactory.MarketFactory__InvalidResolutionOutcome.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__InvalidResolutionOutcome()")));
         market.broadcastResolution(1, Resolution.Unset, "ipfs://proof");
         vm.stopPrank();
     }
@@ -474,7 +489,7 @@ contract MarketFactoryTest is Test {
             destTokenAmounts: emptyAmounts
         });
 
-        vm.expectRevert(MarketFactory.MarketFactory__InvalidRemoteSender.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__InvalidRemoteSender()")));
         market.ccipReceive(message);
     }
 
@@ -492,7 +507,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__SourceChainNotAllowed.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__SourceChainNotAllowed()")));
         market.ccipReceive(message);
     }
 
@@ -512,7 +527,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__InvalidRemoteSender.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__InvalidRemoteSender()")));
         market.ccipReceive(message);
     }
 
@@ -532,7 +547,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__UnknownSyncMessageType.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__UnknownSyncMessageType()")));
         market.ccipReceive(message);
     }
 
@@ -546,7 +561,7 @@ contract MarketFactoryTest is Test {
         market.setMarketIdMapping(1, createdMarket);
         vm.stopPrank();
 
-        MarketFactory.CanonicalPriceSync memory payload = MarketFactory.CanonicalPriceSync({
+        CanonicalPriceSync memory payload = CanonicalPriceSync({
             marketId: 1,
             yesPriceE6: 510_000,
             noPriceE6: 490_000,
@@ -566,7 +581,7 @@ contract MarketFactoryTest is Test {
         market.ccipReceive(message);
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__MessageAlreadyProcessed.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__MessageAlreadyProcessed()")));
         market.ccipReceive(message);
     }
 
@@ -576,7 +591,7 @@ contract MarketFactoryTest is Test {
         market.setTrustedRemote(sepoChainSelector, address(100));
         vm.stopPrank();
 
-        MarketFactory.CanonicalPriceSync memory payload = MarketFactory.CanonicalPriceSync({
+        CanonicalPriceSync memory payload = CanonicalPriceSync({
             marketId: 77,
             yesPriceE6: 600_000,
             noPriceE6: 400_000,
@@ -594,7 +609,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__MarketNotFound.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__MarketNotFound()")));
         market.ccipReceive(message);
     }
 
@@ -609,7 +624,7 @@ contract MarketFactoryTest is Test {
         vm.stopPrank();
 
         uint256 validUntil = block.timestamp + 1 days;
-        MarketFactory.CanonicalPriceSync memory payload = MarketFactory.CanonicalPriceSync({
+        CanonicalPriceSync memory payload = CanonicalPriceSync({
             marketId: 1,
             yesPriceE6: 550_000,
             noPriceE6: 450_000,
@@ -649,8 +664,8 @@ contract MarketFactoryTest is Test {
         market.setMarketIdMapping(1, createdMarket);
         vm.stopPrank();
 
-        MarketFactory.ResolutionSync memory payload =
-            MarketFactory.ResolutionSync({marketId: 1, outcome: uint8(Resolution.Unset), proofUrl: "p", nonce: 1});
+        ResolutionSync memory payload =
+            ResolutionSync({marketId: 1, outcome: uint8(Resolution.Unset), proofUrl: "p", nonce: 1});
 
         Client.EVMTokenAmount[] memory emptyAmounts = new Client.EVMTokenAmount[](0);
         Client.Any2EVMMessage memory message = Client.Any2EVMMessage({
@@ -662,7 +677,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__InvalidResolutionOutcome.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__InvalidResolutionOutcome()")));
         market.ccipReceive(message);
     }
 
@@ -676,8 +691,8 @@ contract MarketFactoryTest is Test {
         market.setMarketIdMapping(1, createdMarket);
         vm.stopPrank();
 
-        MarketFactory.ResolutionSync memory freshPayload =
-            MarketFactory.ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "p", nonce: 2});
+        ResolutionSync memory freshPayload =
+            ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "p", nonce: 2});
         Client.EVMTokenAmount[] memory emptyAmounts = new Client.EVMTokenAmount[](0);
         Client.Any2EVMMessage memory freshMessage = Client.Any2EVMMessage({
             messageId: bytes32(uint256(9)),
@@ -691,8 +706,8 @@ contract MarketFactoryTest is Test {
         market.ccipReceive(freshMessage);
         assertEq(market.resolutionNonceByMarketId(1), 2);
 
-        MarketFactory.ResolutionSync memory stalePayload =
-            MarketFactory.ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "p", nonce: 2});
+        ResolutionSync memory stalePayload =
+            ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "p", nonce: 2});
         Client.Any2EVMMessage memory staleMessage = Client.Any2EVMMessage({
             messageId: bytes32(uint256(10)),
             sourceChainSelector: sepoChainSelector,
@@ -702,7 +717,7 @@ contract MarketFactoryTest is Test {
         });
 
         vm.prank(address(router));
-        vm.expectRevert(MarketFactory.MarketFactory__StaleResolutionNonce.selector);
+        vm.expectRevert(bytes4(keccak256("MarketFactory__StaleResolutionNonce()")));
         market.ccipReceive(staleMessage);
     }
 
@@ -716,8 +731,8 @@ contract MarketFactoryTest is Test {
         market.setMarketIdMapping(1, createdMarket);
         vm.stopPrank();
 
-        MarketFactory.ResolutionSync memory payload =
-            MarketFactory.ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "ipfs://proof", nonce: 3});
+        ResolutionSync memory payload =
+            ResolutionSync({marketId: 1, outcome: uint8(Resolution.Yes), proofUrl: "ipfs://proof", nonce: 3});
         Client.EVMTokenAmount[] memory emptyAmounts = new Client.EVMTokenAmount[](0);
         Client.Any2EVMMessage memory message = Client.Any2EVMMessage({
             messageId: bytes32(uint256(11)),

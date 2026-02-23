@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
+import {PredictionMarketBase} from "src/predictionMarket/PredictionMarketBase.sol";
 
 /// @notice Test helper script to move market price by buying YES or NO exposure.
 /// @dev Direction:
@@ -50,7 +51,7 @@ contract BuyShareToMovePrice is Script {
 
     /// @dev Helper to print state without clogging the run() function stack
     function _logMarketState(PredictionMarket market) internal view {
-        (PredictionMarket.DeviationBand band, uint256 dev, , , , ) = market.getDeviationStatus();
+        (PredictionMarketBase.DeviationBand band, uint256 dev, , , , ) = market.getDeviationStatus();
         console2.log("YES Price:", market.getYesPriceProbability());
         console2.log("NO Price :", market.getNoPriceProbability());
         console2.log("Band/Dev :", uint8(band), dev);

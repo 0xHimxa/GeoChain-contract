@@ -3,7 +3,8 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
-import {MarketDeployer} from "src/MarketDeployer.sol";
+import {PredictionMarketBase} from "src/predictionMarket/PredictionMarketBase.sol";
+import {MarketDeployer} from "src/upgrades/MarketDeployer.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
 import {AMMLib} from "src/libraries/AMMLib.sol";
 import {MarketErrors, MarketConstants, Resolution, State} from "src/libraries/MarketTypes.sol";
@@ -468,7 +469,7 @@ contract PredictionMarketTest is Test {
         assertGt(mintedNet, 2_000e6);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
         market.swapYesForNo(2_000e6, 0);
     }
 
@@ -492,7 +493,7 @@ contract PredictionMarketTest is Test {
         _approveOutcomeTokens(alice);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
         market.swapNoForYes(2_000e6, 0);
     }
 
@@ -503,7 +504,7 @@ contract PredictionMarketTest is Test {
         _approveOutcomeTokens(alice);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__TradeSizeExceedsBandLimit.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__TradeSizeExceedsBandLimit()")));
         market.swapNoForYes(500e6, 0);
     }
 
@@ -514,7 +515,7 @@ contract PredictionMarketTest is Test {
         _approveOutcomeTokens(alice);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__TradeDirectionNotAllowedInUnsafeBand.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__TradeDirectionNotAllowedInUnsafeBand()")));
         market.swapNoForYes(1e6, 0);
 
         vm.prank(alice);
@@ -599,7 +600,7 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(alice);
         _warpAfterResolution();
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__LocalResolutionDisabled.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__LocalResolutionDisabled()")));
         market.resolve(Resolution.Yes, "ipfs://proof");
     }
 
@@ -634,7 +635,7 @@ contract PredictionMarketTest is Test {
         market.resolve(Resolution.Inconclusive, "ipfs://initial");
         market.setCrossChainController(alice);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__LocalResolutionDisabled.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__LocalResolutionDisabled()")));
         market.manualResolveMarket(Resolution.No, "ipfs://manual");
     }
 
@@ -847,7 +848,7 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(alice);
 
         vm.prank(bob);
-        vm.expectRevert(PredictionMarket.PredictionMarket__OnlyCrossChainController.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__OnlyCrossChainController()")));
         market.resolveFromHub(Resolution.Yes, "ipfs://proof");
 
         vm.prank(alice);
@@ -875,14 +876,14 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(alice);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__InvalidCanonicalPrice.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidCanonicalPrice()")));
         market.syncCanonicalPriceFromHub(700_000, 200_000, block.timestamp + 1 days, 1);
 
         vm.prank(alice);
         market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, 2);
 
         vm.prank(alice);
-        vm.expectRevert(PredictionMarket.PredictionMarket__StaleSyncMessage.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__StaleSyncMessage()")));
         market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, 2);
 
         assertEq(market.canonicalYesPriceE6(), 600_000);
@@ -893,7 +894,7 @@ contract PredictionMarketTest is Test {
     function testCanonicalPricingQuoteAndStaleGuard() external {
         market.setCrossChainController(alice);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceStale.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
         market.getYesForNoQuote(1e6);
 
         vm.prank(alice);
@@ -925,7 +926,7 @@ contract PredictionMarketTest is Test {
 
     function testGetNoForYesQuoteCanonicalAndStale() external {
         market.setCrossChainController(address(this));
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceStale.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
         market.getNoForYesQuote(1e6);
 
         market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
@@ -940,7 +941,7 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(address(this));
         market.syncCanonicalPriceFromHub(700_000, 300_000, block.timestamp + 1 days, 1);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceDeviationTooHigh.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
         market.getYesForNoQuote(1e6);
     }
 
@@ -949,7 +950,7 @@ contract PredictionMarketTest is Test {
         market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
 
         (
-            PredictionMarket.DeviationBand band,
+            PredictionMarketBase.DeviationBand band,
             uint256 deviationBps,
             uint256 effectiveFeeBps,
             uint256 maxOutBps,
@@ -957,7 +958,7 @@ contract PredictionMarketTest is Test {
             bool allowNoForYes
         ) = market.getDeviationStatus();
 
-        assertEq(uint256(band), uint256(PredictionMarket.DeviationBand.Unsafe));
+        assertEq(uint256(band), uint256(PredictionMarketBase.DeviationBand.Unsafe));
         assertEq(deviationBps, 400);
         assertEq(effectiveFeeBps, 500);
         assertEq(maxOutBps, 50);
@@ -966,7 +967,7 @@ contract PredictionMarketTest is Test {
     }
 
     function testSetDeviationPolicyValidationAndPass() external {
-        vm.expectRevert(PredictionMarket.PredictionMarket__DeviationPolicyInvalid.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__DeviationPolicyInvalid()")));
         market.setDeviationPolicy(300, 200, 500, 100, 200, 50);
 
         market.setDeviationPolicy(200, 350, 600, 80, 300, 100);
@@ -982,10 +983,10 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(address(this));
         market.syncCanonicalPriceFromHub(0, 1_000_000, block.timestamp + 1 days, 1);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__InvalidCanonicalPrice.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidCanonicalPrice()")));
         market.getYesForNoQuote(1e6);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__InvalidCanonicalPrice.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidCanonicalPrice()")));
         market.getNoForYesQuote(1e6);
     }
 
@@ -1007,7 +1008,7 @@ contract PredictionMarketTest is Test {
         assertEq(market.getYesPriceProbability(), 500_000);
 
         market.setCrossChainController(address(this));
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceStale.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
         market.getYesPriceProbability();
 
         market.syncCanonicalPriceFromHub(610_000, 390_000, block.timestamp + 1 days, 1);
@@ -1022,7 +1023,7 @@ contract PredictionMarketTest is Test {
         assertEq(market.getNoPriceProbability(), 500_000);
 
         market.setCrossChainController(address(this));
-        vm.expectRevert(PredictionMarket.PredictionMarket__CanonicalPriceStale.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
         market.getNoPriceProbability();
 
         market.syncCanonicalPriceFromHub(610_000, 390_000, block.timestamp + 1 days, 1);
@@ -1063,11 +1064,11 @@ contract PredictionMarketTest is Test {
     }
 
     function testSetMarketIdRevertsWhenZeroOrAlreadySet() external {
-        vm.expectRevert(PredictionMarket.PredictionMarket__InvalidMarketId.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidMarketId()")));
         market.setMarketId(0);
 
         market.setMarketId(5);
-        vm.expectRevert(PredictionMarket.PredictionMarket__MarketIdAlreadySet.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__MarketIdAlreadySet()")));
         market.setMarketId(6);
     }
 }

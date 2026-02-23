@@ -3,7 +3,7 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
-import {MarketDeployer} from "src/MarketDeployer.sol";
+import {MarketDeployer} from "src/upgrades/MarketDeployer.sol";
 import {OutcomeToken} from "src/OutcomeToken.sol";
 import {AMMLib} from "src/libraries/AMMLib.sol";
 import {MarketConstants, MarketErrors, Resolution} from "src/libraries/MarketTypes.sol";
@@ -251,7 +251,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
         market.setCrossChainController(address(this));
         market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, firstNonce);
 
-        vm.expectRevert(PredictionMarket.PredictionMarket__StaleSyncMessage.selector);
+        vm.expectRevert(bytes4(keccak256("PredictionMarket__StaleSyncMessage()")));
         market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, staleNonce);
     }
 

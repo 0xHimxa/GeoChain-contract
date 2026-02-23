@@ -9,7 +9,7 @@ import {OutcomeToken} from "src/OutcomeToken.sol";
 import {Client} from "src/ccip/Client.sol";
 import {IRouterClient} from "src/ccip/IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "src/ccip/IAny2EVMMessageReceiver.sol";
-import {PredictionMarketBridge, IPredictionMarketClaimSource} from "src/ccip/PredictionMarketBridge.sol";
+import {PredictionMarketBridge, IPredictionMarketClaimSource} from "src/Bridge/PredictionMarketBridge.sol";
 
 contract MockRouterForBridge is IRouterClient {
     uint256 public fee;

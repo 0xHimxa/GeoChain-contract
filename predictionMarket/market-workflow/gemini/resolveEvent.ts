@@ -4,7 +4,7 @@ import {
   consensusIdenticalAggregation,
   type Runtime,
 } from "@chainlink/cre-sdk";
-import { Config } from "../main";
+import { type Config } from "../workflow/config";
 import { type GeminiResolveResponse } from "../type";
 
 const systemPrompt = `SYSTEM_ROLE: 

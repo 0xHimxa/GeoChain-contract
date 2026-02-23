@@ -6,10 +6,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {Client} from "./Client.sol";
-import {IRouterClient} from "./IRouterClient.sol";
-import {IAny2EVMMessageReceiver} from "./IAny2EVMMessageReceiver.sol";
-import {CcipWrappedClaimToken} from "./CcipWrappedClaimToken.sol";
+import {Client} from "../ccip/Client.sol";
+import {IRouterClient} from "../ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
+import {CcipWrappedClaimToken} from "../ccip/CcipWrappedClaimToken.sol";
 
 interface IPredictionMarketClaimSource {
     function yesToken() external view returns (address);

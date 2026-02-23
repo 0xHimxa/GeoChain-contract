@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {MarketFactory} from "src/MarketFactory.sol";
 import {PredictionMarket} from "src/PredictionMarket.sol";
+import {PredictionMarketBase} from "src/predictionMarket/PredictionMarketBase.sol";
 
 /// @notice Runs factory arbitrage only when market price deviation is Unsafe.
 contract BuyIfPriceDiff is Script {
@@ -23,7 +24,7 @@ contract BuyIfPriceDiff is Script {
         require(marketAddress != address(0), "invalid marketId");
 
         (
-            PredictionMarket.DeviationBand band,
+            PredictionMarketBase.DeviationBand band,
             uint256 deviationBps,
             uint256 effectiveFeeBps,
             uint256 maxOutBps,

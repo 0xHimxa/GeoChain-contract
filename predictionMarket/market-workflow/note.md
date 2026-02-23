@@ -19,6 +19,3 @@ a event handler that resolve marker factory the moment event resolved
 
 
  
-3) function  that compare but chain price  if any is bigger it call the broadcast function fpr sync
-
-4) and also a function the check price different for arbitrage fixing
