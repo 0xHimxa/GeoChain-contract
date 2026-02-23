@@ -20088,115 +20088,117 @@ var PredictionMarketAbi = [
   }
 ];
 var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
-var ARB_MAX_SPEND_COLLATERAL = 200000000n;
-var ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n;
-var arbitrateUnsafeMarketHandler = (runtime2) => {
-  if (runtime2.config.evms.length === 0) {
-    return "No EVM config found";
-  }
-  const activeMarketCallData = encodeFunctionData({
+var resoloveEvent = (runtime2) => {
+  const marketFactoryCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList"
   });
-  const marketIdByAddressCallData = (marketAddress) => encodeFunctionData({
-    abi: MarketFactoryAbi,
-    functionName: "marketIdByAddress",
-    args: [marketAddress]
-  });
-  const getDeviationStatusCallData = encodeFunctionData({
+  const PredictionCallData = encodeFunctionData({
     abi: PredictionMarketAbi,
-    functionName: "getDeviationStatus"
+    functionName: "checkResolutionTime"
   });
-  let scannedMarkets = 0;
-  let unsafeMarkets = 0;
-  let correctedMarkets = 0;
-  for (const evmConfig of runtime2.config.evms) {
-    const network248 = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: evmConfig.chainName,
-      isTestnet: true
-    });
-    if (!network248) {
-      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-    }
-    const evmClient = new ClientCapability(network248.chainSelector.selector);
-    const activeMarketResult = evmClient.callContract(runtime2, {
+  const sepoConfig = runtime2.config.evms[0];
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: sepoConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const callResult = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress,
+      data: marketFactoryCallData
+    })
+  }).result();
+  const activeEventList = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(callResult.data)
+  });
+  if (activeEventList.length == 0)
+    return "No Active Events";
+  activeEventList.forEach((eventAddress) => {
+    const callResult2 = evmClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: sender,
-        to: evmConfig.marketFactoryAddress,
-        data: activeMarketCallData
+        to: eventAddress,
+        data: PredictionCallData
       })
     }).result();
-    const activeMarketList = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "getActiveEventList",
-      data: bytesToHex(activeMarketResult.data)
+    const readyForResolve = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "checkResolutionTime",
+      data: bytesToHex(callResult2.data)
     });
-    for (const marketAddress of activeMarketList) {
-      scannedMarkets += 1;
-      const deviationResult = evmClient.callContract(runtime2, {
-        call: encodeCallMsg({
-          from: sender,
-          to: marketAddress,
-          data: getDeviationStatusCallData
-        })
-      }).result();
-      const [band, , , , allowYesForNo, allowNoForYes] = decodeFunctionResult({
+    if (readyForResolve) {
+      const actionType = "ResolveMarket";
+      const questionCallData = encodeFunctionData({
         abi: PredictionMarketAbi,
-        functionName: "getDeviationStatus",
-        data: bytesToHex(deviationResult.data)
+        functionName: "s_question"
       });
-      if (Number(band) !== 2) {
-        continue;
-      }
-      if (!allowYesForNo && !allowNoForYes) {
-        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: unsafe band without valid direction`);
-        continue;
-      }
-      unsafeMarkets += 1;
-      const marketIdCallResult = evmClient.callContract(runtime2, {
+      const questionResult = evmClient.callContract(runtime2, {
         call: encodeCallMsg({
           from: sender,
-          to: evmConfig.marketFactoryAddress,
-          data: marketIdByAddressCallData(marketAddress)
+          to: eventAddress,
+          data: questionCallData
         })
       }).result();
-      const marketId = decodeFunctionResult({
-        abi: MarketFactoryAbi,
-        functionName: "marketIdByAddress",
-        data: bytesToHex(marketIdCallResult.data)
+      const marketQuestion = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "s_question",
+        data: bytesToHex(questionResult.data)
       });
-      if (marketId === 0n) {
-        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: marketIdByAddress returned 0`);
-        continue;
-      }
-      const correctionPayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps"), [marketId, ARB_MAX_SPEND_COLLATERAL, ARB_MIN_DEVIATION_IMPROVEMENT_BPS]);
-      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), ["priceCorrection", correctionPayload]);
+      const rtCallData = encodeFunctionData({
+        abi: PredictionMarketAbi,
+        functionName: "resolutionTime"
+      });
+      const rtResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: eventAddress,
+          data: rtCallData
+        })
+      }).result();
+      const resTime = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "resolutionTime",
+        data: bytesToHex(rtResult.data)
+      });
+      runtime2.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
+      const resolution = 1;
+      const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [resolution, "https:working"]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, resolvePayload]);
       const reportResponse = runtime2.report({
         ...prepareReportRequest(encodedReport)
       }).result();
       const writeReportResult = evmClient.writeReport(runtime2, {
-        receiver: evmConfig.marketFactoryAddress,
+        receiver: eventAddress,
         report: reportResponse,
         gasConfig: {
           gasLimit: "10000000"
         }
       }).result();
+      runtime2.log("Waiting for write report response");
       if (writeReportResult.txStatus === TxStatus.REVERTED) {
-        runtime2.log(`[${evmConfig.chainName}] priceCorrection REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
-        continue;
+        runtime2.log(`[${sepoConfig.chainName}] ResolveMarket REVERTED for ${eventAddress}: ${writeReportResult.errorMessage || "unknown"}`);
+        throw new Error(`ResolveMarket failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime2.log(`[${evmConfig.chainName}] priceCorrection tx for marketId=${marketId}: ${txHash}`);
-      correctedMarkets += 1;
+      runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
+      runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
     }
-  }
-  return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
+    runtime2.log(`ready to be resolve ${readyForResolve}`);
+  });
+  return `${activeEventList.length}`;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler)
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
   ];
 };
 async function main() {
