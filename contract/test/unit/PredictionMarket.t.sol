@@ -1043,4 +1043,31 @@ contract PredictionMarketTest is Test {
         vm.expectRevert(MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance.selector);
         market.redeemCompleteSets(3e6);
     }
+
+    function testSetMarketIdByOwnerPass() external {
+        market.setMarketId(1);
+        assertEq(market.marketId(), 1);
+    }
+
+    function testSetMarketIdByCrossChainControllerPass() external {
+        market.setCrossChainController(alice);
+        vm.prank(alice);
+        market.setMarketId(7);
+        assertEq(market.marketId(), 7);
+    }
+
+    function testSetMarketIdRevertsForUnauthorizedCaller() external {
+        vm.prank(alice);
+        vm.expectRevert(MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController.selector);
+        market.setMarketId(3);
+    }
+
+    function testSetMarketIdRevertsWhenZeroOrAlreadySet() external {
+        vm.expectRevert(PredictionMarket.PredictionMarket__InvalidMarketId.selector);
+        market.setMarketId(0);
+
+        market.setMarketId(5);
+        vm.expectRevert(PredictionMarket.PredictionMarket__MarketIdAlreadySet.selector);
+        market.setMarketId(6);
+    }
 }

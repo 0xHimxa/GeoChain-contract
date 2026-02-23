@@ -66,6 +66,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     error PredictionMarketBridge__InvalidBps();
     error PredictionMarketBridge__InsufficientCollateralLiquidity();
     error PredictionMarketBridge__SlippageExceeded();
+    error PredictionMarketBridge__NotAuthorizedMarketMapper();
 
     event CcipConfigUpdated(address indexed router, address indexed feeToken);
     event ChainSelectorSupportUpdated(uint64 indexed chainSelector, bool indexed isSupported);
@@ -125,6 +126,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     event CollateralLiquidityDeposited(address indexed from, uint256 amount);
     event CollateralLiquidityWithdrawn(address indexed to, uint256 amount);
     event BuybackBpsUpdated(uint16 buybackBps);
+    event MarketFactoryUpdated(address indexed marketFactory);
 
     IERC20 public immutable collateral;
     address public ccipRouter;
@@ -132,6 +134,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     uint64 public outboundNonce;
     uint16 public wrappedClaimBuybackBps;
     address public buybackUnlockReceiver;
+    address public marketFactory;
 
     mapping(uint64 => bool) public supportedChainSelector;
     mapping(uint64 => bytes) public trustedRemoteBySelector;
@@ -144,6 +147,13 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         collateral = IERC20(collateralToken);
         wrappedClaimBuybackBps = BPS_DENOMINATOR;
         buybackUnlockReceiver = initialOwner;
+    }
+
+    modifier onlyOwnerOrFactoryMapper() {
+        if (msg.sender != owner() && msg.sender != marketFactory) {
+            revert PredictionMarketBridge__NotAuthorizedMarketMapper();
+        }
+        _;
     }
 
     function setCcipConfig(address router, address feeToken) external onlyOwner {
@@ -175,8 +185,13 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         delete trustedRemoteBySelector[chainSelector];
         emit TrustedRemoteRemoved(chainSelector);
     }
-// Cre to be able to call this function when a new market is created and set it id
-    function setMarketIdMapping(uint256 marketId, address market) external onlyOwner {
+    function setMarketFactory(address factory) external onlyOwner {
+        if (factory == address(0)) revert PredictionMarketBridge__ZeroAddress();
+        marketFactory = factory;
+        emit MarketFactoryUpdated(factory);
+    }
+
+    function setMarketIdMapping(uint256 marketId, address market) external onlyOwnerOrFactoryMapper {
         if (market == address(0)) revert PredictionMarketBridge__ZeroAddress();
         marketById[marketId] = market;
         emit MarketMapped(marketId, market);

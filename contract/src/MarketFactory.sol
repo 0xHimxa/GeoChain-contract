@@ -16,6 +16,10 @@ import {Client} from "./ccip/Client.sol";
 import {IRouterClient} from "./ccip/IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "./ccip/IAny2EVMMessageReceiver.sol";
 
+interface IPredictionMarketBridgeMapper {
+    function setMarketIdMapping(uint256 marketId, address market) external;
+}
+
 /**
  * @title MarketFactory
  * @author 0xHimxa
@@ -107,6 +111,8 @@ contract MarketFactory is Initializable, ReceiverTemplateUpgradeable, UUPSUpgrad
 uint256  private initailEventLiquidity;
 uint256 private initialCanonicalPriceE6;
 uint256 private initialCanonicalPriceWindow;
+/// @notice Optional bridge to keep market ID mapping synchronized for claim bridging
+address public predictionMarketBridge;
 
     enum SyncMessageType {
         Price,
@@ -143,6 +149,7 @@ uint256 private initialCanonicalPriceWindow;
     event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
     event CanonicalPriceMessageReceived(uint256 indexed marketId, uint256 yesPriceE6, uint256 noPriceE6, uint64 nonce);
     event ResolutionMessageReceived(uint256 indexed marketId, Resolution indexed outcome, uint64 nonce);
+    event PredictionMarketBridgeUpdated(address indexed bridge);
     event UnsafeArbitrageExecuted(
         address indexed market,
         bool indexed yesForNo,
@@ -330,6 +337,10 @@ uint256 private initialCanonicalPriceWindow;
         marketCount++;
         marketById[marketCount] = address(m);
         marketIdByAddress[address(m)] = marketCount;
+        m.setMarketId(marketCount);
+        if (predictionMarketBridge != address(0)) {
+            IPredictionMarketBridgeMapper(predictionMarketBridge).setMarketIdMapping(marketCount, address(m));
+        }
 
         // Register the market in the active list for Chainlink CRE to iterate over
         activeMarkets.push(address(m));
@@ -500,6 +511,13 @@ uint256 private initialCanonicalPriceWindow;
         if (market == address(0)) revert MarketFactory__ZeroAddress();
         marketById[marketId] = market;
         marketIdByAddress[market] = marketId;
+    }
+
+    /// @notice Sets the optional prediction market bridge for automatic marketId synchronization.
+    function setPredictionMarketBridge(address bridge) external onlyOwner {
+        if (bridge == address(0)) revert MarketFactory__ZeroAddress();
+        predictionMarketBridge = bridge;
+        emit PredictionMarketBridgeUpdated(bridge);
     }
 
 

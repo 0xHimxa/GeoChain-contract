@@ -70,6 +70,9 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
     /// @notice Timestamp when market can be resolved by owner
     uint256 public resolutionTime;
 
+    /// @notice Immutable-style market ID assigned by MarketFactory (set once after creation)
+    uint256 public marketId;
+
     /* ─────────── Protocol Fee Accumulator ─────────── */
 
     /// @notice Accumulated protocol fees from all operations
@@ -245,6 +248,8 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
     error PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
     error PredictionMarket__TradeSizeExceedsBandLimit();
     error PredictionMarket__RiskExposureExemptZeroAddress();
+    error PredictionMarket__InvalidMarketId();
+    error PredictionMarket__MarketIdAlreadySet();
 
     // ========================================
     // DEVIATION BAND DEFINITIONS
@@ -1161,6 +1166,17 @@ contract PredictionMarket is Initializable, ReentrancyGuard, PausableUpgradeable
             revert MarketErrors.PredictionMarket__CrossChainControllerCantBeZero();
         }
         crossChainController = controller;
+    }
+
+    /// @notice Sets the market ID for easier off-chain indexing and UI reads.
+    /// @dev Can be set only once by owner or cross-chain controller (factory path).
+    function setMarketId(uint256 _marketId) external {
+        if (msg.sender != owner() && msg.sender != crossChainController) {
+            revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
+        }
+        if (_marketId == 0) revert PredictionMarket__InvalidMarketId();
+        if (marketId != 0) revert PredictionMarket__MarketIdAlreadySet();
+        marketId = _marketId;
     }
 
     /// @notice Applies hub resolution on spoke markets (CCIP path)
