@@ -17,15 +17,15 @@ contract MarketDeployer {
 
     error MarketDeployer__ZeroImplementation();
 
-    constructor(address marketImplementation) {
-        if (marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
-        marketImplementation = marketImplementation;
+    constructor(address _marketImplementation) {
+        if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+        marketImplementation = _marketImplementation;
     }
 
 
-    function setImplementation(address marketImplementation) external{
-               if (marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
-        marketImplementation = marketImplementation;
+    function setImplementation(address _marketImplementation) external{
+               if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+        marketImplementation = _marketImplementation;
     }
 
 

@@ -858,7 +858,7 @@ const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
   return [
-    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+    handler(cron.trigger({ schedule: config.schedule }),syncCanonicalPrice),
    // handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
   //  handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
   ];

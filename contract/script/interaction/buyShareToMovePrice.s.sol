@@ -13,7 +13,7 @@ import {PredictionMarket} from "src/PredictionMarket.sol";
 contract BuyShareToMovePrice is Script {
     function run() external {
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddress = 0x5bdC597B2547297E70A0276e2a5d4D88Ca7825C1;
+        address marketAddress = 0x72F3B6E9aA3735103d1c1eAFDd87A0078b04eB79;
         uint256 collateralIn = 200_000_000;
         string memory side = "NO";
 
