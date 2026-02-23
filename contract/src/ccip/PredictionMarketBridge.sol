@@ -5,6 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Client} from "./Client.sol";
 import {IRouterClient} from "./IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "./IAny2EVMMessageReceiver.sol";
@@ -17,12 +18,12 @@ interface IPredictionMarketClaimSource {
 }
 
 /**
- * @title CcipClaimBridge
+ * @title PredictionMarketBridge
  * @notice Claim bridge using lock/mint and burn/unlock over CCIP for resolved markets.
  * @dev Source chain locks winning claim token; destination mints wrapped claim.
  *      Burning wrapped claim sends CCIP unlock message back to source chain.
  */
-contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
+contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     using SafeERC20 for IERC20;
 
     uint8 private constant RESOLUTION_YES = 1;
@@ -50,21 +51,21 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         uint64 nonce;
     }
 
-    error CcipClaimBridge__ZeroAddress();
-    error CcipClaimBridge__InvalidAmount();
-    error CcipClaimBridge__UnsupportedChainSelector();
-    error CcipClaimBridge__UnknownMarket();
-    error CcipClaimBridge__InvalidRouterSender();
-    error CcipClaimBridge__InvalidRemoteSender();
-    error CcipClaimBridge__MessageAlreadyProcessed();
-    error CcipClaimBridge__UnknownMessageType();
-    error CcipClaimBridge__MarketNotResolved();
-    error CcipClaimBridge__TokenNotWinningClaim();
-    error CcipClaimBridge__UnknownWrappedClaimToken();
-    error CcipClaimBridge__InsufficientLockedClaims();
-    error CcipClaimBridge__InvalidBps();
-    error CcipClaimBridge__InsufficientCollateralLiquidity();
-    error CcipClaimBridge__SlippageExceeded();
+    error PredictionMarketBridge__ZeroAddress();
+    error PredictionMarketBridge__InvalidAmount();
+    error PredictionMarketBridge__UnsupportedChainSelector();
+    error PredictionMarketBridge__UnknownMarket();
+    error PredictionMarketBridge__InvalidRouterSender();
+    error PredictionMarketBridge__InvalidRemoteSender();
+    error PredictionMarketBridge__MessageAlreadyProcessed();
+    error PredictionMarketBridge__UnknownMessageType();
+    error PredictionMarketBridge__MarketNotResolved();
+    error PredictionMarketBridge__TokenNotWinningClaim();
+    error PredictionMarketBridge__UnknownWrappedClaimToken();
+    error PredictionMarketBridge__InsufficientLockedClaims();
+    error PredictionMarketBridge__InvalidBps();
+    error PredictionMarketBridge__InsufficientCollateralLiquidity();
+    error PredictionMarketBridge__SlippageExceeded();
 
     event CcipConfigUpdated(address indexed router, address indexed feeToken);
     event ChainSelectorSupportUpdated(uint64 indexed chainSelector, bool indexed isSupported);
@@ -139,44 +140,44 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
     mapping(bytes32 => address) public wrappedClaimTokenByKey;
 
     constructor(address initialOwner, address collateralToken) Ownable(initialOwner) {
-        if (initialOwner == address(0) || collateralToken == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (initialOwner == address(0) || collateralToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         collateral = IERC20(collateralToken);
         wrappedClaimBuybackBps = BPS_DENOMINATOR;
         buybackUnlockReceiver = initialOwner;
     }
 
     function setCcipConfig(address router, address feeToken) external onlyOwner {
-        if (router == address(0) || feeToken == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (router == address(0) || feeToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         ccipRouter = router;
         ccipFeeToken = feeToken;
         emit CcipConfigUpdated(router, feeToken);
     }
 
     function setSupportedChainSelector(uint64 chainSelector, bool isSupported) external onlyOwner {
-        if (chainSelector == 0) revert CcipClaimBridge__UnsupportedChainSelector();
+        if (chainSelector == 0) revert PredictionMarketBridge__UnsupportedChainSelector();
         supportedChainSelector[chainSelector] = isSupported;
         emit ChainSelectorSupportUpdated(chainSelector, isSupported);
     }
 
     function setTrustedRemote(uint64 chainSelector, address remoteBridge) external onlyOwner {
         if (chainSelector == 0 || !supportedChainSelector[chainSelector]) {
-            revert CcipClaimBridge__UnsupportedChainSelector();
+            revert PredictionMarketBridge__UnsupportedChainSelector();
         }
-        if (remoteBridge == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (remoteBridge == address(0)) revert PredictionMarketBridge__ZeroAddress();
         trustedRemoteBySelector[chainSelector] = abi.encode(remoteBridge);
         emit TrustedRemoteUpdated(chainSelector, remoteBridge);
     }
 
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
         if (chainSelector == 0 || !supportedChainSelector[chainSelector]) {
-            revert CcipClaimBridge__UnsupportedChainSelector();
+            revert PredictionMarketBridge__UnsupportedChainSelector();
         }
         delete trustedRemoteBySelector[chainSelector];
         emit TrustedRemoteRemoved(chainSelector);
     }
-
+// Cre to be able to call this function when a new market is created and set it id
     function setMarketIdMapping(uint256 marketId, address market) external onlyOwner {
-        if (market == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (market == address(0)) revert PredictionMarketBridge__ZeroAddress();
         marketById[marketId] = market;
         emit MarketMapped(marketId, market);
     }
@@ -184,29 +185,29 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
     /// @notice Sets buyback rate when users sell wrapped claims for collateral on destination chains.
     /// @dev 10_000 = 100%, 9_800 = 98%.
     function setWrappedClaimBuybackBps(uint16 buybackBps) external onlyOwner {
-        if (buybackBps > BPS_DENOMINATOR) revert CcipClaimBridge__InvalidBps();
+        if (buybackBps > BPS_DENOMINATOR) revert PredictionMarketBridge__InvalidBps();
         wrappedClaimBuybackBps = buybackBps;
         emit BuybackBpsUpdated(buybackBps);
     }
 
     /// @notice Destination-side receiver that gets unlocked source claims when users sell wrapped claims.
     function setBuybackUnlockReceiver(address receiver) external onlyOwner {
-        if (receiver == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (receiver == address(0)) revert PredictionMarketBridge__ZeroAddress();
         buybackUnlockReceiver = receiver;
         emit BuybackUnlockReceiverUpdated(receiver);
     }
 
     /// @notice Owner funds collateral pool used for wrapped-claim buybacks.
     function depositCollateralLiquidity(uint256 amount) external onlyOwner {
-        if (amount == 0) revert CcipClaimBridge__InvalidAmount();
+        if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
         collateral.safeTransferFrom(msg.sender, address(this), amount);
         emit CollateralLiquidityDeposited(msg.sender, amount);
     }
 
     /// @notice Owner withdraws collateral pool.
     function withdrawCollateralLiquidity(address to, uint256 amount) external onlyOwner {
-        if (to == address(0)) revert CcipClaimBridge__ZeroAddress();
-        if (amount == 0) revert CcipClaimBridge__InvalidAmount();
+        if (to == address(0)) revert PredictionMarketBridge__ZeroAddress();
+        if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
         collateral.safeTransfer(to, amount);
         emit CollateralLiquidityWithdrawn(to, amount);
     }
@@ -221,16 +222,16 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         uint64 destinationChainSelector,
         address receiver
     ) external returns (bytes32 messageId) {
-        if (amount == 0) revert CcipClaimBridge__InvalidAmount();
-        if (receiver == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
+        if (receiver == address(0)) revert PredictionMarketBridge__ZeroAddress();
 
         bytes memory remote = trustedRemoteBySelector[destinationChainSelector];
         if (remote.length == 0 || !supportedChainSelector[destinationChainSelector]) {
-            revert CcipClaimBridge__UnsupportedChainSelector();
+            revert PredictionMarketBridge__UnsupportedChainSelector();
         }
 
         address marketAddress = marketById[marketId];
-        if (marketAddress == address(0)) revert CcipClaimBridge__UnknownMarket();
+        if (marketAddress == address(0)) revert PredictionMarketBridge__UnknownMarket();
 
         IPredictionMarketClaimSource market = IPredictionMarketClaimSource(marketAddress);
         address winningToken = _getWinningClaimToken(market, useYesToken);
@@ -271,13 +272,13 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         uint256 amount,
         address receiverOnSource
     ) external returns (bytes32 messageId) {
-        if (amount == 0) revert CcipClaimBridge__InvalidAmount();
-        if (receiverOnSource == address(0)) revert CcipClaimBridge__ZeroAddress();
-        if (!supportedChainSelector[sourceChainSelector]) revert CcipClaimBridge__UnsupportedChainSelector();
+        if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
+        if (receiverOnSource == address(0)) revert PredictionMarketBridge__ZeroAddress();
+        if (!supportedChainSelector[sourceChainSelector]) revert PredictionMarketBridge__UnsupportedChainSelector();
 
         bytes32 claimKey = _claimKey(sourceChainSelector, marketId, useYesToken);
         address wrappedTokenAddress = wrappedClaimTokenByKey[claimKey];
-        if (wrappedTokenAddress == address(0)) revert CcipClaimBridge__UnknownWrappedClaimToken();
+        if (wrappedTokenAddress == address(0)) revert PredictionMarketBridge__UnknownWrappedClaimToken();
 
         IERC20 wrappedToken = IERC20(wrappedTokenAddress);
         wrappedToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -316,18 +317,18 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         uint256 wrappedAmount,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut, bytes32 messageId) {
-        if (wrappedAmount == 0) revert CcipClaimBridge__InvalidAmount();
-        if (buybackUnlockReceiver == address(0)) revert CcipClaimBridge__ZeroAddress();
-        if (!supportedChainSelector[sourceChainSelector]) revert CcipClaimBridge__UnsupportedChainSelector();
+        if (wrappedAmount == 0) revert PredictionMarketBridge__InvalidAmount();
+        if (buybackUnlockReceiver == address(0)) revert PredictionMarketBridge__ZeroAddress();
+        if (!supportedChainSelector[sourceChainSelector]) revert PredictionMarketBridge__UnsupportedChainSelector();
 
         bytes32 claimKey = _claimKey(sourceChainSelector, marketId, useYesToken);
         address wrappedTokenAddress = wrappedClaimTokenByKey[claimKey];
-        if (wrappedTokenAddress == address(0)) revert CcipClaimBridge__UnknownWrappedClaimToken();
+        if (wrappedTokenAddress == address(0)) revert PredictionMarketBridge__UnknownWrappedClaimToken();
 
         collateralOut = (wrappedAmount * wrappedClaimBuybackBps) / BPS_DENOMINATOR;
-        if (collateralOut < minCollateralOut) revert CcipClaimBridge__SlippageExceeded();
+        if (collateralOut < minCollateralOut) revert PredictionMarketBridge__SlippageExceeded();
         if (collateral.balanceOf(address(this)) < collateralOut) {
-            revert CcipClaimBridge__InsufficientCollateralLiquidity();
+            revert PredictionMarketBridge__InsufficientCollateralLiquidity();
         }
 
         IERC20 wrappedToken = IERC20(wrappedTokenAddress);
@@ -362,9 +363,9 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         view
         returns (uint256 fee)
     {
-        if (ccipRouter == address(0) || ccipFeeToken == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (ccipRouter == address(0) || ccipFeeToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         bytes memory receiver = trustedRemoteBySelector[destinationChainSelector];
-        if (receiver.length == 0) revert CcipClaimBridge__UnsupportedChainSelector();
+        if (receiver.length == 0) revert PredictionMarketBridge__UnsupportedChainSelector();
 
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0);
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
@@ -381,13 +382,13 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
 
     /// @inheritdoc IAny2EVMMessageReceiver
     function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override {
-        if (ccipRouter == address(0) || msg.sender != ccipRouter) revert CcipClaimBridge__InvalidRouterSender();
+        if (ccipRouter == address(0) || msg.sender != ccipRouter) revert PredictionMarketBridge__InvalidRouterSender();
 
         bytes memory trustedSender = trustedRemoteBySelector[any2EvmMessage.sourceChainSelector];
-        if (trustedSender.length == 0) revert CcipClaimBridge__UnsupportedChainSelector();
-        if (keccak256(trustedSender) != keccak256(any2EvmMessage.sender)) revert CcipClaimBridge__InvalidRemoteSender();
+        if (trustedSender.length == 0) revert PredictionMarketBridge__UnsupportedChainSelector();
+        if (keccak256(trustedSender) != keccak256(any2EvmMessage.sender)) revert PredictionMarketBridge__InvalidRemoteSender();
 
-        if (processedCcipMessages[any2EvmMessage.messageId]) revert CcipClaimBridge__MessageAlreadyProcessed();
+        if (processedCcipMessages[any2EvmMessage.messageId]) revert PredictionMarketBridge__MessageAlreadyProcessed();
         processedCcipMessages[any2EvmMessage.messageId] = true;
 
         (uint8 messageType, bytes memory payload) = abi.decode(any2EvmMessage.data, (uint8, bytes));
@@ -402,7 +403,12 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
             return;
         }
 
-        revert CcipClaimBridge__UnknownMessageType();
+        revert PredictionMarketBridge__UnknownMessageType();
+    }
+
+    /// @notice ERC165 support declaration used by CCIP OffRamp to detect receivers
+    function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
+        return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
     function _handleMintWrappedClaim(bytes32 messageId, uint64 sourceChainSelector, bytes memory payload) internal {
@@ -431,13 +437,13 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
     function _handleUnlockUnderlyingClaim(bytes32 messageId, uint64 sourceChainSelector, bytes memory payload) internal {
         UnlockClaimPayload memory transfer = abi.decode(payload, (UnlockClaimPayload));
         address marketAddress = marketById[transfer.marketId];
-        if (marketAddress == address(0)) revert CcipClaimBridge__UnknownMarket();
+        if (marketAddress == address(0)) revert PredictionMarketBridge__UnknownMarket();
 
         IPredictionMarketClaimSource market = IPredictionMarketClaimSource(marketAddress);
         address winningToken = _getWinningClaimToken(market, transfer.useYesToken);
 
         if (IERC20(winningToken).balanceOf(address(this)) < transfer.amount) {
-            revert CcipClaimBridge__InsufficientLockedClaims();
+            revert PredictionMarketBridge__InsufficientLockedClaims();
         }
 
         IERC20(winningToken).safeTransfer(transfer.receiver, transfer.amount);
@@ -459,11 +465,11 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
     {
         uint8 marketResolution = market.resolution();
         if (marketResolution != RESOLUTION_YES && marketResolution != RESOLUTION_NO) {
-            revert CcipClaimBridge__MarketNotResolved();
+            revert PredictionMarketBridge__MarketNotResolved();
         }
         if ((useYesToken && marketResolution != RESOLUTION_YES) || (!useYesToken && marketResolution != RESOLUTION_NO))
         {
-            revert CcipClaimBridge__TokenNotWinningClaim();
+            revert PredictionMarketBridge__TokenNotWinningClaim();
         }
         return useYesToken ? market.yesToken() : market.noToken();
     }
@@ -472,9 +478,9 @@ contract CcipClaimBridge is Ownable, IAny2EVMMessageReceiver {
         internal
         returns (bytes32 messageId)
     {
-        if (ccipRouter == address(0) || ccipFeeToken == address(0)) revert CcipClaimBridge__ZeroAddress();
+        if (ccipRouter == address(0) || ccipFeeToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         bytes memory receiver = trustedRemoteBySelector[destinationChainSelector];
-        if (receiver.length == 0) revert CcipClaimBridge__UnsupportedChainSelector();
+        if (receiver.length == 0) revert PredictionMarketBridge__UnsupportedChainSelector();
 
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0);
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({

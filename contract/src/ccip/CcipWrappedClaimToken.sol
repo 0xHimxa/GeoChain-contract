@@ -7,7 +7,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title CcipWrappedClaimToken
  * @notice Wrapped claim token minted on destination chain when claims are locked on source.
- * @dev Owned by CcipClaimBridge, which is the only minter/burner.
+ * @dev Owned by PredictionMarketBridge, which is the only minter/burner.
  */
 contract CcipWrappedClaimToken is ERC20, Ownable {
     error CcipWrappedClaimToken__ZeroAddress();
