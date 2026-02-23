@@ -584,7 +584,7 @@ const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       data: bytesToHex(noPriceResult.data),
     }) as bigint;
 
-    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 15 * 60);
     const pricePayload = encodeAbiParameters(
       parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"),
       [marketId, yesPriceE6, noPriceE6, validUntil]
@@ -858,7 +858,7 @@ const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
   return [
-    handler(cron.trigger({ schedule: config.schedule }),syncCanonicalPrice),
+    handler(cron.trigger({ schedule: config.schedule }),arbitrateUnsafeMarketHandler),
    // handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
   //  handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
   ];

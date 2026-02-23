@@ -20088,140 +20088,115 @@ var PredictionMarketAbi = [
   }
 ];
 var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
-var syncCanonicalPrice = (runtime2) => {
-  if (runtime2.config.evms.length < 2) {
-    return "Need at least one hub and one spoke EVM config";
+var ARB_MAX_SPEND_COLLATERAL = 200000000n;
+var ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n;
+var arbitrateUnsafeMarketHandler = (runtime2) => {
+  if (runtime2.config.evms.length === 0) {
+    return "No EVM config found";
   }
-  const hubConfig = runtime2.config.evms[0];
-  const spokeConfigs = runtime2.config.evms.slice(1);
-  const hubNetwork = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: hubConfig.chainName,
-    isTestnet: true
-  });
-  if (!hubNetwork) {
-    throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
-  }
-  const hubClient = new ClientCapability(hubNetwork.chainSelector.selector);
-  const spokeClients = spokeConfigs.map((spokeConfig) => {
-    const spokeNetwork = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: spokeConfig.chainName,
-      isTestnet: true
-    });
-    if (!spokeNetwork) {
-      throw new Error(`Unknown chain name: ${spokeConfig.chainName}`);
-    }
-    return {
-      config: spokeConfig,
-      client: new ClientCapability(spokeNetwork.chainSelector.selector)
-    };
-  });
   const activeMarketCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList"
   });
-  const activeMarketResult = hubClient.callContract(runtime2, {
-    call: encodeCallMsg({
-      from: sender,
-      to: hubConfig.marketFactoryAddress,
-      data: activeMarketCallData
-    })
-  }).result();
-  const activeMarketList = decodeFunctionResult({
+  const marketIdByAddressCallData = (marketAddress) => encodeFunctionData({
     abi: MarketFactoryAbi,
-    functionName: "getActiveEventList",
-    data: bytesToHex(activeMarketResult.data)
+    functionName: "marketIdByAddress",
+    args: [marketAddress]
   });
-  if (activeMarketList.length === 0) {
-    return "No active markets to sync";
-  }
-  let attemptedWrites = 0;
-  let successfulWrites = 0;
-  for (const marketAddress of activeMarketList) {
-    const marketIdCallData = encodeFunctionData({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      args: [marketAddress]
+  const getDeviationStatusCallData = encodeFunctionData({
+    abi: PredictionMarketAbi,
+    functionName: "getDeviationStatus"
+  });
+  let scannedMarkets = 0;
+  let unsafeMarkets = 0;
+  let correctedMarkets = 0;
+  for (const evmConfig of runtime2.config.evms) {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true
     });
-    const marketIdCallResult = hubClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: hubConfig.marketFactoryAddress,
-        data: marketIdCallData
-      })
-    }).result();
-    const marketId = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      data: bytesToHex(marketIdCallResult.data)
-    });
-    if (marketId === 0n) {
-      runtime2.log(`Skipping ${marketAddress}: marketIdByAddress returned 0`);
-      continue;
+    if (!network248) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
     }
-    const yesPriceCallData = encodeFunctionData({
-      abi: PredictionMarketAbi,
-      functionName: "getYesPriceProbability"
-    });
-    const noPriceCallData = encodeFunctionData({
-      abi: PredictionMarketAbi,
-      functionName: "getNoPriceProbability"
-    });
-    const yesPriceResult = hubClient.callContract(runtime2, {
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const activeMarketResult = evmClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: sender,
-        to: marketAddress,
-        data: yesPriceCallData
+        to: evmConfig.marketFactoryAddress,
+        data: activeMarketCallData
       })
     }).result();
-    const noPriceResult = hubClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: marketAddress,
-        data: noPriceCallData
-      })
-    }).result();
-    const yesPriceE6 = decodeFunctionResult({
-      abi: PredictionMarketAbi,
-      functionName: "getYesPriceProbability",
-      data: bytesToHex(yesPriceResult.data)
+    const activeMarketList = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "getActiveEventList",
+      data: bytesToHex(activeMarketResult.data)
     });
-    const noPriceE6 = decodeFunctionResult({
-      abi: PredictionMarketAbi,
-      functionName: "getNoPriceProbability",
-      data: bytesToHex(noPriceResult.data)
-    });
-    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
-    const pricePayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"), [marketId, yesPriceE6, noPriceE6, validUntil]);
-    const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), ["syncSpokeCanonicalPrice", pricePayload]);
-    const reportResponse = runtime2.report({
-      ...prepareReportRequest(encodedReport)
-    }).result();
-    for (const spoke of spokeClients) {
-      attemptedWrites += 1;
-      const writeReportResult = spoke.client.writeReport(runtime2, {
-        receiver: spoke.config.marketFactoryAddress,
+    for (const marketAddress of activeMarketList) {
+      scannedMarkets += 1;
+      const deviationResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: marketAddress,
+          data: getDeviationStatusCallData
+        })
+      }).result();
+      const [band, , , , allowYesForNo, allowNoForYes] = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "getDeviationStatus",
+        data: bytesToHex(deviationResult.data)
+      });
+      if (Number(band) !== 2) {
+        continue;
+      }
+      if (!allowYesForNo && !allowNoForYes) {
+        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: unsafe band without valid direction`);
+        continue;
+      }
+      unsafeMarkets += 1;
+      const marketIdCallResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: evmConfig.marketFactoryAddress,
+          data: marketIdByAddressCallData(marketAddress)
+        })
+      }).result();
+      const marketId = decodeFunctionResult({
+        abi: MarketFactoryAbi,
+        functionName: "marketIdByAddress",
+        data: bytesToHex(marketIdCallResult.data)
+      });
+      if (marketId === 0n) {
+        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: marketIdByAddress returned 0`);
+        continue;
+      }
+      const correctionPayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps"), [marketId, ARB_MAX_SPEND_COLLATERAL, ARB_MIN_DEVIATION_IMPROVEMENT_BPS]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), ["priceCorrection", correctionPayload]);
+      const reportResponse = runtime2.report({
+        ...prepareReportRequest(encodedReport)
+      }).result();
+      const writeReportResult = evmClient.writeReport(runtime2, {
+        receiver: evmConfig.marketFactoryAddress,
         report: reportResponse,
         gasConfig: {
           gasLimit: "10000000"
         }
       }).result();
       if (writeReportResult.txStatus === TxStatus.REVERTED) {
-        runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+        runtime2.log(`[${evmConfig.chainName}] priceCorrection REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
         continue;
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice tx for marketId=${marketId}: ${txHash}`);
-      successfulWrites += 1;
+      runtime2.log(`[${evmConfig.chainName}] priceCorrection tx for marketId=${marketId}: ${txHash}`);
+      correctedMarkets += 1;
     }
   }
-  return `Synced ${activeMarketList.length} markets from hub to ${spokeClients.length} spokes (successful writes: ${successfulWrites}/${attemptedWrites})`;
+  return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice)
+    handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler)
   ];
 };
 async function main() {
