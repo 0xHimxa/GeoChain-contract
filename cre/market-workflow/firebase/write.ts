@@ -9,7 +9,7 @@ import {
   consensusIdenticalAggregation,
   ok 
 } from "@chainlink/cre-sdk";
-import { type Config } from "../workflow/config";
+import { type Config } from "../Constant-variable/config";
 
 
 

@@ -6,7 +6,7 @@ import {
   marketFactoryBalanceTopUp,
 } from "./handlers/maintenance";
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/marketCreation";
-import { type Config } from "./workflow/config";
+import { type Config } from "./Constant-variable/config";
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();

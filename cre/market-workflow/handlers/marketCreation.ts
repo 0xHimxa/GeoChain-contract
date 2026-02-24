@@ -7,12 +7,12 @@ import {
   type Runtime,
 } from "@chainlink/cre-sdk";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
-import { signUpWorkFlow } from "../firebase/firebase";
+import { signUpWorkFlow } from "../firebase/signUp";
 import { getFirestoreList } from "../firebase/doclist";
 import { writeToFirestore } from "../firebase/write";
 import { askGemeni } from "../gemini/uniqueEvent";
 import { type GeminiResponse, type SignupNewUserResponse } from "../type";
-import { type Config } from "../workflow/config";
+import { type Config } from "../Constant-variable/config";
 
 export const authWorkflow = (runtime: Runtime<Config>): string => {
   const response: SignupNewUserResponse = signUpWorkFlow(runtime);

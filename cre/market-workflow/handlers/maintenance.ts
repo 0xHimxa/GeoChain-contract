@@ -23,7 +23,7 @@ import {
   type Config,
   type EvmConfig,
   WITHDRAW_BATCH_SIZE,
-} from "../workflow/config";
+} from "../Constant-variable/config";
 
 export const isHubFactoryConfig = (
   runtime: Runtime<Config>,
