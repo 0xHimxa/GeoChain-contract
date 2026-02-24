@@ -16,6 +16,8 @@ import {MarketFactory} from "../src/marketFactory/MarketFactory.sol";
 import {OutcomeToken} from "../src/token/OutcomeToken.sol";
 import {MarketDeployer} from "../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {PredictionMarket} from "../src/predictionMarket/PredictionMarket.sol";
+import {PredictionMarketBridge} from "../src/Bridge/PredictionMarketBridge.sol";
+
 
 /**
  * @title DeployMarketFactory
@@ -25,14 +27,14 @@ import {PredictionMarket} from "../src/predictionMarket/PredictionMarket.sol";
  *      Uses Anvil's default accounts (index 0 = owner, index 1 = forwarder placeholder).
  */
 contract DeployMarketFactory is Script {
-       address router = 0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93;
-address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
+       address router = 0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165;
+address link =0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
+        OutcomeToken collateral;
     
     function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
-        OutcomeToken collateral;
 
         // Anvil default account #1 used as workflow forwarder placeholder in tests.
-        address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
+        address forwarder = 0xD41263567DdfeAd91504199b8c6c87371e83ca5d;
 
 
         // Anvil default account #0 expected by test suite as factory owner/admin.
@@ -70,13 +72,23 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
 
+
+        // deploy PredictionMarketBridge
+         PredictionMarketBridge bridge = new PredictionMarketBridge(initialOwner, address(collateral));
+        bridge.setCcipConfig(router, link);
+        bridge.setMarketFactory(proxyAddress);
+        bridge.setSupportedChainSelector(3478487238524512106, true);
+
+
         // 7. Transfer collateral token ownership to the factory proxy so it can mint testnet USDC
         collateral.transferOwnership(proxyAddress);
 
         // 8. Fund the factory with 100,000 testnet USDC (minted via addLiquidityToFactory)
         MarketFactory(proxyAddress).addLiquidityToFactory();
         MarketFactory(proxyAddress).addLiquidityToFactory();
-        MarketFactory(proxyAddress).setCcipConfig(router, link, false);
+        MarketFactory(proxyAddress).setCcipConfig(router, link, true);
+        MarketFactory(proxyAddress).setPredictionMarketBridge(address(bridge));
+
         marketDeployer.setNewOwner(proxyAddress);
 
         vm.stopBroadcast();
@@ -87,5 +99,6 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         console2.log("MarketFactory proxy:", proxyAddress);
         console2.log("MarketFactory owner:", initialOwner);
         console2.log("MarketFactory collateral Balance:", collateral.balanceOf(proxyAddress));
+        console2.log("PredictionMarketBrige:", address(bridge));
     }
 }

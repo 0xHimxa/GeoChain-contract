@@ -3,13 +3,13 @@
   "evms": [
     {
       
-"marketFactoryAddress": "0x1C3001d02cF7a8E40cc761c3B46926623D67FC56",
+"marketFactoryAddress": "0xA8735c76fA6E04f705204100FbE56582f0e420eD",
       "chainName": "ethereum-testnet-sepolia-arbitrum-1"
     },
       {
       
 
-      "marketFactoryAddress": "0xb9Fb07CB48564127675C6Bba08e89FB40D350DA0",
+      "marketFactoryAddress": "0x89D7F9aA690cDCB2265351FcA0fD260Ed0c7608E",
       "chainName": "ethereum-testnet-sepolia-base-1"
 
     }

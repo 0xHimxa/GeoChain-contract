@@ -1,5 +1,21 @@
 send verified nullifie and adddress to contracts
 
+
+base Macket Factory Address: 0x89D7F9aA690cDCB2265351FcA0fD260Ed0c7608E
+
+base Prediction Market Bridge Address: 0xBA08Ffb458fBb7F6E05E32Eb681564A0F881200F
+
+
+
+
+arb bridge address: 0xa604Ae032711761B9c0750Cc7Fb45D947063610a
+
+arb market factory address: 0xA8735c76fA6E04f705204100FbE56582f0e420eD
+
+
+
+
+
 add access control to market deployer
 
 
