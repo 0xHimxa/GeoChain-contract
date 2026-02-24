@@ -8,6 +8,10 @@ import {AMMLib} from "../libraries/AMMLib.sol";
 import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
 import {PredictionMarketResolution} from "./PredictionMarketResolution.sol";
 
+/// @title PredictionMarket
+/// @notice Concrete market surface that exposes liquidity, swap, canonical pricing, and resolution APIs.
+/// @dev Most logic lives in inherited modules; this contract mainly provides public entrypoints and
+/// owner-controlled policy/config accessors.
 contract PredictionMarket is PredictionMarketResolution {
     using SafeERC20 for IERC20;
 
@@ -43,6 +47,12 @@ contract PredictionMarket is PredictionMarketResolution {
         super.swapNoForYes(noIn, minYesOut);
     }
 
+    /// @notice Updates deviation-policy thresholds that control canonical pricing safety rails.
+    /// @dev Parameter constraints guarantee valid ordering and sane caps:
+    /// `soft < stress < hard`,
+    /// output caps are non-zero and <= 100%,
+    /// unsafe cap is strictly tighter than stress cap.
+    /// These values directly influence swap fee uplift, direction restrictions, and per-trade size caps.
     function setDeviationPolicy(
         uint16 _softDeviationBps,
         uint16 _stressDeviationBps,
@@ -74,6 +84,13 @@ contract PredictionMarket is PredictionMarketResolution {
         );
     }
 
+    /// @notice Returns current deviation diagnostics used by operators/automation.
+    /// @dev In local mode (non-canonical), returns permissive defaults.
+    /// In canonical mode, computes:
+    /// - deviation band,
+    /// - effective fee,
+    /// - max output cap in bps,
+    /// - whether each swap direction is currently permitted.
     function getDeviationStatus()
         external
         view
@@ -120,6 +137,8 @@ contract PredictionMarket is PredictionMarketResolution {
         band = _bandFromId(bandId);
     }
 
+    /// @notice Quotes YES->NO swap output under current policy.
+    /// @dev Example: `yesIn = 2_000_000` means 2 units when tokens use 6 decimals.
     function getYesForNoQuote(uint256 yesIn)
         external
         view
@@ -129,10 +148,16 @@ contract PredictionMarket is PredictionMarketResolution {
         return _quoteSwap(yesIn, true);
     }
 
+    /// @notice Quotes NO->YES swap output under current policy.
+    /// @dev Example: `noIn = 2_000_000` means 2 units when tokens use 6 decimals.
     function getNoForYesQuote(uint256 noIn) external view zeroAmountCheck(noIn) returns (uint256 netOut, uint256 fee) {
         return _quoteSwap(noIn, false);
     }
 
+    /// @notice Returns YES probability in `1e6` precision.
+    /// @dev Source of truth:
+    /// - canonical mode: latest hub-synced canonical price,
+    /// - local mode: implied AMM price from reserves.
     function getYesPriceProbability() external view returns (uint256) {
         if (!seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
@@ -146,6 +171,9 @@ contract PredictionMarket is PredictionMarketResolution {
         return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
     }
 
+    /// @notice Returns NO probability in `1e6` precision.
+    /// @dev Mirrors `getYesPriceProbability` source logic, using canonical value when active,
+    /// otherwise derives as `PRICE_PRECISION - yesProbability`.
     function getNoPriceProbability() external view returns (uint256) {
         if (!seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
@@ -160,14 +188,22 @@ contract PredictionMarket is PredictionMarketResolution {
         return MarketConstants.PRICE_PRECISION - yesProbability;
     }
 
+    /// @notice Pauses user actions guarded by `whenNotPaused` / `marketOpen`.
     function pause() external onlyOwner {
         _pause();
     }
 
+    /// @notice Unpauses the market after pause event.
     function unpause() external onlyOwner {
         _unpause();
     }
 
+    /// @notice Withdraws accumulated protocol fee collateral.
+    /// @dev Guardrails:
+    /// - only owner or cross-chain controller may call,
+    /// - market must already be resolved,
+    /// - contract collateral balance must cover tracked fee amount.
+    /// On success, transfers full fee bucket and resets it to zero.
     function withdrawProtocolFees() external {
         if (msg.sender != owner() && msg.sender != crossChainController) {
             revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();

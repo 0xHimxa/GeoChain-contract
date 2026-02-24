@@ -7,13 +7,23 @@ import {Resolution, MarketConstants, MarketEvents, MarketErrors, State} from "..
 import {FeeLib} from "../libraries/FeeLib.sol";
 import {PredictionMarketLiquidity} from "./PredictionMarketLiquidity.sol";
 
+/// @title PredictionMarketResolution
+/// @notice Resolution and post-resolution redemption flows.
 abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     using SafeERC20 for IERC20;
 
+    /// @notice Owner-triggered local resolution entrypoint.
+    /// @dev Uses `_resolve`, which enforces timestamp/state checks and handles review/final paths.
     function resolve(Resolution _outcome, string memory proofUrl) external onlyOwner {
         _resolve(_outcome, proofUrl);
     }
 
+    /// @dev Core local resolution logic shared by direct owner calls and report-driven calls.
+    /// Behavior:
+    /// - rejects local resolution on spoke markets controlled by hub,
+    /// - requires `resolutionTime` reached and state already `Closed`,
+    /// - if outcome is `Inconclusive`, moves market to manual `Review` state,
+    /// - otherwise requires non-empty proof URL and finalizes immediately.
     function _resolve(Resolution _outcome, string memory proofUrl) internal {
         _revertIfLocalResolutionDisabled();
         _updateState();
@@ -43,6 +53,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _finalizeResolution(_outcome, proofUrl, true, true);
     }
 
+    /// @notice Redeems winning outcome token after market resolution.
+    /// @dev Applies redeem fee, burns only the winning side token, and transfers net collateral.
+    /// If market is not resolved, redemption is blocked.
     function redeem(uint256 amount) external nonReentrant whenNotPaused zeroAmountCheck(amount) {
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__NotResolved();
@@ -64,6 +77,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         emit MarketEvents.Redeemed(msg.sender, amount);
     }
 
+    /// @notice Manual finalization path for markets currently in review.
+    /// @dev Used after off-chain/manual adjudication when initial resolution was inconclusive.
+    /// Requires non-empty proof URL and a final Yes/No outcome.
     function manualResolveMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
         _revertIfLocalResolutionDisabled();
         if (bytes(proofUrl).length == 0) {
@@ -85,6 +101,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _finalizeResolution(_outcome, proofUrl, false, true);
     }
 
+    /// @notice Sets cross-chain controller authorized for hub sync actions.
+    /// @dev Controller can call `resolveFromHub` and `syncCanonicalPriceFromHub`.
     function setCrossChainController(address controller) external onlyOwner {
         if (controller == address(0)) {
             revert MarketErrors.PredictionMarket__CrossChainControllerCantBeZero();
@@ -93,6 +111,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         emit MarketEvents.CrossChainControllerSet(controller);
     }
 
+    /// @notice Sets market id exactly once.
+    /// @dev Callable by owner or cross-chain controller; rejects zero id and re-assignment.
     function setMarketId(uint256 _marketId) external {
         if (msg.sender != owner() && msg.sender != crossChainController) {
             revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
@@ -103,6 +123,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         emit MarketEvents.MarketIdSet(_marketId);
     }
 
+    /// @notice Cross-chain resolution callback used by spoke markets.
+    /// @dev Skips local timing/state checks because hub has already finalized the outcome.
+    /// Still validates proof URL, outcome finality, and non-resolved precondition.
     function resolveFromHub(Resolution _outcome, string calldata proofUrl) external onlyCrossChainController {
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
@@ -117,6 +140,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _finalizeResolution(_outcome, proofUrl, true, false);
     }
 
+    /// @notice Applies canonical price update from hub with strict nonce ordering.
+    /// @dev Also enforces normalization invariant:
+    /// `yesPriceE6 + noPriceE6 == PRICE_PRECISION`.
     function syncCanonicalPriceFromHub(uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil, uint64 nonce)
         external
         onlyCrossChainController
@@ -136,6 +162,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         emit MarketEvents.SyncCanonicalPrice(yesPriceE6, noPriceE6, validUntil, nonce);
     }
 
+    /// @dev Receiver-side report dispatcher for local resolve automation.
+    /// Expected report action is exactly `ResolveMarket`; other actions are rejected.
     function _processReport(bytes calldata report) internal override {
         (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
         bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
@@ -146,6 +174,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _resolve(_outcome, _proofUrl);
     }
 
+    /// @notice Convenience helper indicating whether this market is time-eligible for resolution.
+    /// @dev Returns true only when close-time and resolution-time windows have both passed.
     function checkResolutionTime() external view returns (bool resolveReady) {
         resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
     }

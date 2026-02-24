@@ -14,45 +14,78 @@ import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
 import {MarketFactory} from "../marketFactory/MarketFactory.sol";
 import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
 
+/// @title PredictionMarketBase
+/// @notice Shared state, modifiers, and internal mechanics for market modules.
 abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, PausableUpgradeable, ReceiverTemplateUpgradeable {
     using SafeERC20 for IERC20;
 
+    /// @notice Human-readable market question.
     string public s_question;
+    /// @notice Resolution proof URI stored when market is finalized.
     string public s_Proof_Url;
+    /// @notice Collateral token accepted by this market.
     IERC20 public i_collateral;
+    /// @notice ERC20 claim token for YES side.
     OutcomeToken public yesToken;
+    /// @notice ERC20 claim token for NO side.
     OutcomeToken public noToken;
+    /// @notice Timestamp after which trading must stop.
     uint256 public closeTime;
+    /// @notice Earliest timestamp the market can be resolved.
     uint256 public resolutionTime;
+    /// @notice Factory-assigned identifier, set once.
     uint256 public marketId;
 
+    /// @notice Accumulated protocol fees denominated in collateral.
     uint256 public protocolCollateralFees;
 
+    /// @notice Current YES reserve held in AMM pool.
     uint256 public yesReserve;
+    /// @notice Current NO reserve held in AMM pool.
     uint256 public noReserve;
+    /// @notice True after one-time initial liquidity seeding.
     bool public seeded;
+    /// @notice Total LP share supply.
     uint256 public totalShares;
 
+    /// @notice LP shares owned by each account.
     mapping(address => uint256) public lpShares;
+    /// @notice Running collateral exposure tracked per account.
     mapping(address => uint256) public userRiskExposure;
+    /// @notice Accounts exempt from risk exposure cap.
     mapping(address => bool) public isRiskExempt;
 
+    /// @notice Current lifecycle state.
     State public state;
+    /// @notice Final or interim resolution value.
     Resolution public resolution;
+    /// @notice True when inconclusive result requires manual finalize call.
     bool internal manualReviewNeeded;
+    /// @notice Parent factory reference for cross-contract coordination.
     MarketFactory internal marketFactory;
 
+    /// @notice Authorized cross-chain controller (usually factory).
     address public crossChainController;
+    /// @notice Canonical YES price (1e6 precision) received from hub.
     uint256 public canonicalYesPriceE6;
+    /// @notice Canonical NO price (1e6 precision) received from hub.
     uint256 public canonicalNoPriceE6;
+    /// @notice Expiry timestamp for current canonical price snapshot.
     uint256 public canonicalPriceValidUntil;
+    /// @notice Last accepted canonical-price nonce.
     uint64 public canonicalPriceNonce;
 
+    /// @notice Max bps deviation still considered normal.
     uint16 public softDeviationBps;
+    /// @notice Max bps deviation considered stress.
     uint16 public stressDeviationBps;
+    /// @notice Max bps deviation before circuit-breaker.
     uint16 public hardDeviationBps;
+    /// @notice Extra fee added in stress/unsafe bands.
     uint16 public stressExtraFeeBps;
+    /// @notice Max output cap in stress band (bps of reserve out).
     uint16 public stressMaxOutBps;
+    /// @notice Max output cap in unsafe band (bps of reserve out).
     uint16 public unsafeMaxOutBps;
 
     bytes32 internal constant HASHED_RESOLVE_MARKET = keccak256(abi.encodePacked("ResolveMarket"));
@@ -91,6 +124,14 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         _disableInitializers();
     }
 
+    /// @notice Initializes a freshly cloned market instance.
+    /// @dev Initialization responsibilities:
+    /// 1) wire pausable/receiver ownership state,
+    /// 2) validate constructor-like arguments (non-zero addresses, non-empty question, valid timestamps),
+    /// 3) store immutable-like market metadata,
+    /// 4) deploy YES/NO outcome token contracts owned by this market,
+    /// 5) set default state and canonical-deviation policy thresholds.
+    /// This function is called once by the deployer immediately after clone creation.
     function initialize(
         string memory _question,
         address _collateral,
@@ -156,17 +197,24 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         _;
     }
 
+    /// @notice Sets whether an account bypasses risk exposure cap in `mintCompleteSets`.
+    /// @dev Intended for trusted automation (for example factory-controlled maintenance paths)
+    /// that may need larger temporary exposure than regular users.
     function setRiskExempt(address account, bool exempt) external onlyOwner {
         if (account == address(0)) revert PredictionMarket__RiskExposureExemptZeroAddress();
         isRiskExempt[account] = exempt;
     }
 
+    /// @dev Auto-transitions Open -> Closed after close time.
     function _updateState() internal {
         if (state == State.Open && block.timestamp >= closeTime) {
             state = State.Closed;
         }
     }
 
+    /// @dev Enforces "market is tradable now" invariant used by trading/liquidity paths.
+    /// It first performs time-based state rollover (`Open` -> `Closed`) and then rejects
+    /// any non-open states (`Resolved`, `Closed`, `Review`) or pause condition.
     function _marketOpen() internal {
         _updateState();
         if (state == State.Resolved) {
@@ -182,34 +230,43 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         if (paused()) revert MarketErrors.PredictionMarket__IsPaused();
     }
 
+    /// @dev Enforces that initial liquidity has been seeded before pool operations.
     function _seededOnly() internal view {
         if (!seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
         }
     }
 
+    /// @dev Reverts when amount is zero.
     function _zeroAmountCheck(uint256 amount) internal pure {
         if (amount == 0) {
             revert MarketErrors.PredictionMarket__AmountCantBeZero();
         }
     }
 
+    /// @dev Enforces cross-chain controller caller for hub-sync entrypoints.
     function _onlyCrossChainController() internal view {
         if (msg.sender != crossChainController) {
             revert PredictionMarket__OnlyCrossChainController();
         }
     }
 
+    /// @notice Returns true when swaps should follow canonical-price risk controls.
+    /// @dev Canonical mode is active on spokes where:
+    /// 1) cross-chain controller is configured, and
+    /// 2) this market's factory is not marked as hub.
     function _isCanonicalPricingMode() internal view returns (bool) {
         return crossChainController != address(0) && !marketFactory.isHubFactory();
     }
 
+    /// @dev Rejects missing or expired canonical price snapshots.
     function _ensureCanonicalPriceFresh() internal view {
         if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
             revert PredictionMarket__CanonicalPriceStale();
         }
     }
 
+    /// @dev Converts module band id into local enum.
     function _bandFromId(uint8 bandId) internal pure returns (DeviationBand) {
         if (bandId == 0) return DeviationBand.Normal;
         if (bandId == 1) return DeviationBand.Stress;
@@ -217,12 +274,20 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         return DeviationBand.CircuitBreaker;
     }
 
+    /// @dev Rejects canonical prices that are zero on either side.
+    /// Non-zero is required because downstream ratio/deviation math assumes both sides are defined.
     function _validateCanonicalPrices() internal view {
         if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
             revert PredictionMarket__InvalidCanonicalPrice();
         }
     }
 
+    /// @dev Computes swap controls (effective fee + max output) under canonical policy.
+    /// The underlying module compares local AMM implied price vs canonical hub price and classifies
+    /// deviation band. This function then enforces:
+    /// - circuit-breaker band => revert,
+    /// - disallowed direction in unsafe band => revert,
+    /// and otherwise returns the adjusted fee/maxOut for actual swap execution.
     function _getCanonicalSwapControls(bool yesForNo, uint256 reserveOut)
         internal
         view
@@ -260,12 +325,17 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         maxOut = maxOutOut;
     }
 
+    /// @dev Blocks local resolution where hub-governed cross-chain resolution is required.
+    /// This prevents spoke operators from finalizing outcome independently from hub consensus.
     function _revertIfLocalResolutionDisabled() internal view {
         if (crossChainController != address(0) && !marketFactory.isHubFactory()) {
             revert PredictionMarket__LocalResolutionDisabled();
         }
     }
 
+    /// @dev Returns reserves + fee model that should apply for a proposed swap direction.
+    /// In local mode this is standard AMM fee/no-cap.
+    /// In canonical mode this may include fee uplift and maxOut cap from deviation policy.
     function _getSwapExecutionParams(bool yesForNo)
         internal
         view
@@ -281,6 +351,9 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         }
     }
 
+    /// @notice Quotes output and fee for a proposed swap input.
+    /// @dev This performs the same policy and min-amount checks as execution path, but
+    /// does not mutate reserves or transfer tokens.
     function _quoteSwap(uint256 amountIn, bool yesForNo) internal view returns (uint256 netOut, uint256 fee) {
         if (amountIn < MarketConstants.MINIMUM_SWAP_AMOUNT) {
             revert MarketErrors.PredictionMarket__AmountLessThanMinAllwed();
@@ -294,6 +367,15 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         }
     }
 
+    /// @dev Executes YES<->NO swap end-to-end.
+    /// Steps:
+    /// 1) resolve tokenIn/tokenOut by direction,
+    /// 2) validate trader balance and minimum input,
+    /// 3) derive policy-controlled fee + maxOut and quote new reserves via AMM formula,
+    /// 4) enforce maxOut cap and user slippage floor,
+    /// 5) commit new reserves,
+    /// 6) transfer in input token and transfer out output token,
+    /// 7) emit trade event.
     function _swap(uint256 amountIn, uint256 minOut, bool yesForNo) internal returns (uint256 amountOut) {
         IERC20 tokenIn = yesForNo ? IERC20(address(yesToken)) : IERC20(address(noToken));
         IERC20 tokenOut = yesForNo ? IERC20(address(noToken)) : IERC20(address(yesToken));
@@ -335,6 +417,11 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         emit MarketEvents.Trade(msg.sender, yesForNo, amountIn, amountOut);
     }
 
+    /// @dev Finalizes resolution state and executes optional side effects.
+    /// Optional side effects:
+    /// - `removeFromFactory`: remove this market from active factory list.
+    /// - `notifyHub`: call back into hub factory so it can broadcast resolution cross-chain.
+    /// This function is shared by local, manual-review, and hub-driven resolution paths.
     function _finalizeResolution(Resolution _outcome, string memory proofUrl, bool removeFromFactory, bool notifyHub)
         internal
     {
@@ -354,6 +441,14 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         emit MarketEvents.Resolved(resolution);
     }
 
+    /// @dev Settles LP shares after resolution using only the winning reserve side.
+    /// Math:
+    /// `out = reserveWinning * shares / totalShares`.
+    /// Then:
+    /// - burn equivalent winning outcome tokens held by the pool,
+    /// - decrement winning reserve,
+    /// - decrement user shares + total shares,
+    /// - transfer collateral `out` to user.
     function _withdrawResolvedLiquidity(uint256 shares, uint256 userShares, bool yesWon) internal {
         uint256 reserve = yesWon ? yesReserve : noReserve;
         uint256 out = AMMLib.calculateProportionalOutput(reserve, shares, totalShares);

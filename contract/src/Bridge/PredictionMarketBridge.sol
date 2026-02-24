@@ -17,24 +17,30 @@ interface IPredictionMarketClaimSource {
     function resolution() external view returns (uint8);
 }
 
-/**
- * @title PredictionMarketBridge
- * @notice Claim bridge using lock/mint and burn/unlock over CCIP for resolved markets.
- * @dev Source chain locks winning claim token; destination mints wrapped claim.
- *      Burning wrapped claim sends CCIP unlock message back to source chain.
- */
+/// @title PredictionMarketBridge
+/// @notice Bridges resolved winning-claim tokens across chains using CCIP.
+/// @dev Core model:
+/// - Source chain: lock underlying winning claim token in this bridge.
+/// - Destination chain: mint synthetic wrapped claim token representing that locked claim.
+/// - Reverse path: burn wrapped claims and unlock underlying claims on source chain.
+/// Replay protection, trusted-remote checks, and winning-side validation are enforced on both directions.
 contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     using SafeERC20 for IERC20;
 
+    /// @dev Encoded `Resolution.Yes` value expected from market contracts.
     uint8 private constant RESOLUTION_YES = 1;
+    /// @dev Encoded `Resolution.No` value expected from market contracts.
     uint8 private constant RESOLUTION_NO = 2;
+    /// @dev Basis points denominator (100%).
     uint16 private constant BPS_DENOMINATOR = 10_000;
 
+    /// @dev Message discriminant used in CCIP payload encoding.
     enum MessageType {
         MintWrappedClaim,
         UnlockUnderlyingClaim
     }
 
+    /// @dev Payload sent when source chain locks underlying claim and destination should mint wrapped claim.
     struct LockClaimPayload {
         uint256 marketId;
         bool useYesToken;
@@ -43,6 +49,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         uint64 nonce;
     }
 
+    /// @dev Payload sent when wrapped claim is burned and source should unlock underlying claim.
     struct UnlockClaimPayload {
         uint256 marketId;
         bool useYesToken;
@@ -128,21 +135,36 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     event BuybackBpsUpdated(uint16 buybackBps);
     event MarketFactoryUpdated(address indexed marketFactory);
 
+    /// @notice ERC20 used for buyback payouts.
     IERC20 public immutable collateral;
+    /// @notice CCIP router that sends/receives messages.
     address public ccipRouter;
+    /// @notice Token used to pay CCIP fees.
     address public ccipFeeToken;
+    /// @notice Incrementing nonce used in outbound payloads.
     uint64 public outboundNonce;
+    /// @notice Buyback payout ratio in bps (10_000 = full payout).
     uint16 public wrappedClaimBuybackBps;
+    /// @notice Address that receives unlocked source claims after buyback.
     address public buybackUnlockReceiver;
+    /// @notice Optional factory allowed to update market mappings.
     address public marketFactory;
+    /// @notice Fixed gas limit used in CCIP extra args.
     uint256 public constant CCIP_BRIEGE_GASLIMIT = 700_000;
 
+    /// @notice Chain selectors allowed for bridge traffic.
     mapping(uint64 => bool) public supportedChainSelector;
+    /// @notice Trusted remote bridge address bytes by chain selector.
     mapping(uint64 => bytes) public trustedRemoteBySelector;
+    /// @notice Replay-protection flag for processed CCIP message ids.
     mapping(bytes32 => bool) public processedCcipMessages;
+    /// @notice Market address by market id on this chain.
     mapping(uint256 => address) public marketById;
+    /// @notice Wrapped token address keyed by source chain + market + side.
     mapping(bytes32 => address) public wrappedClaimTokenByKey;
 
+    /// @param initialOwner Bridge owner with config permissions.
+    /// @param collateralToken Collateral used for wrapped-claim buybacks.
     constructor(address initialOwner, address collateralToken) Ownable(initialOwner) {
         if (initialOwner == address(0) || collateralToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         collateral = IERC20(collateralToken);
@@ -150,7 +172,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         buybackUnlockReceiver = initialOwner;
     }
 
- 
+    /// @notice Configures router and fee token used for CCIP sends/receives.
+    /// @dev Must be set before any bridge send path can execute.
     function setCcipConfig(address router, address feeToken) external onlyOwner {
         if (router == address(0) || feeToken == address(0)) revert PredictionMarketBridge__ZeroAddress();
         ccipRouter = router;
@@ -158,12 +181,16 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         emit CcipConfigUpdated(router, feeToken);
     }
 
+    /// @notice Adds or removes a chain selector from bridge allowlist.
+    /// @dev A selector must be enabled here before trusted remote can be configured and used.
     function setSupportedChainSelector(uint64 chainSelector, bool isSupported) external onlyOwner {
         if (chainSelector == 0) revert PredictionMarketBridge__UnsupportedChainSelector();
         supportedChainSelector[chainSelector] = isSupported;
         emit ChainSelectorSupportUpdated(chainSelector, isSupported);
     }
 
+    /// @notice Stores trusted remote bridge for a supported selector.
+    /// @dev Incoming CCIP sender bytes must exactly match this value for message acceptance.
     function setTrustedRemote(uint64 chainSelector, address remoteBridge) external onlyOwner {
         if (chainSelector == 0 || !supportedChainSelector[chainSelector]) {
             revert PredictionMarketBridge__UnsupportedChainSelector();
@@ -173,6 +200,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         emit TrustedRemoteUpdated(chainSelector, remoteBridge);
     }
 
+    /// @notice Deletes trusted remote bridge config for a selector.
+    /// @dev After removal, both send and receive paths for that selector will fail.
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
         if (chainSelector == 0 || !supportedChainSelector[chainSelector]) {
             revert PredictionMarketBridge__UnsupportedChainSelector();
@@ -180,13 +209,19 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         delete trustedRemoteBySelector[chainSelector];
         emit TrustedRemoteRemoved(chainSelector);
     }
+
+    /// @notice Sets optional factory authorized to maintain market-id mappings.
+    /// @dev Authorization model for mapping updates is (owner OR configured factory).
     function setMarketFactory(address factory) external onlyOwner {
         if (factory == address(0)) revert PredictionMarketBridge__ZeroAddress();
         marketFactory = factory;
         emit MarketFactoryUpdated(factory);
     }
 
-    function setMarketIdMapping(uint256 marketId, address market) external  {
+    /// @notice Registers market id -> market address mapping used for winning-token lookup.
+    /// @dev Required before unlock paths, because bridge must resolve which market contract
+    /// defines winning YES/NO token for a given id.
+    function setMarketIdMapping(uint256 marketId, address market) external {
         if (msg.sender != owner() && msg.sender != marketFactory) {
             revert PredictionMarketBridge__NotAuthorizedMarketMapper();
         }
@@ -195,29 +230,32 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         emit MarketMapped(marketId, market);
     }
 
-    /// @notice Sets buyback rate when users sell wrapped claims for collateral on destination chains.
-    /// @dev 10_000 = 100%, 9_800 = 98%.
+    /// @notice Sets buyback payout ratio for `sellWrappedClaimForCollateral`.
+    /// @dev `10_000` = 100%, `9_800` = 98%.
     function setWrappedClaimBuybackBps(uint16 buybackBps) external onlyOwner {
         if (buybackBps > BPS_DENOMINATOR) revert PredictionMarketBridge__InvalidBps();
         wrappedClaimBuybackBps = buybackBps;
         emit BuybackBpsUpdated(buybackBps);
     }
 
-    /// @notice Destination-side receiver that gets unlocked source claims when users sell wrapped claims.
+    /// @notice Sets receiver of unlocked source claims produced by destination buybacks.
+    /// @dev This lets protocol route unlocked claims to treasury/ops account instead of seller.
     function setBuybackUnlockReceiver(address receiver) external onlyOwner {
         if (receiver == address(0)) revert PredictionMarketBridge__ZeroAddress();
         buybackUnlockReceiver = receiver;
         emit BuybackUnlockReceiverUpdated(receiver);
     }
 
-    /// @notice Owner funds collateral pool used for wrapped-claim buybacks.
+    /// @notice Funds collateral liquidity used to buy wrapped claims from users.
+    /// @dev Collateral is pulled from owner and held by bridge until buyback/withdraw.
     function depositCollateralLiquidity(uint256 amount) external onlyOwner {
         if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
         collateral.safeTransferFrom(msg.sender, address(this), amount);
         emit CollateralLiquidityDeposited(msg.sender, amount);
     }
 
-    /// @notice Owner withdraws collateral pool.
+    /// @notice Withdraws collateral liquidity buffer from bridge.
+    /// @dev Administrative treasury operation; unrelated to claim unlocking balances.
     function withdrawCollateralLiquidity(address to, uint256 amount) external onlyOwner {
         if (to == address(0)) revert PredictionMarketBridge__ZeroAddress();
         if (amount == 0) revert PredictionMarketBridge__InvalidAmount();
@@ -225,9 +263,14 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         emit CollateralLiquidityWithdrawn(to, amount);
     }
 
-    /**
-     * @notice Locks winning claims on this chain and mints wrapped claims on destination chain.
-     */
+    /// @notice Locks underlying winning claims and requests wrapped mint on destination.
+    /// @dev Example: passing `amount = 5_000_000` represents 5 claim tokens (6 decimals).
+    /// Flow:
+    /// 1) validate destination selector + remote trust + receiver,
+    /// 2) resolve market and confirm selected side is winning side,
+    /// 3) transfer winning claims from user into bridge lockbox,
+    /// 4) send CCIP mint request with monotonic nonce,
+    /// 5) emit lock event with message id for traceability.
     function lockAndBridgeClaim(
         uint256 marketId,
         bool useYesToken,
@@ -274,10 +317,12 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         );
     }
 
-    /**
-     * @notice Burns wrapped claims on this chain and unlocks underlying claims on source chain.
-     * @param sourceChainSelector Chain selector where underlying claims are locked.
-     */
+    /// @notice Burns wrapped claims and requests source-chain unlock to a receiver.
+    /// @dev Flow:
+    /// 1) resolve wrapped token by deterministic claim key,
+    /// 2) pull wrapped token from caller and burn it,
+    /// 3) send CCIP unlock payload to source chain,
+    /// 4) source bridge later transfers locked underlying claim to `receiverOnSource`.
     function burnWrappedAndUnlockClaim(
         uint64 sourceChainSelector,
         uint256 marketId,
@@ -319,10 +364,12 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         );
     }
 
-    /**
-     * @notice Sells wrapped claim token back to this bridge for collateral on destination chain.
-     * @dev Requires owner-funded collateral liquidity. Wrapped token is burned.
-     */
+    /// @notice Sells wrapped claims to bridge for collateral and triggers source unlock to protocol receiver.
+    /// @dev Economic logic:
+    /// `collateralOut = wrappedAmount * wrappedClaimBuybackBps / 10_000`.
+    /// Bridge enforces user slippage floor and available collateral liquidity.
+    /// Wrapped claim is burned, user receives collateral immediately, and underlying claim is
+    /// unlocked on source to `buybackUnlockReceiver` via CCIP message.
     function sellWrappedClaimForCollateral(
         uint64 sourceChainSelector,
         uint256 marketId,
@@ -371,6 +418,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         );
     }
 
+    /// @notice Quotes router fee for a prospective outbound CCIP bridge message.
+    /// @dev Uses same message encoding path as `_sendCcipMessage`, but read-only.
     function quoteBridgeFee(uint64 destinationChainSelector, uint8 messageType, bytes calldata payload)
         external
         view
@@ -394,6 +443,11 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     }
 
     /// @inheritdoc IAny2EVMMessageReceiver
+    /// @dev Inbound verification pipeline:
+    /// 1) require configured router caller,
+    /// 2) require selector supported and sender matches trusted remote bytes,
+    /// 3) reject duplicate messageId (replay guard),
+    /// 4) dispatch by message type to mint or unlock handler.
     function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override {
         if (ccipRouter == address(0) || msg.sender != ccipRouter) revert PredictionMarketBridge__InvalidRouterSender();
 
@@ -419,11 +473,13 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         revert PredictionMarketBridge__UnknownMessageType();
     }
 
-    /// @notice ERC165 support declaration used by CCIP OffRamp to detect receivers
+    /// @notice ERC165 support declaration used by CCIP infrastructure.
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
         return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
+    /// @dev Handles inbound mint message from source lock event.
+    /// If this claim key has no wrapped token yet, deploys one lazily, stores mapping, then mints.
     function _handleMintWrappedClaim(bytes32 messageId, uint64 sourceChainSelector, bytes memory payload) internal {
         LockClaimPayload memory transfer = abi.decode(payload, (LockClaimPayload));
         bytes32 claimKey = _claimKey(sourceChainSelector, transfer.marketId, transfer.useYesToken);
@@ -447,6 +503,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         );
     }
 
+    /// @dev Handles inbound unlock message after wrapped burn/buyback.
+    /// Validates market mapping + winning side and transfers locked underlying claim inventory.
     function _handleUnlockUnderlyingClaim(bytes32 messageId, uint64 sourceChainSelector, bytes memory payload) internal {
         UnlockClaimPayload memory transfer = abi.decode(payload, (UnlockClaimPayload));
         address marketAddress = marketById[transfer.marketId];
@@ -471,6 +529,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         );
     }
 
+    /// @dev Resolves winning token address and verifies requested side matches final market outcome.
+    /// Reverts if market not finally resolved or caller requested losing side token.
     function _getWinningClaimToken(IPredictionMarketClaimSource market, bool useYesToken)
         internal
         view
@@ -487,6 +547,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         return useYesToken ? market.yesToken() : market.noToken();
     }
 
+    /// @dev Shared outbound CCIP send helper for both mint and unlock message paths.
+    /// Builds envelope, quotes fee, raises allowance, and sends via router.
     function _sendCcipMessage(uint64 destinationChainSelector, uint8 messageType, bytes memory payload)
         internal
         returns (bytes32 messageId)
@@ -511,6 +573,8 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         messageId = IRouterClient(ccipRouter).ccipSend(destinationChainSelector, message);
     }
 
+    /// @dev Deploys wrapped claim token for a unique `(sourceChain, marketId, side)` tuple.
+    /// Name/symbol include source metadata so users can identify provenance.
     function _createWrappedClaimToken(uint64 sourceChainSelector, uint256 marketId, bool useYesToken)
         internal
         returns (address)
@@ -527,6 +591,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
         return address(token);
     }
 
+    /// @dev Deterministic key used for wrapped-token registry and event correlation.
     function _claimKey(uint64 sourceChainSelector, uint256 marketId, bool useYesToken) internal pure returns (bytes32) {
         return keccak256(abi.encode(sourceChainSelector, marketId, useYesToken));
     }

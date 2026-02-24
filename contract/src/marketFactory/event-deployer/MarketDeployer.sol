@@ -4,64 +4,61 @@ pragma solidity 0.8.33;
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {PredictionMarket} from "../../predictionMarket/PredictionMarket.sol";
 
-/**
- * @title MarketDeployer
- * @author 0xHimxa
- * @notice External helper contract that deploys PredictionMarket instances on behalf of the MarketFactory
- * @dev The PredictionMarket constructor bytecode is large. By moving deployment into this separate
- *      contract, the MarketFactory stays under the EVM's 24 KB contract size limit.
- *      Only the registered factory address is allowed to trigger deployments.
- */
+/// @title MarketDeployer
+/// @notice Deploys market clones for the factory and initializes each instance.
+/// @dev Keeps heavy deployment bytecode out of the upgradeable factory contract.
 contract MarketDeployer {
+    /// @notice Current implementation address used by `Clones.clone`.
     address public marketImplementation;
+    /// @notice Admin address allowed to manage deployer configuration.
     address public owner;
 
-event NewPrediction_ImplementationSet(address indexed market);
-event MarketDeployer__NewOwnerSet(address indexed owner);
-
-
+    event NewPrediction_ImplementationSet(address indexed market);
+    event MarketDeployer__NewOwnerSet(address indexed owner);
 
     error MarketDeployer__ZeroImplementation();
     error MarketDeployer__OnlyOwner();
-   error MarketDeployer__NewOwnerCantbeAddressZero();
+    error MarketDeployer__NewOwnerCantbeAddressZero();
 
+    /// @dev Restricts management and deployment calls to deployer owner.
+    modifier onlyOnwer() {
+        if (msg.sender != owner) revert MarketDeployer__OnlyOwner();
+        _;
+    }
 
-modifier onlyOnwer() {
-    if (msg.sender != owner) revert MarketDeployer__OnlyOwner();
-    _;
-}
-
-
-    constructor(address _marketImplementation,address _owner) {
+    /// @param _marketImplementation Initial prediction market implementation for cloning.
+    /// @param _owner Admin that can update implementation and owner.
+    constructor(address _marketImplementation, address _owner) {
         if (_marketImplementation == address(0) || _owner == address(0)) revert MarketDeployer__ZeroImplementation();
         marketImplementation = _marketImplementation;
         owner = _owner;
-
     }
 
-
-    function setImplementation(address _marketImplementation) external onlyOnwer{
-               if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
+    /// @notice Updates implementation template for all future clones.
+    /// @dev Existing deployed markets are unaffected because clones are immutable instances.
+    function setImplementation(address _marketImplementation) external onlyOnwer {
+        if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
         marketImplementation = _marketImplementation;
         emit NewPrediction_ImplementationSet(marketImplementation);
     }
 
-
-function setNewOwner(address _owner) external onlyOnwer{
-               if (_owner == address(0)) revert MarketDeployer__NewOwnerCantbeAddressZero();
+    /// @notice Transfers deployer admin role to a new address.
+    /// @dev Required when factory ownership or deployment authority changes.
+    function setNewOwner(address _owner) external onlyOnwer {
+        if (_owner == address(0)) revert MarketDeployer__NewOwnerCantbeAddressZero();
         owner = _owner;
         emit MarketDeployer__NewOwnerSet(_owner);
-
     }
 
-
-    /// @notice Deploys a new PredictionMarket for the calling factory
-    /// @param question  The binary question the market will resolve
-    /// @param collateral Address of the ERC20 collateral token (e.g., USDC)
-    /// @param closeTime  Timestamp when trading closes
-    /// @param resolutionTime Timestamp when the market can be resolved
-    /// @param forwarder  Chainlink CRE forwarder address for receiving settlement reports
-    /// @return market Address of the newly deployed PredictionMarket
+    /// @notice Clones and initializes a new prediction market instance.
+    /// @param question Market question.
+    /// @param collateral Collateral token used by market.
+    /// @param closeTime Trading close timestamp.
+    /// @param resolutionTime Earliest resolution timestamp.
+    /// @param forwarder Forwarder accepted for report delivery.
+    /// @return market Address of deployed clone.
+    /// @dev Initialization passes `msg.sender` as both market-factory reference and initial owner;
+    /// the caller is expected to be the authorized factory contract.
     function deployPredictionMarket(
         string calldata question,
         address collateral,

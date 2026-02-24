@@ -19,6 +19,8 @@ interface IPredictionMarketBridgeMapper {
     function setMarketIdMapping(uint256 marketId, address market) external;
 }
 
+/// @title MarketFactoryBase
+/// @notice Base storage and shared creation logic for factory modules.
 abstract contract MarketFactoryBase is
     Initializable,
     ReceiverTemplateUpgradeable,
@@ -27,42 +29,73 @@ abstract contract MarketFactoryBase is
 {
     using SafeERC20 for IERC20;
 
+    /// @notice Collateral token shared by all markets created by this factory.
     IERC20 public collateral;
+    /// @notice Total number of markets created so far.
     uint256 public marketCount;
+    /// @dev Amount minted into factory when `addLiquidityToFactory` is called.
     uint256 private Amount_Funding_Factory;
+    /// @notice Active market list used by UI/indexers.
     address[] public activeMarkets;
+    /// @notice Index lookup for active market array.
     mapping(address => uint256) public marketToIndex;
+    /// @dev External helper that deploys market clones.
     MarketDeployer private marketDeployer;
 
+    /// @notice CCIP router used for cross-chain messaging.
     address public ccipRouter;
+    /// @notice Fee token used to pay CCIP router.
     address public ccipFeeToken;
+    /// @notice True when this factory is hub; false when it is spoke.
     bool public isHubFactory;
+    /// @notice Monotonic nonce for outbound sync messages.
     uint64 public ccipNonce;
 
+    /// @dev Spoke selectors that currently have trusted remotes configured.
     uint64[] internal s_spokeSelectors;
+    /// @dev True if selector already exists in `s_spokeSelectors`.
     mapping(uint64 => bool) internal s_spokeSelectorExists;
+    /// @dev Global allowlist of selectors this factory can configure.
     mapping(uint64 => bool) internal s_supportedChainSelector;
+    /// @notice Trusted remote factory address bytes by selector.
     mapping(uint64 => bytes) public trustedRemoteBySelector;
+    /// @notice Replay guard for inbound CCIP messages.
     mapping(bytes32 => bool) public processedCcipMessages;
 
+    /// @notice Market address by market id.
     mapping(uint256 => address) public marketById;
+    /// @notice Market id by market address.
     mapping(address => uint256) public marketIdByAddress;
+    /// @notice Last accepted resolution nonce per market.
     mapping(uint256 => uint64) public resolutionNonceByMarketId;
+    /// @notice Local nonce tracker for direct spoke price sync calls.
     mapping(uint256 => uint64) public directPriceSyncNonceByMarketId;
 
+    /// @dev Action hash for broadcast-price report.
     bytes32 internal hashed_BroadCastPrice;
+    /// @dev Action hash for direct spoke canonical-price sync report.
     bytes32 internal hashed_SyncSpokeCanonicalPrice;
+    /// @dev Action hash for broadcast-resolution report.
     bytes32 internal hashed_BroadCastResolution;
+    /// @dev Action hash for create-market report.
     bytes32 internal hashed_CreateMarket;
+    /// @dev Action hash for unsafe-price-correction report.
     bytes32 internal hashed_PriceCorrection;
+    /// @dev Action hash for add-liquidity-to-factory report.
     bytes32 internal hashed_AddLiquidityToFactory;
+    /// @dev Action hash for combined withdraw report.
     bytes32 internal hashed_WithCollatralAndFee;
+    /// @dev Action hash for pending-withdraw processing report.
     bytes32 internal hashed_ProcessPendingWithdrawals;
 
+    /// @dev Default liquidity amount used for report-driven market creation.
     uint256 internal initailEventLiquidity;
 
+    /// @dev FIFO queue of market ids waiting for post-resolution withdrawal.
     uint256[] internal pendingWithdrawQueue;
+    /// @dev Current queue head index.
     uint256 internal pendingWithdrawHead;
+    /// @dev Tracks whether a market id is already queued.
     mapping(uint256 => bool) internal isPendingWithdrawQueued;
 
     enum SyncMessageType {
@@ -126,8 +159,11 @@ abstract contract MarketFactoryBase is
         uint256 deviationAfter;
     }
 
+    /// @dev Initial validity window used for first spoke canonical price sync.
     uint256 internal initialCanonicalPriceWindow;
+    /// @dev Initial YES/NO canonical price used for new spoke markets.
     uint256 internal initialCanonicalPriceE6;
+    /// @notice Optional bridge contract updated with new market mappings.
     address public predictionMarketBridge;
 
     error MarketFactory__ZeroLiquidity();
@@ -159,6 +195,10 @@ abstract contract MarketFactoryBase is
         _disableInitializers();
     }
 
+    /// @notice Initializes core factory dependencies and default operational parameters.
+    /// @dev This initializer wires collateral/deployer/forwarder, precomputes report action hashes,
+    /// seeds a default supported selector allowlist, and defines bootstrap canonical pricing values
+    /// for newly created spoke markets.
     function initialize(address _collateral, address _forwarder, address _marketDeployer, address _initialOwner)
         public
         virtual
@@ -197,33 +237,45 @@ abstract contract MarketFactoryBase is
         initialCanonicalPriceE6 = 500_000;
     }
 
+    /// @notice Updates the deployer contract that creates new market clones.
+    /// @dev Does not modify existing markets; only affects future `createMarket` calls.
     function setMarketDeployer(address _marketDeployer) external onlyOwner {
         if (_marketDeployer == address(0)) revert MarketFactory__ZeroAddress();
         marketDeployer = MarketDeployer(_marketDeployer);
     }
 
+    /// @notice Updates the clone implementation inside the current deployer.
+    /// @dev Keeps deployer address constant while changing implementation target for new clones.
     function setNewMarketDeployerImplemntation(address _newPredictionMarketImplementation) external onlyOwner {
         if (_newPredictionMarketImplementation == address(0)) revert MarketFactory__ZeroAddress();
         MarketDeployer(address(marketDeployer)).setImplementation(_newPredictionMarketImplementation);
         emit NewPredictionImplementationSet(_newPredictionMarketImplementation);
     }
 
+    /// @notice UUPS authorization hook.
+    /// @dev Restricts upgrades to owner and blocks accidental zero implementation address.
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         if (newImplementation == address(0)) {
             revert MarketFactory__ZeroAddress();
         }
     }
 
+    /// @notice Mints operational collateral into the factory.
+    /// @dev Intended for environments where collateral is an owner-mintable token.
+    /// The minted balance is later used for actions like market funding or arbitrage.
     function addLiquidityToFactory() external onlyOwner {
         return _addLiquidityToFactory();
     }
 
+    /// @dev Internal mint helper used by owner call and report-driven action.
     function _addLiquidityToFactory() internal {
         console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
         emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
     }
 
+    /// @notice Owner entrypoint to create and seed a new market.
+    /// @dev Delegates to `_createMarket`, which performs deployment, registration, and wiring.
     function createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
         external
         onlyOwner
@@ -232,6 +284,18 @@ abstract contract MarketFactoryBase is
         return _createMarket(question, closeTime, resolutionTime, initialLiquidity);
     }
 
+    /// @dev Full market bootstrap routine.
+    /// Detailed flow:
+    /// 1) validate temporal/question/liquidity inputs,
+    /// 2) deploy market clone via `marketDeployer`,
+    /// 3) transfer initial collateral and call `seedLiquidity`,
+    /// 4) assign new market id and both-direction mappings,
+    /// 5) mirror mapping to bridge (if configured),
+    /// 6) add market to active list and index map,
+    /// 7) set factory as cross-chain controller,
+    /// 8) if this factory is a spoke, push bootstrap canonical price/nonce,
+    /// 9) transfer market ownership to factory owner,
+    /// 10) emit creation event.
     function _createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
         internal
         returns (address market)

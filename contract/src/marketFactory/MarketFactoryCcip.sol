@@ -10,9 +10,19 @@ import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
 import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
 import {MarketFactoryBase} from "./MarketFactoryBase.sol";
 
+/// @title MarketFactoryCcip
+/// @notice CCIP coordination layer for hub/spoke market synchronization.
+/// @dev This contract is responsible for:
+/// 1) maintaining trusted remote configuration per chain selector,
+/// 2) sending canonical price and resolution messages from hub to spokes,
+/// 3) validating and consuming inbound CCIP messages on spokes/hub,
+/// 4) enforcing nonce/replay guards so stale or duplicate messages cannot mutate state.
 abstract contract MarketFactoryCcip is MarketFactoryBase {
     using SafeERC20 for IERC20;
 
+    /// @notice Configures router + fee token and selects whether this factory acts as hub.
+    /// @dev Hub factories are allowed to broadcast prices/resolutions.
+    /// Spoke factories are expected to only receive/sync those values.
     function setCcipConfig(address _ccipRouter, address _ccipFeeToken, bool _isHubFactory) external onlyOwner {
         if (_ccipRouter == address(0) || _ccipFeeToken == address(0)) revert MarketFactory__ZeroAddress();
         ccipRouter = _ccipRouter;
@@ -21,16 +31,23 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit CcipConfigUpdated(_ccipRouter, _ccipFeeToken, _isHubFactory);
     }
 
+    /// @notice Adds/removes a chain selector from the supported selector allowlist.
+    /// @dev A selector must be supported before `setTrustedRemote` can bind a remote address to it.
     function setSupportedChainSelector(uint64 chainSelector, bool isSupported) external onlyOwner {
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
         s_supportedChainSelector[chainSelector] = isSupported;
         emit ChainSelectorSupportUpdated(chainSelector, isSupported);
     }
 
+    /// @notice Returns whether a selector is currently allowed for remote config.
     function isSupportedChainSelector(uint64 chainSelector) external view returns (bool) {
         return s_supportedChainSelector[chainSelector];
     }
 
+    /// @notice Binds a selector to its trusted remote factory address.
+    /// @dev This is the core trust anchor used by `ccipReceive` sender verification.
+    /// When first added, selector is also inserted into `s_spokeSelectors` so hub broadcasts
+    /// will include that chain in fan-out loops.
     function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
         if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
@@ -48,6 +65,9 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit TrustedRemoteUpdated(chainSelector, remoteFactory);
     }
 
+    /// @notice Removes trusted remote configuration for a selector.
+    /// @dev Also removes selector from `s_spokeSelectors` (swap-and-pop) so future hub broadcasts
+    /// stop attempting delivery to that chain.
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
         if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
         if (!s_supportedChainSelector[chainSelector]) {
@@ -73,10 +93,15 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit TrustedRemoteRemoved(chainSelector);
     }
 
+    /// @notice Returns selectors currently in broadcast fan-out set.
+    /// @dev This is derived from trusted remotes, not from the broader supported-selector allowlist.
     function getSpokeSelectors() external view returns (uint64[] memory selectors) {
         return s_spokeSelectors;
     }
 
+    /// @notice Owner-triggered canonical price broadcast from hub to all configured spokes.
+    /// @dev Wraps `_broadcastCanonicalPrice`, which creates one payload with a fresh nonce and
+    /// sends it to every selector in `s_spokeSelectors`.
     function broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
         external
         onlyOwner
@@ -84,6 +109,9 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         _broadcastCanonicalPrice(marketId, yesPriceE6, noPriceE6, validUntil);
     }
 
+    /// @dev Internal hub fan-out for canonical price updates.
+    /// Validates hub mode, market existence, and CCIP config before sending.
+    /// Each destination receives identical payload + shared nonce so consumers can enforce ordering.
     function _broadcastCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
         internal
     {
@@ -108,10 +136,14 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         }
     }
 
+    /// @notice Owner-triggered market resolution broadcast from hub to all spokes.
+    /// @dev Only final outcomes (Yes/No) are allowed; non-final outcomes are rejected.
     function broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) external onlyOwner {
         _broadcastResolution(marketId, outcome, proofUrl);
     }
 
+    /// @notice Callback used by a registered hub market immediately after local finalization.
+    /// @dev Enqueues market for withdrawal processing and propagates final resolution cross-chain.
     function onHubMarketResolved(Resolution outcome, string calldata proofUrl) external {
         uint256 marketId = marketIdByAddress[msg.sender];
         if (marketId == 0 || marketById[marketId] != msg.sender) revert MarketFactory__OnlyRegisteredMarket();
@@ -119,6 +151,8 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         _broadcastResolution(marketId, outcome, proofUrl);
     }
 
+    /// @dev Internal hub fan-out for resolution updates.
+    /// Uses monotonic `ccipNonce`, same payload for all spokes, and emits send events per chain.
     function _broadcastResolution(uint256 marketId, Resolution outcome, string memory proofUrl) internal {
         if (!isHubFactory) revert MarketFactory__NotHubFactory();
         if (marketById[marketId] == address(0)) revert MarketFactory__MarketNotFound();
@@ -139,18 +173,26 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         }
     }
 
+    /// @notice Owner helper to register or correct market-id mapping.
+    /// @dev Useful on spokes where mapping may need to be initialized out-of-band.
     function setMarketIdMapping(uint256 marketId, address market) external onlyOwner {
         if (market == address(0)) revert MarketFactory__ZeroAddress();
         marketById[marketId] = market;
         marketIdByAddress[market] = marketId;
     }
 
+    /// @notice Sets optional bridge contract that mirrors market-id mappings.
+    /// @dev New markets call into this bridge (if configured) during `_createMarket`.
     function setPredictionMarketBridge(address bridge) external onlyOwner {
         if (bridge == address(0)) revert MarketFactory__ZeroAddress();
         predictionMarketBridge = bridge;
         emit PredictionMarketBridgeUpdated(bridge);
     }
 
+    /// @notice Removes a resolved market from active tracking.
+    /// @dev Authorization is restricted to the market itself or factory owner.
+    /// Uses swap-and-pop removal pattern:
+    /// overwrite removed slot with array tail, update moved index, pop tail, delete old index entry.
     function removeResolvedMarket(address market) external {
         uint256 marketId = marketIdByAddress[market];
         address marketAddress = marketById[marketId];
@@ -173,6 +215,13 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit MarkertFactor_ReslovedEventReomved(marketId);
     }
 
+    /// @inheritdoc IAny2EVMMessageReceiver
+    /// @dev Inbound message pipeline:
+    /// 1) verify caller is configured router,
+    /// 2) verify source selector has trusted sender and sender bytes match exactly,
+    /// 3) reject replayed messageId,
+    /// 4) decode message type and payload,
+    /// 5) apply price sync or resolution sync with nonce guards.
     function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override {
         if (ccipRouter == address(0) || msg.sender != ccipRouter) revert MarketFactory__InvalidRemoteSender();
 
@@ -213,6 +262,9 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         revert MarketFactory__UnknownSyncMessageType();
     }
 
+    /// @notice Applies canonical price sync directly on spokes (report-driven path).
+    /// @dev This bypasses CCIP transport but still preserves nonce monotonicity:
+    /// next nonce is max(marketNonce + 1, trackedNonce + 1), then stored to prevent regressions.
     function _syncSpokeCanonicalPrice(uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil)
         internal
     {
@@ -233,10 +285,18 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit CanonicalPriceMessageReceived(marketId, yesPriceE6, noPriceE6, nextNonce);
     }
 
+    /// @notice ERC165 declaration so CCIP infra can detect receiver support.
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
         return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || super.supportsInterface(interfaceId);
     }
 
+    /// @dev Constructs and sends a CCIP EVM2Any message.
+    /// Steps:
+    /// 1) resolve trusted receiver bytes for destination selector,
+    /// 2) build message envelope with data + fee token + gas args,
+    /// 3) query router fee quote,
+    /// 4) increase fee-token allowance just enough,
+    /// 5) call `ccipSend` and return message id.
     function _sendCcipMessage(uint64 destinationChainSelector, uint8 messageType, bytes memory payload)
         internal
         returns (bytes32 messageId)
@@ -260,6 +320,8 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         messageId = IRouterClient(ccipRouter).ccipSend(destinationChainSelector, message);
     }
 
+    /// @dev Enqueues market for deferred withdrawal exactly once.
+    /// No-op for zero id or already-queued id; reverts if mapping does not exist.
     function _enqueueWithdraw(uint256 marketId) internal {
         if (marketId == 0) return;
         if (isPendingWithdrawQueued[marketId]) return;

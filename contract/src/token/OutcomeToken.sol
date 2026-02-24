@@ -4,77 +4,37 @@ pragma solidity 0.8.33;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/**
- * @title OutcomeToken
- * @author 0xHimxa
- * @notice ERC20 token representing a specific outcome (YES or NO) in a prediction market
- * @dev This token can only be minted and burned by the associated prediction market contract
- *      It uses 6 decimals to match USDC standard and maintain 1:1 collateral ratio
- *
- * Token Lifecycle:
- * - Tokens are minted when users buy complete sets or via AMM swaps
- * - Tokens are burned when users redeem complete sets or after market resolution
- * - Only the market contract has mint/burn privileges for security
- */
+/// @title OutcomeToken
+/// @notice ERC20 claim token used by a market for one side of the outcome (YES or NO).
+/// @dev The owning `PredictionMarket` contract is the only account allowed to mint and burn.
 contract OutcomeToken is ERC20, Ownable {
-    // ========================================
-    // STATE VARIABLES
-    // ========================================
-
-    // ========================================
-    // ERRORS
-    // ========================================
-
-
-    /// @notice Thrown when market address is zero in constructor
     error OutcomeToken__InvalidMarketAddress();
 
-    // ========================================
-    // CONSTRUCTOR
-    // ========================================
-
-    /**
-     * @notice Initializes the outcome token
-     * @param name_ Token name (e.g., "YES" or "NO")
-     * @param symbol_ Token symbol (e.g., "YES" or "NO")
-     * @param market_ Address of the prediction market contract
-     * @dev The market address is immutable and cannot be changed after deployment
-     */
+    /// @param name_ Token name, usually `YES` or `NO`.
+    /// @param symbol_ Token symbol, usually `YES` or `NO`.
+    /// @param market_ Prediction market address that becomes token owner.
     constructor(string memory name_, string memory symbol_, address market_) ERC20(name_, symbol_) Ownable(market_) {
         if (market_ == address(0)) revert OutcomeToken__InvalidMarketAddress();
     }
 
-    // ========================================
-    // PUBLIC FUNCTIONS
-    // ========================================
-
-    /**
-     * @notice Returns the number of decimals for this token
-     * @return Number of decimals (6, matching USDC)
-     * @dev Overrides ERC20 default of 18 decimals to match USDC collateral
-     */
+    /// @notice Uses 6 decimals so claim-token units align with collateral units.
+    /// @dev This keeps complete-set mint/redeem math intuitive and avoids cross-decimal conversion.
     function decimals() public pure override returns (uint8) {
         return 6;
     }
 
-    /**
-     * @notice Mints new tokens to a specified address
-     * @param to Address to receive the minted tokens
-     * @param amount Number of tokens to mint
-     * @dev Can only be called by the market contract
-     *      Used when users mint complete sets or via AMM operations
-     */
+    /// @notice Mints outcome tokens to an account.
+    /// @param to Receiver of the new tokens.
+    /// @param amount Amount to mint.
+    /// @dev Called by market contract during flows like complete-set minting or pool bootstrap.
     function mint(address to, uint256 amount) external onlyOwner {
         _mint(to, amount);
     }
 
-    /**
-     * @notice Burns tokens from a specified address
-     * @param from Address to burn tokens from
-     * @param amount Number of tokens to burn
-     * @dev Can only be called by the market contract
-     *      Used when users redeem complete sets or after market resolution
-     */
+    /// @notice Burns outcome tokens from an account.
+    /// @param from Address tokens are burned from.
+    /// @param amount Amount to burn.
+    /// @dev Called by market contract during redeem, liquidity settlement, and resolution flows.
     function burn(address from, uint256 amount) external onlyOwner {
         _burn(from, amount);
     }

@@ -8,9 +8,17 @@ import {AMMLib} from "../libraries/AMMLib.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
 import {PredictionMarketBase} from "./PredictionMarketBase.sol";
 
+/// @title PredictionMarketLiquidity
+/// @notice Liquidity, complete-set, and swap flows for an open market.
 abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     using SafeERC20 for IERC20;
 
+    /// @notice Performs one-time bootstrap of the AMM pool.
+    /// @dev Requires pre-funded collateral balance in this contract, then:
+    /// 1) sets YES/NO reserves equally to `amount`,
+    /// 2) mints matching YES/NO inventory to the pool itself,
+    /// 3) mints initial LP shares 1:1 with amount to the owner.
+    /// This creates an initial balanced invariant before public trading starts.
     function seedLiquidity(uint256 amount) external onlyOwner whenNotPaused {
         if (seeded) {
             revert MarketErrors.PredictionMarket__InitailConstantLiquidityAlreadySet();
@@ -37,6 +45,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.LiquiditySeeded(amount);
     }
 
+    /// @notice Adds balanced liquidity and mints LP shares.
+    /// @dev Uses `AMMLib.calculateShares` to keep pool ratio unchanged by taking the limiting side.
+    /// If user sends off-ratio amounts, only proportional subset (`usedYes`, `usedNo`) is consumed.
+    /// This avoids reserve skew and preserves AMM pricing assumptions.
     function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares)
         public
         virtual
@@ -79,6 +91,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.LiquidityAdded(msg.sender, usedYes, usedNo, shares);
     }
 
+    /// @notice Burns LP shares and returns proportional YES/NO reserves.
+    /// @dev Output math is share-based:
+    /// `yesOut = yesReserve * shares / totalShares`
+    /// `noOut  = noReserve  * shares / totalShares`
+    /// Caller can protect against reserve movement using `minYesOut` / `minNoOut`.
     function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut)
         public
         virtual
@@ -114,6 +131,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.LiquidityRemoved(msg.sender, yesOut, noOut, shares);
     }
 
+    /// @notice Removes liquidity and immediately redeems matched YES/NO amount into collateral.
+    /// @dev After proportional withdrawal, only `min(yesOut, noOut)` can form complete sets.
+    /// That matched amount is redeemed to collateral minus redeem fee; unmatched remainder is
+    /// returned as outcome tokens to caller. This path is useful when LP wants partial collateral
+    /// exit without fully market-making in outcome tokens.
     function removeLiquidityAndRedeemCollateral(uint256 shares, uint256 minCollateralOut)
         public
         virtual
@@ -171,6 +193,9 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
+    /// @notice Post-resolution LP settlement path.
+    /// @dev Only final outcomes Yes/No are valid here. Shares are redeemed through
+    /// `_withdrawResolvedLiquidity`, which values LP shares solely against winning reserve side.
     function withdrawLiquidityCollateral(uint256 shares) external nonReentrant whenNotPaused {
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
@@ -194,6 +219,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         _withdrawResolvedLiquidity(shares, userShares, resolutionOut == uint256(Resolution.Yes));
     }
 
+    /// @notice Transfers LP shares between accounts without changing pool reserves.
+    /// @dev This is an internal accounting transfer only; no token mint/burn happens.
     function transferShares(address to, uint256 shares) public virtual whenNotPaused {
         if (to == address(0)) {
             revert MarketErrors.PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
@@ -208,6 +235,13 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.SharesTransferred(msg.sender, to, shares);
     }
 
+    /// @notice Mints complete sets by depositing collateral.
+    /// @dev Economic effect:
+    /// - user deposits `amount` collateral,
+    /// - protocol takes mint fee,
+    /// - user receives equal YES and NO balances of `netAmount`.
+    /// Risk control:
+    /// user exposure is tracked and bounded unless caller is factory or explicitly exempt.
     function mintCompleteSets(uint256 amount) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
@@ -237,6 +271,9 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.CompleteSetsMinted(msg.sender, netAmount);
     }
 
+    /// @notice Redeems complete sets back into collateral during open market state.
+    /// @dev Caller must hold both sides in equal `amount`. Contract burns both tokens,
+    /// charges redeem fee, and transfers net collateral back to caller.
     function redeemCompleteSets(uint256 amount) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__RedeemCompletesetLessThanMinAllowed();
@@ -259,6 +296,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);
     }
 
+    /// @notice Public YES->NO swap entrypoint.
+    /// @dev Delegates to `_swap` with direction flag set to YES input.
     function swapYesForNo(uint256 yesIn, uint256 minNoOut)
         public
         virtual
@@ -270,6 +309,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         _swap(yesIn, minNoOut, true);
     }
 
+    /// @notice Public NO->YES swap entrypoint.
+    /// @dev Delegates to `_swap` with direction flag set to NO input.
     function swapNoForYes(uint256 noIn, uint256 minYesOut)
         public
         virtual
@@ -280,5 +321,4 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     {
         _swap(noIn, minYesOut, false);
     }
-
 }

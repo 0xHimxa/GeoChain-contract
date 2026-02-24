@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-/// @notice Stateless helper module for canonical price/deviation policy calculations.
+/// @title CanonicalPricingModule
+/// @notice Pure policy engine for classifying deviation bands and swap controls.
+/// @dev The module compares local AMM implied YES price with canonical YES price.
+/// Deviation in bps is mapped into one of four bands:
+/// Normal -> Stress -> Unsafe -> CircuitBreaker.
+/// Band then determines fee uplift, max output cap, and direction permissions.
 library CanonicalPricingModule {
     uint8 internal constant BAND_NORMAL = 0;
     uint8 internal constant BAND_STRESS = 1;
@@ -40,6 +45,20 @@ library CanonicalPricingModule {
         uint256 feePrecisionBps;
     }
 
+    /// @notice Computes execution guardrails for a concrete swap direction.
+    /// @param p Parameters containing reserves, canonical price, and policy thresholds.
+    /// @return bandId Current deviation band enum id.
+    /// @return effectiveFeeBps Swap fee after band adjustment.
+    /// @return maxOut Max output token amount allowed for this trade.
+    /// @return allowDirection Whether this direction is allowed in current band.
+    /// @dev Key calculations:
+    /// `localYes = noReserve * pricePrecision / (yesReserve + noReserve)`
+    /// `deviationBps = abs(localYes - canonicalYes) * feePrecisionBps / pricePrecision`.
+    /// Band policy:
+    /// - Normal: base fee, unlimited output, both directions allowed.
+    /// - Stress: extra fee + capped output.
+    /// - Unsafe: extra fee + tighter cap + only price-corrective direction allowed.
+    /// - CircuitBreaker: no trading direction allowed.
     function swapControls(SwapControlsParams memory p)
         public
         pure
@@ -80,6 +99,16 @@ library CanonicalPricingModule {
         }
     }
 
+    /// @notice Returns full current deviation status independent of a chosen direction.
+    /// @param p Parameters containing reserves, canonical price, and policy thresholds.
+    /// @return bandId Current deviation band enum id.
+    /// @return deviationBpsValue Absolute canonical/local deviation in bps.
+    /// @return effectiveFeeBps Swap fee after band adjustment.
+    /// @return maxOutBps Output cap expressed in bps of output reserve.
+    /// @return allowYesForNo Whether YES->NO is currently allowed.
+    /// @return allowNoForYes Whether NO->YES is currently allowed.
+    /// @dev Uses same deviation/band computation as `swapControls`, but outputs both direction flags.
+    /// This is primarily used by automation to decide if/which corrective trade is allowed.
     function deviationStatus(DeviationStatusParams memory p)
         public
         pure

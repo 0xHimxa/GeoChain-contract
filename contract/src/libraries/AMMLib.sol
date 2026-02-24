@@ -1,71 +1,51 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-/**
- * @title AMMLib
- * @author 0xHimxa
- * @notice Pure math library for constant-product AMM calculations
- * @dev All functions are pure/internal — they operate on values only, never on storage.
- *      Used by PredictionMarket for swap output calculations, LP share math, and price queries.
- */
+/// @title AMMLib
+/// @notice Pure math utilities for the constant-product pool used by markets.
+/// @dev All functions are deterministic and storage-free.
+/// The library assumes reserves and token units share the same decimals.
 library AMMLib {
-    // ========================================
-    // SWAP CALCULATIONS
-    // ========================================
-
-    /**
-     * @notice Calculates the output amount for a constant-product swap
-     * @param reserveIn Current reserve of the input token
-     * @param reserveOut Current reserve of the output token
-     * @param amountIn Amount of input token being swapped
-     * @param feeBps Fee in basis points to deduct from the gross output
-     * @param feePrecision Basis points precision (typically 10_000)
-     * @return netOut Output amount after fee deduction
-     * @return fee Fee amount deducted
-     * @return newReserveIn Updated reserve of the input token
-     * @return newReserveOut Updated reserve of the output token (fee kept in pool)
-     * @dev Implements the formula: k = reserveIn * reserveOut
-     *      newReserveIn = reserveIn + amountIn
-     *      newReserveOut = k / newReserveIn
-     *      grossOut = reserveOut - newReserveOut
-     *      Fee is added back to the output reserve to benefit LPs
-     */
+    /// @notice Quotes constant-product swap output and resulting reserves.
+    /// @dev Math model:
+    /// - Invariant before swap: `k = reserveIn * reserveOut`
+    /// - After adding input: `newReserveIn = reserveIn + amountIn`
+    /// - Raw output reserve: `rawNewReserveOut = k / newReserveIn`
+    /// - Gross trader output: `grossOut = reserveOut - rawNewReserveOut`
+    /// - Fee is taken from gross output and retained in pool:
+    /// `netOut = grossOut - fee`, `newReserveOut = rawNewReserveOut + fee`
+    /// This increases LP value by leaving fee inside reserves.
+    /// @param reserveIn Input-side reserve before the trade.
+    /// @param reserveOut Output-side reserve before the trade.
+    /// @param amountIn Amount entering the pool.
+    /// @param feeBps Output fee in basis points.
+    /// @param feePrecision Basis-point precision, normally `10_000`.
+    /// @return netOut Output sent to trader after fee.
+    /// @return fee Fee retained in pool.
+    /// @return newReserveIn Input reserve after trade.
+    /// @return newReserveOut Output reserve after trade including retained fee.
     function getAmountOut(uint256 reserveIn, uint256 reserveOut, uint256 amountIn, uint256 feeBps, uint256 feePrecision)
         internal
         pure
         returns (uint256 netOut, uint256 fee, uint256 newReserveIn, uint256 newReserveOut)
     {
-        // Constant product: k = x * y
         uint256 k = reserveIn * reserveOut;
 
-        // New reserves after adding input
         newReserveIn = reserveIn + amountIn;
         uint256 rawNewReserveOut = k / newReserveIn;
 
-        // Gross output before fees
         uint256 grossOut = reserveOut - rawNewReserveOut;
 
-        // Deduct fee from output
         fee = (grossOut * feeBps) / feePrecision;
         netOut = grossOut - fee;
 
-        // Fee stays in the pool (added back to output reserve)
         newReserveOut = rawNewReserveOut + fee;
     }
 
-    // ========================================
-    // PRICE / PROBABILITY CALCULATIONS
-    // ========================================
-
-    /**
-     * @notice Calculates the implied YES probability based on current reserves
-     * @param yesReserve Current YES token reserve
-     * @param noReserve Current NO token reserve
-     * @param precision Scaling factor (e.g., 1e6 for 6-decimal precision)
-     * @return Implied YES probability scaled by precision
-     * @dev P(YES) = noReserve / (yesReserve + noReserve)
-     *      Higher noReserve relative to yesReserve = higher YES probability
-     */
+    /// @notice Returns implied YES probability from reserve ratio.
+    /// @param yesReserve YES reserve.
+    /// @param noReserve NO reserve.
+    /// @param precision Scale, typically `1e6`.
     function getYesProbability(uint256 yesReserve, uint256 noReserve, uint256 precision)
         internal
         pure
@@ -75,15 +55,10 @@ library AMMLib {
         return (noReserve * precision) / total;
     }
 
-    /**
-     * @notice Calculates the implied NO probability based on current reserves
-     * @param yesReserve Current YES token reserve
-     * @param noReserve Current NO token reserve
-     * @param precision Scaling factor (e.g., 1e6 for 6-decimal precision)
-     * @return Implied NO probability scaled by precision
-     * @dev P(NO) = yesReserve / (yesReserve + noReserve)
-     *      Higher yesReserve relative to noReserve = higher NO probability
-     */
+    /// @notice Returns implied NO probability from reserve ratio.
+    /// @param yesReserve YES reserve.
+    /// @param noReserve NO reserve.
+    /// @param precision Scale, typically `1e6`.
     function getNoProbability(uint256 yesReserve, uint256 noReserve, uint256 precision)
         internal
         pure
@@ -93,23 +68,20 @@ library AMMLib {
         return (yesReserve * precision) / total;
     }
 
-    // ========================================
-    // LIQUIDITY CALCULATIONS
-    // ========================================
-
-    /**
-     * @notice Calculates LP shares for adding liquidity
-     * @param yesAmount Amount of YES tokens being added
-     * @param noAmount Amount of NO tokens being added
-     * @param totalShares Current total LP shares
-     * @param yesReserve Current YES reserve in the pool
-     * @param noReserve Current NO reserve in the pool
-     * @return shares Number of LP shares to mint (minimum of proportional calculations)
-     * @return usedYes Actual YES tokens consumed (may be less than yesAmount)
-     * @return usedNo Actual NO tokens consumed (may be less than noAmount)
-     * @dev Takes the minimum of YES-proportional and NO-proportional shares
-     *      to avoid skewing pool ratios
-     */
+    /// @notice Calculates LP shares for a dual-sided deposit that preserves pool ratio.
+    /// @param yesAmount Proposed YES amount.
+    /// @param noAmount Proposed NO amount.
+    /// @param totalShares Current LP share supply.
+    /// @param yesReserve Current YES reserve.
+    /// @param noReserve Current NO reserve.
+    /// @return shares Shares minted for this deposit.
+    /// @return usedYes YES actually consumed.
+    /// @return usedNo NO actually consumed.
+    /// @dev Share minting uses limiting-side logic:
+    /// `yesShare = yesAmount * totalShares / yesReserve`
+    /// `noShare  = noAmount  * totalShares / noReserve`
+    /// `shares = min(yesShare, noShare)`.
+    /// This guarantees resulting reserve ratio stays unchanged.
     function calculateShares(
         uint256 yesAmount,
         uint256 noAmount,
@@ -121,18 +93,12 @@ library AMMLib {
         uint256 noShare = (noAmount * totalShares) / noReserve;
         shares = yesShare < noShare ? yesShare : noShare;
 
-        // Calculate actual tokens used to maintain pool ratios
         usedYes = (shares * yesReserve) / totalShares;
         usedNo = (shares * noReserve) / totalShares;
     }
 
-    /**
-     * @notice Calculates proportional output for removing liquidity
-     * @param reserve Current reserve of the token
-     * @param shares Number of LP shares being burned
-     * @param totalShares Current total LP shares
-     * @return amount Proportional amount of tokens to return
-     */
+    /// @notice Returns proportional reserve output for a share burn amount.
+    /// @dev Used in liquidity removal and resolved-LP settlement paths.
     function calculateProportionalOutput(uint256 reserve, uint256 shares, uint256 totalShares)
         internal
         pure
