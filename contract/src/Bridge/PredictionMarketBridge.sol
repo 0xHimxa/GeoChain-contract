@@ -595,4 +595,10 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     function _claimKey(uint64 sourceChainSelector, uint256 marketId, bool useYesToken) internal pure returns (bytes32) {
         return keccak256(abi.encode(sourceChainSelector, marketId, useYesToken));
     }
+
+
+    function getBridgeUSDCBalance() external view returns (uint256) {
+        return collateral.balanceOf(address(this));
+        
+        }
 }

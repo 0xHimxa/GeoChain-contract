@@ -1,10 +1,8 @@
 import { CronCapability, handler, Runner } from "@chainlink/cre-sdk";
-import {
-  arbitrateUnsafeMarketHandler,
-  resoloveEvent,
-  syncCanonicalPrice,
-  marketFactoryBalanceTopUp,
-} from "./handlers/maintenance";
+import { marketFactoryBalanceTopUp } from "./handlers/topUpMarket";
+import { resoloveEvent } from "./handlers/resolve";
+import { syncCanonicalPrice } from "./handlers/syncPrice";
+import { arbitrateUnsafeMarketHandler } from "./handlers/arbitrage";
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/marketCreation";
 import { type Config } from "./Constant-variable/config";
 
@@ -13,6 +11,7 @@ const initWorkflow = (config: Config) => {
 
   return [
     handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+    handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     // handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
     // handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
     // handler(cron.trigger({ schedule: config.schedule }), authWorkflow),

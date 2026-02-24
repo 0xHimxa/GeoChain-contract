@@ -23,6 +23,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
         (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
         bytes32 actionTypeHash = keccak256(abi.encode(actionType));
         bytes32 syncSpokeActionHash = hashed_SyncSpokeCanonicalPrice;
+        bytes32 mintCollateralToActionHash = keccak256(abi.encode("mintCollateralTo"));
         if (syncSpokeActionHash == bytes32(0)) {
             syncSpokeActionHash = keccak256(abi.encode("syncSpokeCanonicalPrice"));
         }
@@ -51,6 +52,9 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
             _arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps);
         } else if (actionTypeHash == hashed_AddLiquidityToFactory) {
             _addLiquidityToFactory();
+        } else if (actionTypeHash == mintCollateralToActionHash) {
+            (address receiver, uint256 amount) = abi.decode(payload, (address, uint256));
+            _mintCollateralTo(receiver, amount);
         } else if (actionTypeHash == hashed_WithCollatralAndFee) {
             uint256 marketId = abi.decode(payload, (uint256));
             _withdrawCollateralFromEvents(marketId);

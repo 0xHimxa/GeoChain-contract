@@ -45,6 +45,24 @@ export const MarketFactoryAbi =[
         },
         {
             "type": "function",
+            "name": "mintCollateralTo",
+            "inputs": [
+                {
+                    "name": "to",
+                    "type": "address",
+                    "internalType": "address"
+                },
+                {
+                    "name": "amount",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+        },
+        {
+            "type": "function",
             "name": "arbitrateUnsafeMarket",
             "inputs": [
                 {

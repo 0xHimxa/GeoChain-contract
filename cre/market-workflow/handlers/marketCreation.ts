@@ -14,12 +14,18 @@ import { askGemeni } from "../gemini/uniqueEvent";
 import { type GeminiResponse, type SignupNewUserResponse } from "../type";
 import { type Config } from "../Constant-variable/config";
 
+/**
+ * Authenticates against Firebase and returns basic account metadata for workflow diagnostics.
+ */
 export const authWorkflow = (runtime: Runtime<Config>): string => {
   const response: SignupNewUserResponse = signUpWorkFlow(runtime);
   runtime.log(`returned data:  ${response.localId}`);
   return `returned data:  ${response.expiresIn}`;
 };
 
+/**
+ * Resolves a chain-specific transaction explorer URL for reporting submitted workflow transactions.
+ */
 const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) {
     return `https://sepolia.arbiscan.io/tx/${txHash}`;
@@ -27,6 +33,10 @@ const txExplorer = (chainName: string, txHash: string): string => {
   return `https://sepolia.etherscan.io/tx/${txHash}`;
 };
 
+/**
+ * Builds, signs, and submits a CRE report to a market factory action endpoint.
+ * Throws on revert so callers fail fast when an action cannot be executed.
+ */
 const sendActionReport = (
   runtime: Runtime<Config>,
   evmConfig: Config["evms"][number],
@@ -74,6 +84,10 @@ const sendActionReport = (
   return txHash;
 };
 
+/**
+ * Generates a candidate market from Firestore + Gemini data and submits `createMarket`
+ * action reports to all configured market factories.
+ */
 export function createPredictionMarketEvent(runtime: Runtime<Config>): string {
   const authInfo: SignupNewUserResponse = signUpWorkFlow(runtime);
   const documents = getFirestoreList(runtime, authInfo.idToken);
@@ -108,6 +122,10 @@ export function createPredictionMarketEvent(runtime: Runtime<Config>): string {
   return marketFactoryCall.join(", ");
 }
 
+/**
+ * Creates a fixed demo event and submits `createMarket` action reports to all configured factories.
+ * Intended for smoke testing workflow-to-contract integration.
+ */
 export const createEventHelper = (runtime: Runtime<Config>): string => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";
   const closeTime = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);

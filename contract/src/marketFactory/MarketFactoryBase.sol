@@ -189,6 +189,7 @@ abstract contract MarketFactoryBase is
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
     error MarketFactory__NotSpokeFactory();
     error MarketFactory__InvalidMaxBatch();
+    error MarketFactory__InvalidMintAmount();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -267,11 +268,24 @@ abstract contract MarketFactoryBase is
         return _addLiquidityToFactory();
     }
 
+    /// @notice Mints collateral token to a target address.
+    /// @dev Intended for environments where collateral is an owner-mintable token.
+    function mintCollateralTo(address to, uint256 amount) external onlyOwner {
+        _mintCollateralTo(to, amount);
+    }
+
     /// @dev Internal mint helper used by owner call and report-driven action.
     function _addLiquidityToFactory() internal {
+        _mintCollateralTo(address(this), Amount_Funding_Factory);
+    }
+
+    /// @dev Internal mint helper with dynamic recipient and amount.
+    function _mintCollateralTo(address to, uint256 amount) internal {
+        if (to == address(0)) revert MarketFactory__ZeroAddress();
+        if (amount == 0) revert MarketFactory__InvalidMintAmount();
         console.log(OutcomeToken(address(collateral)).owner(), "Owner");
-        OutcomeToken(address(collateral)).mint(address(this), Amount_Funding_Factory);
-        emit MarketFactory__LiquidityAdded(Amount_Funding_Factory);
+        OutcomeToken(address(collateral)).mint(to, amount);
+        emit MarketFactory__LiquidityAdded(amount);
     }
 
     /// @notice Owner entrypoint to create and seed a new market.
