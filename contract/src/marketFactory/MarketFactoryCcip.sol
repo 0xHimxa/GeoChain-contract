@@ -3,11 +3,11 @@ pragma solidity 0.8.33;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {State, Resolution} from "../../libraries/MarketTypes.sol";
-import {Client} from "../../ccip/Client.sol";
-import {IRouterClient} from "../../ccip/IRouterClient.sol";
-import {IAny2EVMMessageReceiver} from "../../ccip/IAny2EVMMessageReceiver.sol";
-import {PredictionMarket} from "../../PredictionMarket.sol";
+import {State, Resolution} from "../libraries/MarketTypes.sol";
+import {Client} from "../ccip/Client.sol";
+import {IRouterClient} from "../ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
+import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
 import {MarketFactoryBase} from "./MarketFactoryBase.sol";
 
 abstract contract MarketFactoryCcip is MarketFactoryBase {

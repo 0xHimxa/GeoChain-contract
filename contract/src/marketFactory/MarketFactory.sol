@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {MarketFactoryOperations} from "./marketFactory/MarketFactoryOperations.sol";
+import {MarketFactoryOperations} from "./MarketFactoryOperations.sol";
 
 /// @title MarketFactory
 /// @custom:oz-upgrades-from MarketFactory

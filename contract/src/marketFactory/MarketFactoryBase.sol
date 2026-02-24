@@ -6,14 +6,14 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {console} from "forge-std/console.sol";
-import {PredictionMarket} from "../../PredictionMarket.sol";
-import {MarketDeployer} from "../../MarketDeployer.sol";
-import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors, Resolution, MarketConstants} from "../../libraries/MarketTypes.sol";
-import {OutcomeToken} from "../../OutcomeToken.sol";
-import {Client} from "../../ccip/Client.sol";
-import {IRouterClient} from "../../ccip/IRouterClient.sol";
-import {IAny2EVMMessageReceiver} from "../../ccip/IAny2EVMMessageReceiver.sol";
+import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
+import {MarketDeployer} from "./event-deployer/MarketDeployer.sol";
+import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
+import {MarketErrors, Resolution, MarketConstants} from "../libraries/MarketTypes.sol";
+import {OutcomeToken} from "../token/OutcomeToken.sol";
+import {Client} from "../ccip/Client.sol";
+import {IRouterClient} from "../ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
 
 interface IPredictionMarketBridgeMapper {
     function setMarketIdMapping(uint256 marketId, address market) external;

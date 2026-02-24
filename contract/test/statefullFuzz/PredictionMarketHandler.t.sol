@@ -2,9 +2,9 @@
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {PredictionMarket} from "src/PredictionMarket.sol";
-import {OutcomeToken} from "src/OutcomeToken.sol";
-import {MarketConstants} from "src/libraries/MarketTypes.sol";
+import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
+import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
 
 contract PredictionMarketHandler is Test {
     PredictionMarket public market;

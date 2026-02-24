@@ -6,13 +6,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import {OutcomeToken} from "../OutcomeToken.sol";
+import {OutcomeToken} from "../token/OutcomeToken.sol";
 import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "../libraries/MarketTypes.sol";
 import {AMMLib} from "../libraries/AMMLib.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
 import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
-import {MarketFactory} from "../upgrades/MarketFactory.sol";
-import {ReceiverTemplateUpgradeable} from "script/interfaces/ReceiverTemplateUpgradeable.sol";
+import {MarketFactory} from "../marketFactory/MarketFactory.sol";
+import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
 
 abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, PausableUpgradeable, ReceiverTemplateUpgradeable {
     using SafeERC20 for IERC20;

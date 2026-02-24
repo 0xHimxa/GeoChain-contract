@@ -2,9 +2,9 @@
 pragma solidity 0.8.33;
 
 import {Script,console} from "forge-std/Script.sol";
-import {PredictionMarket} from "src/PredictionMarket.sol";
+import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 
-import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "src/libraries/MarketTypes.sol";
+import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "../../src/libraries/MarketTypes.sol";
 
 
 contract InteractWithEvent is Script {

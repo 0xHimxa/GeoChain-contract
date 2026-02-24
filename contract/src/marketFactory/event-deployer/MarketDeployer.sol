@@ -2,7 +2,7 @@
 pragma solidity 0.8.33;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {PredictionMarket} from "./PredictionMarket.sol";
+import {PredictionMarket} from "../../predictionMarket/PredictionMarket.sol";
 
 /**
  * @title MarketDeployer

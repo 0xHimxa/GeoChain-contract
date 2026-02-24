@@ -2,7 +2,7 @@
 pragma solidity 0.8.33;
 
 import {Script,console} from "forge-std/Script.sol";
-import {MarketFactory} from "src/MarketFactory.sol";
+import {MarketFactory} from "../../src/marketFactory/MarketFactory.sol";
 
 
 

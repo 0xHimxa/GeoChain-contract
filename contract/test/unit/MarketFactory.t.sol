@@ -2,14 +2,14 @@
 pragma solidity 0.8.33;
 
 import {Test, console} from "forge-std/Test.sol";
-import {MarketFactory} from "src/upgrades/MarketFactory.sol";
-import {OutcomeToken} from "src/OutcomeToken.sol";
-import {MarketDeployer} from "src/MarketDeployer.sol";
-import {PredictionMarket} from "src/PredictionMarket.sol";
-import {DeployMarketFactory} from "script/deployMarketFactory.s.sol";
-import {MarketErrors, Resolution} from "src/libraries/MarketTypes.sol";
-import {Client} from "src/ccip/Client.sol";
-import {IRouterClient} from "src/ccip/IRouterClient.sol";
+import {MarketFactory} from "../../src/marketFactory/MarketFactory.sol";
+import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
+import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
+import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {DeployMarketFactory} from "../../script/deployMarketFactory.s.sol";
+import {MarketErrors, Resolution} from "../../src/libraries/MarketTypes.sol";
+import {Client} from "../../src/ccip/Client.sol";
+import {IRouterClient} from "../../src/ccip/IRouterClient.sol";
 
 contract MockRouter is IRouterClient {
     uint256 public fee;

@@ -9,7 +9,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Client} from "../ccip/Client.sol";
 import {IRouterClient} from "../ccip/IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
-import {CcipWrappedClaimToken} from "../ccip/CcipWrappedClaimToken.sol";
+import {CcipWrappedClaimToken} from "./BridgeWrappedClaimToken.sol";
 
 interface IPredictionMarketClaimSource {
     function yesToken() external view returns (address);

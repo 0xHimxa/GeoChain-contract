@@ -3,11 +3,11 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {PredictionMarket} from "src/PredictionMarket.sol";
-import {MarketDeployer} from "src/upgrades/MarketDeployer.sol";
-import {OutcomeToken} from "src/OutcomeToken.sol";
-import {MarketConstants} from "src/libraries/MarketTypes.sol";
-import {PredictionMarketHandler} from "test/statefullFuzz/PredictionMarketHandler.t.sol";
+import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
+import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
+import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {PredictionMarketHandler} from "./PredictionMarketHandler.t.sol";
 
 contract MockMarketFactoryInvariant {
     function removeResolvedMarket(address) external {}

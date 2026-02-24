@@ -2,12 +2,12 @@
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {PredictionMarket} from "src/PredictionMarket.sol";
-import {PredictionMarketBase} from "src/predictionMarket/PredictionMarketBase.sol";
-import {MarketDeployer} from "src/upgrades/MarketDeployer.sol";
-import {OutcomeToken} from "src/OutcomeToken.sol";
-import {AMMLib} from "src/libraries/AMMLib.sol";
-import {MarketErrors, MarketConstants, Resolution, State} from "src/libraries/MarketTypes.sol";
+import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketBase.sol";
+import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
+import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
+import {AMMLib} from "../../src/libraries/AMMLib.sol";
+import {MarketErrors, MarketConstants, Resolution, State} from "../../src/libraries/MarketTypes.sol";
 
 contract MockMarketFactory {
     address public lastRemoved;

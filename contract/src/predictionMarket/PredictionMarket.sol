@@ -3,10 +3,10 @@ pragma solidity 0.8.33;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {State, MarketConstants, MarketEvents, MarketErrors} from "./libraries/MarketTypes.sol";
-import {AMMLib} from "./libraries/AMMLib.sol";
-import {CanonicalPricingModule} from "./modules/CanonicalPricingModule.sol";
-import {PredictionMarketResolution} from "./predictionMarket/PredictionMarketResolution.sol";
+import {State, MarketConstants, MarketEvents, MarketErrors} from "../libraries/MarketTypes.sol";
+import {AMMLib} from "../libraries/AMMLib.sol";
+import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
+import {PredictionMarketResolution} from "./PredictionMarketResolution.sol";
 
 contract PredictionMarket is PredictionMarketResolution {
     using SafeERC20 for IERC20;
