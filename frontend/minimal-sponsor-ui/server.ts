@@ -12,6 +12,7 @@ type SponsorApiRequest = {
   reportPayloadHex: string;
   reportReceiver?: string;
   reportGasLimit?: string;
+  permit?: Record<string, unknown>;
   userOp: Record<string, unknown>;
 };
 
@@ -48,6 +49,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     action: body.action,
     amountUsdc: body.amountUsdc,
     slippageBps: body.slippageBps,
+    permit: body.permit,
     userOp: body.userOp,
   };
 
@@ -78,6 +80,8 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     requestId: `exec_${Date.now()}`,
     approvalId: creDecision.approvalId,
     chainId: body.chainId,
+    amountUsdc: body.amountUsdc,
+    permit: body.permit,
     actionType: body.reportActionType,
     payloadHex: body.reportPayloadHex,
     receiver: body.reportReceiver,

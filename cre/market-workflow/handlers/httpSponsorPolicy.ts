@@ -1,5 +1,6 @@
 import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { type Config } from "../Constant-variable/config";
+import { validatePermitAuthorization, type PermitAuthorization } from "./permitValidation";
 
 // Payload shape expected by CRE HTTP trigger callers (frontend/adapter).
 type SponsorRequest = {
@@ -8,6 +9,7 @@ type SponsorRequest = {
   action?: string;
   amountUsdc?: string;
   slippageBps?: number;
+  permit?: PermitAuthorization;
   userOp?: {
     sender?: string;
     nonce?: string;
@@ -67,72 +69,16 @@ const toBigIntAmount = (value?: string): bigint => {
 };
 
 const makeDecision = (
-  runtime: Runtime<Config>,
-  request: SponsorRequest,
+  requestId: string,
   validationFailedReason?: string
 ): SponsorDecision => {
-  // Keep request ids deterministic when caller doesn't provide one.
-  const requestId = request.requestId || `req_${runtime.now().toString()}`;
   if (validationFailedReason) {
     return { approved: false, reason: validationFailedReason, requestId };
   }
-
-  // Policy is fully config-driven so governance can update limits without code changes.
-  const policy = runtime.config.sponsorPolicy;
-  if (!policy || !policy.enabled) {
-    return { approved: false, reason: "sponsor policy disabled", requestId };
-  }
-
-  if (typeof request.chainId !== "number") {
-    return { approved: false, reason: "missing chainId", requestId };
-  }
-
-  if (!policy.supportedChainIds.includes(request.chainId)) {
-    return { approved: false, reason: "chain is not sponsorable", requestId };
-  }
-
-  if (!request.action || !policy.allowedActions.includes(request.action)) {
-    return { approved: false, reason: "action is not sponsorable", requestId };
-  }
-
-  const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;
-  const amount = toBigIntAmount(request.amountUsdc);
-  if (amount > maxAmount) {
-    return { approved: false, reason: "amount exceeds sponsorship limit", requestId };
-  }
-
-  const maxSlippageBps = Number.isFinite(policy.maxSlippageBps) ? policy.maxSlippageBps : DEFAULT_MAX_SLIPPAGE_BPS;
-  if (typeof request.slippageBps === "number" && request.slippageBps > maxSlippageBps) {
-    return { approved: false, reason: "slippage exceeds sponsorship policy", requestId };
-  }
-
-  // Basic structural checks for a UserOperation-like object.
-  const sender = request.userOp?.sender || "";
-  const signature = request.userOp?.signature || "";
-  const callData = request.userOp?.callData || "";
-  if (!HEX_ADDRESS_REGEX.test(sender)) {
-    return { approved: false, reason: "invalid userOp.sender", requestId };
-  }
-  if (!HEX_BYTES_REGEX.test(callData)) {
-    return { approved: false, reason: "invalid userOp.callData", requestId };
-  }
-  if (!HEX_BYTES_REGEX.test(signature) || signature === "0x") {
-    return { approved: false, reason: "invalid userOp.signature", requestId };
-  }
-
-  // Short-lived approval window so paymaster cannot reuse old decisions forever.
-  const approvalId = `cre_approval_${runtime.now().toString()}_${sender.slice(2, 8)}`;
-  const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 120;
-  return {
-    approved: true,
-    reason: "approved by CRE sponsor policy",
-    requestId,
-    approvalId,
-    approvalExpiresAtUnix,
-  };
+  return { approved: false, reason: "invalid request", requestId };
 };
 
-export const sponsorUserOpPolicyHandler = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const policy = runtime.config.sponsorPolicy;
   const authKeys = runtime.config.httpTriggerAuthorizedKeys || [];
 
@@ -159,15 +105,80 @@ export const sponsorUserOpPolicyHandler = (runtime: Runtime<Config>, payload: HT
     request = parseRequest(decodePayloadInput(payload));
   } catch (error) {
     const reason = error instanceof Error ? error.message : "invalid payload";
-    return JSON.stringify(makeDecision(runtime, {}, reason));
+    return JSON.stringify(makeDecision(`req_${runtime.now().toString()}`, reason));
   }
+
+  const requestId = request.requestId || `req_${runtime.now().toString()}`;
 
   // Extra hardcoded allowlist to avoid accidental broad policy config.
   if (request.action && !DEFAULT_ALLOWED_ACTIONS.has(request.action)) {
-    return JSON.stringify(makeDecision(runtime, request, "unknown action"));
+    return JSON.stringify(makeDecision(requestId, "unknown action"));
   }
 
-  const decision = makeDecision(runtime, request);
+  if (typeof request.chainId !== "number") {
+    return JSON.stringify(makeDecision(requestId, "missing chainId"));
+  }
+
+  if (!policy.supportedChainIds.includes(request.chainId)) {
+    return JSON.stringify(makeDecision(requestId, "chain is not sponsorable"));
+  }
+
+  if (!request.action || !policy.allowedActions.includes(request.action)) {
+    return JSON.stringify(makeDecision(requestId, "action is not sponsorable"));
+  }
+
+  const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;
+  let amount: bigint;
+  try {
+    amount = toBigIntAmount(request.amountUsdc);
+  } catch (error) {
+    return JSON.stringify(makeDecision(requestId, error instanceof Error ? error.message : "invalid amountUsdc"));
+  }
+  if (amount <= 0n) {
+    return JSON.stringify(makeDecision(requestId, "amountUsdc must be greater than zero"));
+  }
+  if (amount > maxAmount) {
+    return JSON.stringify(makeDecision(requestId, "amount exceeds sponsorship limit"));
+  }
+
+  const maxSlippageBps = Number.isFinite(policy.maxSlippageBps) ? policy.maxSlippageBps : DEFAULT_MAX_SLIPPAGE_BPS;
+  if (typeof request.slippageBps === "number" && request.slippageBps > maxSlippageBps) {
+    return JSON.stringify(makeDecision(requestId, "slippage exceeds sponsorship policy"));
+  }
+
+  // Basic structural checks for a UserOperation-like object.
+  const sender = request.userOp?.sender || "";
+  const signature = request.userOp?.signature || "";
+  const callData = request.userOp?.callData || "";
+  if (!HEX_ADDRESS_REGEX.test(sender)) {
+    return JSON.stringify(makeDecision(requestId, "invalid userOp.sender"));
+  }
+  if (!HEX_BYTES_REGEX.test(callData)) {
+    return JSON.stringify(makeDecision(requestId, "invalid userOp.callData"));
+  }
+  if (!HEX_BYTES_REGEX.test(signature) || signature === "0x") {
+    return JSON.stringify(makeDecision(requestId, "invalid userOp.signature"));
+  }
+
+  const permitValidation = await validatePermitAuthorization(runtime, {
+    chainId: request.chainId,
+    amount,
+    permit: request.permit,
+    expectedOwner: sender,
+  });
+  if (!permitValidation.ok) {
+    return JSON.stringify(makeDecision(requestId, permitValidation.reason || "invalid permit authorization"));
+  }
+
+  // Short-lived approval window so execute flow cannot reuse old decisions forever.
+  const decision: SponsorDecision = {
+    approved: true,
+    reason: "approved by CRE sponsor policy",
+    requestId,
+    approvalId: `cre_approval_${runtime.now().toString()}_${sender.slice(2, 8)}`,
+    approvalExpiresAtUnix: Math.floor(runtime.now().getTime() / 1000) + 120,
+  };
+
   runtime.log(
     `HTTP sponsor decision requestId=${decision.requestId} approved=${decision.approved} reason=${decision.reason}`
   );

@@ -1,14 +1,31 @@
-const required = ["CRE_EXECUTE_TRIGGER_URL", "CRE_APPROVAL_ID", "CHAIN_ID", "REPORT_ACTION_TYPE", "REPORT_PAYLOAD_HEX"] as const;
+const required = [
+  "CRE_EXECUTE_TRIGGER_URL",
+  "CRE_APPROVAL_ID",
+  "CHAIN_ID",
+  "AMOUNT_USDC",
+  "REPORT_ACTION_TYPE",
+  "REPORT_PAYLOAD_HEX",
+  "PERMIT_JSON",
+] as const;
 for (const key of required) {
   if (!process.env[key]) {
     throw new Error(`Missing env var: ${key}`);
   }
 }
 
+let permit: unknown;
+try {
+  permit = JSON.parse(process.env.PERMIT_JSON as string);
+} catch {
+  throw new Error("Invalid PERMIT_JSON (must be valid JSON)");
+}
+
 const body = {
   requestId: `manual_${Date.now()}`,
   approvalId: process.env.CRE_APPROVAL_ID,
   chainId: Number(process.env.CHAIN_ID),
+  amountUsdc: process.env.AMOUNT_USDC,
+  permit,
   actionType: process.env.REPORT_ACTION_TYPE,
   payloadHex: process.env.REPORT_PAYLOAD_HEX,
   receiver: process.env.REPORT_RECEIVER || undefined,

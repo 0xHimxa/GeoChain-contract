@@ -9,11 +9,14 @@ import {
 } from "@chainlink/cre-sdk";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { type Config } from "../Constant-variable/config";
+import { validatePermitAuthorization, type PermitAuthorization } from "./permitValidation";
 
 type ExecuteRequest = {
   requestId?: string;
   approvalId?: string;
   chainId?: number;
+  amountUsdc?: string;
+  permit?: PermitAuthorization;
   receiver?: string;
   actionType?: string;
   payloadHex?: `0x${string}`;
@@ -32,6 +35,14 @@ type ExecuteResponse = {
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
+
+const toBigIntAmount = (value?: string): bigint => {
+  if (!value) return 0n;
+  if (!/^\d+$/.test(value)) {
+    throw new Error("amountUsdc must be a numeric string");
+  }
+  return BigInt(value);
+};
 
 const toChainId = (chainName: string): number | null => {
   if (chainName.includes("arbitrum")) return 421614;
@@ -52,7 +63,7 @@ const parseRequest = (payload: HTTPPayload): ExecuteRequest => {
   return JSON.parse(raw) as ExecuteRequest;
 };
 
-export const executeReportHttpHandler = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `req_${runtime.now().toISOString()}`;
   const execPolicy = runtime.config.executePolicy;
 
@@ -89,6 +100,37 @@ export const executeReportHttpHandler = (runtime: Runtime<Config>, payload: HTTP
       submitted: false,
       requestId,
       reason: "missing chainId",
+    } satisfies ExecuteResponse);
+  }
+
+  let amount: bigint;
+  try {
+    amount = toBigIntAmount(req.amountUsdc);
+  } catch (error) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: error instanceof Error ? error.message : "invalid amountUsdc",
+    } satisfies ExecuteResponse);
+  }
+  if (amount <= 0n) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "amountUsdc must be greater than zero",
+    } satisfies ExecuteResponse);
+  }
+
+  const permitValidation = await validatePermitAuthorization(runtime, {
+    chainId: req.chainId,
+    amount,
+    permit: req.permit,
+  });
+  if (!permitValidation.ok) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: permitValidation.reason || "invalid permit authorization",
     } satisfies ExecuteResponse);
   }
 

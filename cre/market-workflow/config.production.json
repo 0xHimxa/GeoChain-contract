@@ -6,6 +6,9 @@
     "enabled": false,
     "supportedChainIds": [],
     "allowedActions": [],
+    "requirePermitAuthorization": true,
+    "permitSpender": "",
+    "permitTokenByChainId": {},
     "maxAmountUsdc": "0",
     "maxSlippageBps": 0
   },

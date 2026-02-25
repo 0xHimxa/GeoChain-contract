@@ -159,8 +159,11 @@ Set:
 1. `httpTriggerAuthorizedKeys`: for policy trigger auth.
 2. `httpExecutionAuthorizedKeys`: for execute trigger auth.
 3. `sponsorPolicy.enabled = true` (if using policy gating).
-4. `executePolicy.enabled = true` (if using execute trigger).
-5. `executePolicy.allowedActionTypes` include only actions you want to permit.
+4. `sponsorPolicy.requirePermitAuthorization = true`.
+5. `sponsorPolicy.permitSpender` to your spender contract.
+6. `sponsorPolicy.permitTokenByChainId` for allowed token by chain.
+7. `executePolicy.enabled = true` (if using execute trigger).
+8. `executePolicy.allowedActionTypes` include only actions you want to permit.
 
 Also ensure `evms` entries match your deployment chain names + receiver addresses.
 
@@ -213,7 +216,8 @@ Fill:
 1. `CRE HTTP Trigger URL` (policy)
 2. `CRE Execute Trigger URL` (execute)
 3. `chainId`, `action`, limits
-4. report fields:
+4. `permit` JSON (token, owner, spender, value, nonce, deadline, signature, domainName).
+5. report fields:
    - `reportActionType`
    - `reportPayloadHex`
    - optional `reportReceiver`
@@ -234,6 +238,8 @@ Expected response:
 CRE_EXECUTE_TRIGGER_URL=... \
 CRE_APPROVAL_ID=cre_approval_... \
 CHAIN_ID=84532 \
+AMOUNT_USDC=1000000 \
+PERMIT_JSON='{"token":"0x...","owner":"0x...","spender":"0x...","value":"1000000","nonce":"0","deadline":"1893456000","signature":"0x...","domainName":"USD Coin","domainVersion":"2"}' \
 REPORT_ACTION_TYPE=createMarket \
 REPORT_PAYLOAD_HEX=0x... \
 bun run cre:execute
@@ -252,6 +258,17 @@ bun run cre:execute
   "action": "swapYesForNo",
   "amountUsdc": "1000000",
   "slippageBps": 150,
+  "permit": {
+    "token": "0x2222222222222222222222222222222222222222",
+    "owner": "0x1111111111111111111111111111111111111111",
+    "spender": "0x3333333333333333333333333333333333333333",
+    "value": "1000000",
+    "nonce": "0",
+    "deadline": "1893456000",
+    "signature": "0x...",
+    "domainName": "USD Coin",
+    "domainVersion": "2"
+  },
   "userOp": {
     "sender": "0x1111111111111111111111111111111111111111",
     "nonce": "0x1",
@@ -280,6 +297,18 @@ bun run cre:execute
   "requestId": "exec_1",
   "approvalId": "cre_approval_...",
   "chainId": 84532,
+  "amountUsdc": "1000000",
+  "permit": {
+    "token": "0x2222222222222222222222222222222222222222",
+    "owner": "0x1111111111111111111111111111111111111111",
+    "spender": "0x3333333333333333333333333333333333333333",
+    "value": "1000000",
+    "nonce": "0",
+    "deadline": "1893456000",
+    "signature": "0x...",
+    "domainName": "USD Coin",
+    "domainVersion": "2"
+  },
   "actionType": "createMarket",
   "payloadHex": "0x...",
   "receiver": "0xYourFactoryAddress",

@@ -6,6 +6,7 @@ This folder contains local frontend tooling for CRE policy + execute testing.
 
 - `minimal-sponsor-ui/`: local UI and adapter for:
   - CRE HTTP policy trigger (approve/deny)
+  - permit-signature payload forwarding and validation
   - CRE execute trigger (`writeReport` onchain)
 - `index.ts`: placeholder Bun entry from initial scaffold
 

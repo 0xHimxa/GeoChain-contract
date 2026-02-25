@@ -5,7 +5,7 @@ This folder is configured for CRE policy + execute flow only.
 Flow:
 
 1. Frontend calls `/api/sponsor`.
-2. Adapter calls CRE policy trigger.
+2. Adapter calls CRE policy trigger with `permit` payload + requested amount.
 3. If approved, adapter calls CRE execute trigger (`writeReport` onchain).
 
 ## Setup
@@ -36,6 +36,7 @@ Fill:
 - `CRE HTTP Trigger URL`
 - `CRE Execute Trigger URL`
 - request fields
+- permit JSON fields (`token`, `owner`, `spender`, `value`, `nonce`, `deadline`, `signature`, `domainName`, optional `domainVersion`)
 - report fields (`Report ActionType`, `Report PayloadHex`, optional receiver)
 
 ## Manual execute trigger call
@@ -44,6 +45,8 @@ Fill:
 CRE_EXECUTE_TRIGGER_URL=... \
 CRE_APPROVAL_ID=cre_approval_... \
 CHAIN_ID=84532 \
+AMOUNT_USDC=1000000 \
+PERMIT_JSON='{"token":"0x...","owner":"0x...","spender":"0x...","value":"1000000","nonce":"0","deadline":"1893456000","signature":"0x...","domainName":"USD Coin","domainVersion":"2"}' \
 REPORT_ACTION_TYPE=createMarket \
 REPORT_PAYLOAD_HEX=0x... \
 bun run cre:execute

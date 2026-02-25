@@ -16,6 +16,9 @@
       "mintCompleteSets",
       "redeemCompleteSets"
     ],
+    "requirePermitAuthorization": true,
+    "permitSpender": "",
+    "permitTokenByChainId": {},
     "maxAmountUsdc": "1000000000",
     "maxSlippageBps": 300
   },

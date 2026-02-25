@@ -127,6 +127,24 @@
       </div>
 
       <div class="card">
+        <label>Permit JSON (EIP-2612 typed data signature payload)
+          <textarea id="permit">
+{
+  "token": "0x0000000000000000000000000000000000000000",
+  "owner": "0x1111111111111111111111111111111111111111",
+  "spender": "0x2222222222222222222222222222222222222222",
+  "value": "1000000",
+  "nonce": "0",
+  "deadline": "1893456000",
+  "signature": "0x",
+  "domainName": "USD Coin",
+  "domainVersion": "2"
+}
+          </textarea>
+        </label>
+      </div>
+
+      <div class="card">
         <label>UserOp JSON
           <textarea id="userOp">
 {
@@ -153,6 +171,13 @@
 
       byId("sendBtn").addEventListener("click", async () => {
         output.textContent = "Requesting...";
+        let permit;
+        try {
+          permit = JSON.parse(byId("permit").value);
+        } catch {
+          output.textContent = "Invalid Permit JSON";
+          return;
+        }
         let userOp;
         try {
           userOp = JSON.parse(byId("userOp").value);
@@ -171,6 +196,7 @@
           reportActionType: byId("reportActionType").value.trim(),
           reportPayloadHex: byId("reportPayloadHex").value.trim(),
           reportReceiver: byId("reportReceiver").value.trim() || undefined,
+          permit,
           userOp,
         };
 
