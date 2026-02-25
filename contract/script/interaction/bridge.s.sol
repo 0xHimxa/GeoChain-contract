@@ -9,10 +9,10 @@ import {PredictionMarket} from "src/predictionMarket/PredictionMarket.sol";
 
 contract BridgeToken  is Script {
 
-address bridgeAddr = 0xa604Ae032711761B9c0750Cc7Fb45D947063610a;
+address bridgeAddr = 0xc90E272314115fe79B42741E439a8fD8A58a8aEF;
     address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
     uint256 bridgeAmount = 100e6;
-    address marketAddr = 0x4dDDaD21375c21824D98ca14e1d3cB241a403456;
+    address marketAddr = 0xbb17e48A88c8c5A2e4C335eA9E1bD364Cc71B9b1;
         PredictionMarket market = PredictionMarket(marketAddr);
 
   
@@ -21,7 +21,7 @@ address bridgeAddr = 0xa604Ae032711761B9c0750Cc7Fb45D947063610a;
         PredictionMarketBridge bridge = PredictionMarketBridge(bridgeAddr);
             IERC20(market.yesToken()).approve(bridgeAddr, bridgeAmount);
       
-         bridge.lockAndBridgeClaim(2,true,bridgeAmount,10344971235874465080,trader);
+         bridge.lockAndBridgeClaim(3,true,bridgeAmount,10344971235874465080,trader);
 
 
 vm.stopBroadcast();

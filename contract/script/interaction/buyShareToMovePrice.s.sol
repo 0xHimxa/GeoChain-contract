@@ -15,7 +15,7 @@ contract BuyShareToMovePrice is Script {
     function run() external {
         // --- Configuration ---
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddr = 0x4dDDaD21375c21824D98ca14e1d3cB241a403456;
+        address marketAddr = 0xbb17e48A88c8c5A2e4C335eA9E1bD364Cc71B9b1;
         bool isBuyYes = true; // Set to false for NO
         
         uint256 targetSwapIn = isBuyYes ? 50_000_000 : 50_000_000;

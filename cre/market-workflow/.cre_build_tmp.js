@@ -21212,7 +21212,7 @@ var createEventHelper = (runtime2) => {
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler)
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
   ];
 };
 async function main() {

@@ -134,6 +134,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     event CollateralLiquidityWithdrawn(address indexed to, uint256 amount);
     event BuybackBpsUpdated(uint16 buybackBps);
     event MarketFactoryUpdated(address indexed marketFactory);
+    event  NewGasLimit(uint256 amount);
 
     /// @notice ERC20 used for buyback payouts.
     IERC20 public immutable collateral;
@@ -150,7 +151,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     /// @notice Optional factory allowed to update market mappings.
     address public marketFactory;
     /// @notice Fixed gas limit used in CCIP extra args.
-    uint256 public constant CCIP_BRIEGE_GASLIMIT = 700_000;
+    uint256 public  ccipGasLimit = 1_300_000;
 
     /// @notice Chain selectors allowed for bridge traffic.
     mapping(uint64 => bool) public supportedChainSelector;
@@ -436,7 +437,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
             tokenAmounts: tokenAmounts,
             feeToken: ccipFeeToken,
             extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV2({gasLimit: CCIP_BRIEGE_GASLIMIT, allowOutOfOrderExecution: true})
+                Client.EVMExtraArgsV2({gasLimit: ccipGasLimit, allowOutOfOrderExecution: true})
             )
         });
         fee = IRouterClient(ccipRouter).getFee(destinationChainSelector, message);
@@ -564,7 +565,7 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
             tokenAmounts: tokenAmounts,
             feeToken: ccipFeeToken,
             extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV2({gasLimit: CCIP_BRIEGE_GASLIMIT, allowOutOfOrderExecution: true})
+                Client.EVMExtraArgsV2({gasLimit: ccipGasLimit, allowOutOfOrderExecution: true})
             )
         });
 
@@ -600,5 +601,15 @@ contract PredictionMarketBridge is Ownable, IAny2EVMMessageReceiver, IERC165 {
     function getBridgeUSDCBalance() external view returns (uint256) {
         return collateral.balanceOf(address(this));
         
+        }
+
+
+        function setCCIPgasLimit(uint256 amount) external onlyOwner{
+
+if(amount == 0) revert PredictionMarketBridge__InvalidAmount();
+        ccipGasLimit = amount;
+        emit NewGasLimit(amount);
+        
+
         }
 }

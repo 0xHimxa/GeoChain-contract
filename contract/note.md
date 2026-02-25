@@ -3,12 +3,12 @@ send verified nullifie and adddress to contracts
 
 base Macket Factory Address: 0x89D7F9aA690cDCB2265351FcA0fD260Ed0c7608E
 
-base Prediction Market Bridge Address: 0xBA08Ffb458fBb7F6E05E32Eb681564A0F881200F
+base Prediction Market Bridge Address: 0x770B733050f07D93fa827ac82230c0eD9baB4A6c
 
 
 
 
-arb bridge address: 0xa604Ae032711761B9c0750Cc7Fb45D947063610a
+arb bridge address: 0xc90E272314115fe79B42741E439a8fD8A58a8aEF
 
 arb market factory address: 0xA8735c76fA6E04f705204100FbE56582f0e420eD
 
