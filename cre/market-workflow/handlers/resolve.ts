@@ -198,7 +198,7 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
 
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
       runtime.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
-      runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+      runtime.log(`View transaction at https://sepolia.arbiscan.io/tx/${txHash}`);
     }
 
     runtime.log(`ready to be resolve ${readyForResolve}`);

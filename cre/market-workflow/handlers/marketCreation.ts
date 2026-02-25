@@ -30,7 +30,7 @@ const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) {
     return `https://sepolia.arbiscan.io/tx/${txHash}`;
   }
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
+  return `https://sepolia.basescan.org//tx/${txHash}`;
 };
 
 /**
@@ -88,7 +88,7 @@ const sendActionReport = (
  * Generates a candidate market from Firestore + Gemini data and submits `createMarket`
  * action reports to all configured market factories.
  */
-export function createPredictionMarketEvent(runtime: Runtime<Config>): string {
+export const createPredictionMarketEvent = (runtime: Runtime<Config>): string => {
   const authInfo: SignupNewUserResponse = signUpWorkFlow(runtime);
   const documents = getFirestoreList(runtime, authInfo.idToken);
   const hasMore = documents.length === 31;
@@ -128,8 +128,8 @@ export function createPredictionMarketEvent(runtime: Runtime<Config>): string {
  */
 export const createEventHelper = (runtime: Runtime<Config>): string => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";
-  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
-  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 45 * 60);
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 7 * 60);
 
   runtime.config.evms.map((evmConfig) => {
     const createPayload = encodeAbiParameters(

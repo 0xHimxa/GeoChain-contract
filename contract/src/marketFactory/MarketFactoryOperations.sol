@@ -6,6 +6,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Resolution, MarketConstants, State} from "../libraries/MarketTypes.sol";
 import {AMMLib} from "../libraries/AMMLib.sol";
 import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
+import {PredictionMarketBase} from "../predictionMarket/PredictionMarketBase.sol";
+
 import {MarketFactoryCcip} from "./MarketFactoryCcip.sol";
 
 /// @title MarketFactoryOperations
@@ -108,8 +110,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
         if (maxSpendCollateral == 0) revert MarketFactory__ArbZeroAmount();
 
         ctx.market = PredictionMarket(ctx.marketAddress);
-
-        PredictionMarket.DeviationBand band;
+    PredictionMarketBase.DeviationBand band;
         bool allowYesForNo;
         bool allowNoForYes;
         (band, ctx.deviationBefore, ctx.effectiveFeeBps, ctx.maxOutBps, allowYesForNo, allowNoForYes) =

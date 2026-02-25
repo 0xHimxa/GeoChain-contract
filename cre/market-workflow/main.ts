@@ -5,14 +5,16 @@ import { syncCanonicalPrice } from "./handlers/syncPrice";
 import { arbitrateUnsafeMarketHandler } from "./handlers/arbitrage";
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/marketCreation";
 import { type Config } from "./Constant-variable/config";
+import {processPendingWithdrawalsHandler} from "./handlers/marketWithdrawal";
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
 
   return [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
-    handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
+   // handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+   // handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     // handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
+     handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler),
     // handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
     // handler(cron.trigger({ schedule: config.schedule }), authWorkflow),
     // handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),

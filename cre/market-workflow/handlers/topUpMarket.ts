@@ -25,9 +25,9 @@ import {
 
 const USDC_DECIMALS = 1_000_000n;
 const BRIDGE_BALANCE_THRESHOLD = 50_000n * USDC_DECIMALS;
-const BRIDGE_TOP_UP_AMOUNT = 40_000n * USDC_DECIMALS;
-const FACTORY_BALANCE_THRESHOLD = 50_000n * USDC_DECIMALS;
-const FACTORY_TOP_UP_AMOUNT = 40_000n * USDC_DECIMALS;
+const BRIDGE_TOP_UP_AMOUNT = 140_000n * USDC_DECIMALS;
+const FACTORY_BALANCE_THRESHOLD = 210_000n * USDC_DECIMALS;
+const FACTORY_TOP_UP_AMOUNT = 400_000n * USDC_DECIMALS;
 const MINT_COLLATERAL_ACTION = "mintCollateralTo";
 
 const marketFactoryBridgeGetterAbi = parseAbi(["function predictionMarketBridge() view returns (address)"]);

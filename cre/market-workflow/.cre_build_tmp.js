@@ -137,19 +137,64 @@ function formatAbiItem(abiItem) {
 var init_formatAbiItem = __esm(() => {
   init_formatAbiParameters();
 });
+function isErrorSignature(signature) {
+  return errorSignatureRegex.test(signature);
+}
+function execErrorSignature(signature) {
+  return execTyped(errorSignatureRegex, signature);
+}
+function isEventSignature(signature) {
+  return eventSignatureRegex.test(signature);
+}
+function execEventSignature(signature) {
+  return execTyped(eventSignatureRegex, signature);
+}
+function isFunctionSignature(signature) {
+  return functionSignatureRegex.test(signature);
+}
+function execFunctionSignature(signature) {
+  return execTyped(functionSignatureRegex, signature);
+}
 function isStructSignature(signature) {
   return structSignatureRegex.test(signature);
 }
 function execStructSignature(signature) {
   return execTyped(structSignatureRegex, signature);
 }
+function isConstructorSignature(signature) {
+  return constructorSignatureRegex.test(signature);
+}
+function execConstructorSignature(signature) {
+  return execTyped(constructorSignatureRegex, signature);
+}
+function isFallbackSignature(signature) {
+  return fallbackSignatureRegex.test(signature);
+}
+function execFallbackSignature(signature) {
+  return execTyped(fallbackSignatureRegex, signature);
+}
+function isReceiveSignature(signature) {
+  return receiveSignatureRegex.test(signature);
+}
+var errorSignatureRegex;
+var eventSignatureRegex;
+var functionSignatureRegex;
 var structSignatureRegex;
+var constructorSignatureRegex;
+var fallbackSignatureRegex;
+var receiveSignatureRegex;
 var modifiers;
 var eventModifiers;
 var functionModifiers;
 var init_signatures = __esm(() => {
   init_regex();
+  errorSignatureRegex = /^error (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  eventSignatureRegex = /^event (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  functionSignatureRegex = /^function (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)(?: (?<scope>external|public{1}))?(?: (?<stateMutability>pure|view|nonpayable|payable{1}))?(?: returns\s?\((?<returns>.*?)\))?$/;
   structSignatureRegex = /^struct (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*) \{(?<properties>.*?)\}$/;
+  constructorSignatureRegex = /^constructor\((?<parameters>.*?)\)(?:\s(?<stateMutability>payable{1}))?$/;
+  fallbackSignatureRegex = /^fallback\(\) external(?:\s(?<stateMutability>payable{1}))?$/;
+  receiveSignatureRegex = /^receive\(\) external payable$/;
   modifiers = new Set([
     "memory",
     "indexed",
@@ -296,6 +341,7 @@ var init_abiParameter = __esm(() => {
   };
 });
 var InvalidSignatureError;
+var UnknownSignatureError;
 var InvalidStructSignatureError;
 var init_signature = __esm(() => {
   init_errors();
@@ -309,6 +355,19 @@ var init_signature = __esm(() => {
         configurable: true,
         writable: true,
         value: "InvalidSignatureError"
+      });
+    }
+  };
+  UnknownSignatureError = class UnknownSignatureError2 extends BaseError {
+    constructor({ signature }) {
+      super("Unknown signature.", {
+        details: signature
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "UnknownSignatureError"
       });
     }
   };
@@ -434,6 +493,108 @@ var init_cache = __esm(() => {
     ]
   ]);
 });
+function parseSignature(signature, structs = {}) {
+  if (isFunctionSignature(signature))
+    return parseFunctionSignature(signature, structs);
+  if (isEventSignature(signature))
+    return parseEventSignature(signature, structs);
+  if (isErrorSignature(signature))
+    return parseErrorSignature(signature, structs);
+  if (isConstructorSignature(signature))
+    return parseConstructorSignature(signature, structs);
+  if (isFallbackSignature(signature))
+    return parseFallbackSignature(signature);
+  if (isReceiveSignature(signature))
+    return {
+      type: "receive",
+      stateMutability: "payable"
+    };
+  throw new UnknownSignatureError({ signature });
+}
+function parseFunctionSignature(signature, structs = {}) {
+  const match = execFunctionSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "function" });
+  const inputParams = splitParameters(match.parameters);
+  const inputs = [];
+  const inputLength = inputParams.length;
+  for (let i2 = 0;i2 < inputLength; i2++) {
+    inputs.push(parseAbiParameter(inputParams[i2], {
+      modifiers: functionModifiers,
+      structs,
+      type: "function"
+    }));
+  }
+  const outputs = [];
+  if (match.returns) {
+    const outputParams = splitParameters(match.returns);
+    const outputLength = outputParams.length;
+    for (let i2 = 0;i2 < outputLength; i2++) {
+      outputs.push(parseAbiParameter(outputParams[i2], {
+        modifiers: functionModifiers,
+        structs,
+        type: "function"
+      }));
+    }
+  }
+  return {
+    name: match.name,
+    type: "function",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs,
+    outputs
+  };
+}
+function parseEventSignature(signature, structs = {}) {
+  const match = execEventSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "event" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], {
+      modifiers: eventModifiers,
+      structs,
+      type: "event"
+    }));
+  return { name: match.name, type: "event", inputs: abiParameters };
+}
+function parseErrorSignature(signature, structs = {}) {
+  const match = execErrorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "error" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "error" }));
+  return { name: match.name, type: "error", inputs: abiParameters };
+}
+function parseConstructorSignature(signature, structs = {}) {
+  const match = execConstructorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "constructor" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "constructor" }));
+  return {
+    type: "constructor",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs: abiParameters
+  };
+}
+function parseFallbackSignature(signature) {
+  const match = execFallbackSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "fallback" });
+  return {
+    type: "fallback",
+    stateMutability: match.stateMutability ?? "nonpayable"
+  };
+}
 function parseAbiParameter(param, options) {
   const parameterCacheKey = getParameterCacheKey(param, options?.type, options?.structs);
   if (parameterCache.has(parameterCacheKey))
@@ -531,6 +692,7 @@ var init_utils = __esm(() => {
   init_regex();
   init_abiItem();
   init_abiParameter();
+  init_signature();
   init_splitParameters();
   init_cache();
   init_signatures();
@@ -617,6 +779,23 @@ var init_structs = __esm(() => {
   init_utils();
   typeWithoutTupleRegex = /^(?<type>[a-zA-Z$_][a-zA-Z0-9$_]*)(?<array>(?:\[\d*?\])+?)?$/;
 });
+function parseAbi(signatures) {
+  const structs = parseStructs(signatures);
+  const abi = [];
+  const length = signatures.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const signature = signatures[i2];
+    if (isStructSignature(signature))
+      continue;
+    abi.push(parseSignature(signature, structs));
+  }
+  return abi;
+}
+var init_parseAbi = __esm(() => {
+  init_signatures();
+  init_structs();
+  init_utils();
+});
 function parseAbiParameters(params) {
   const abiParameters = [];
   if (typeof params === "string") {
@@ -652,6 +831,7 @@ var init_parseAbiParameters = __esm(() => {
 });
 var init_exports = __esm(() => {
   init_formatAbiItem();
+  init_parseAbi();
   init_parseAbiParameters();
 });
 function formatAbiItem2(abiItem, { includeName = false } = {}) {
@@ -6352,6 +6532,7 @@ var ListSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 3);
 var DecimalSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 4);
 var file_sdk_v1alpha_sdk = /* @__PURE__ */ fileDesc("ChVzZGsvdjFhbHBoYS9zZGsucHJvdG8SC3Nkay52MWFscGhhIrQBChVTaW1wbGVDb25zZW5zdXNJbnB1dHMSIQoFdmFsdWUYASABKAsyEC52YWx1ZXMudjEuVmFsdWVIABIPCgVlcnJvchgCIAEoCUgAEjUKC2Rlc2NyaXB0b3JzGAMgASgLMiAuc2RrLnYxYWxwaGEuQ29uc2Vuc3VzRGVzY3JpcHRvchIhCgdkZWZhdWx0GAQgASgLMhAudmFsdWVzLnYxLlZhbHVlQg0KC29ic2VydmF0aW9uIpABCglGaWVsZHNNYXASMgoGZmllbGRzGAEgAygLMiIuc2RrLnYxYWxwaGEuRmllbGRzTWFwLkZpZWxkc0VudHJ5Gk8KC0ZpZWxkc0VudHJ5EgsKA2tleRgBIAEoCRIvCgV2YWx1ZRgCIAEoCzIgLnNkay52MWFscGhhLkNvbnNlbnN1c0Rlc2NyaXB0b3I6AjgBIoYBChNDb25zZW5zdXNEZXNjcmlwdG9yEjMKC2FnZ3JlZ2F0aW9uGAEgASgOMhwuc2RrLnYxYWxwaGEuQWdncmVnYXRpb25UeXBlSAASLAoKZmllbGRzX21hcBgCIAEoCzIWLnNkay52MWFscGhhLkZpZWxkc01hcEgAQgwKCmRlc2NyaXB0b3IiagoNUmVwb3J0UmVxdWVzdBIXCg9lbmNvZGVkX3BheWxvYWQYASABKAwSFAoMZW5jb2Rlcl9uYW1lGAIgASgJEhQKDHNpZ25pbmdfYWxnbxgDIAEoCRIUCgxoYXNoaW5nX2FsZ28YBCABKAkilwEKDlJlcG9ydFJlc3BvbnNlEhUKDWNvbmZpZ19kaWdlc3QYASABKAwSEgoGc2VxX25yGAIgASgEQgIwABIWCg5yZXBvcnRfY29udGV4dBgDIAEoDBISCgpyYXdfcmVwb3J0GAQgASgMEi4KBHNpZ3MYBSADKAsyIC5zZGsudjFhbHBoYS5BdHRyaWJ1dGVkU2lnbmF0dXJlIjsKE0F0dHJpYnV0ZWRTaWduYXR1cmUSEQoJc2lnbmF0dXJlGAEgASgMEhEKCXNpZ25lcl9pZBgCIAEoDSJrChFDYXBhYmlsaXR5UmVxdWVzdBIKCgJpZBgBIAEoCRIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueRIOCgZtZXRob2QYAyABKAkSEwoLY2FsbGJhY2tfaWQYBCABKAUiWgoSQ2FwYWJpbGl0eVJlc3BvbnNlEicKB3BheWxvYWQYASABKAsyFC5nb29nbGUucHJvdG9idWYuQW55SAASDwoFZXJyb3IYAiABKAlIAEIKCghyZXNwb25zZSJYChNUcmlnZ2VyU3Vic2NyaXB0aW9uEgoKAmlkGAEgASgJEiUKB3BheWxvYWQYAiABKAsyFC5nb29nbGUucHJvdG9idWYuQW55Eg4KBm1ldGhvZBgDIAEoCSJVChpUcmlnZ2VyU3Vic2NyaXB0aW9uUmVxdWVzdBI3Cg1zdWJzY3JpcHRpb25zGAEgAygLMiAuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvbiJACgdUcmlnZ2VyEg4KAmlkGAEgASgEQgIwABIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueSInChhBd2FpdENhcGFiaWxpdGllc1JlcXVlc3QSCwoDaWRzGAEgAygFIrgBChlBd2FpdENhcGFiaWxpdGllc1Jlc3BvbnNlEkgKCXJlc3BvbnNlcxgBIAMoCzI1LnNkay52MWFscGhhLkF3YWl0Q2FwYWJpbGl0aWVzUmVzcG9uc2UuUmVzcG9uc2VzRW50cnkaUQoOUmVzcG9uc2VzRW50cnkSCwoDa2V5GAEgASgFEi4KBXZhbHVlGAIgASgLMh8uc2RrLnYxYWxwaGEuQ2FwYWJpbGl0eVJlc3BvbnNlOgI4ASKgAQoORXhlY3V0ZVJlcXVlc3QSDgoGY29uZmlnGAEgASgMEisKCXN1YnNjcmliZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEicKB3RyaWdnZXIYAyABKAsyFC5zZGsudjFhbHBoYS5UcmlnZ2VySAASHQoRbWF4X3Jlc3BvbnNlX3NpemUYBCABKARCAjAAQgkKB3JlcXVlc3QimQEKD0V4ZWN1dGlvblJlc3VsdBIhCgV2YWx1ZRgBIAEoCzIQLnZhbHVlcy52MS5WYWx1ZUgAEg8KBWVycm9yGAIgASgJSAASSAoVdHJpZ2dlcl9zdWJzY3JpcHRpb25zGAMgASgLMicuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvblJlcXVlc3RIAEIICgZyZXN1bHQiVgoRR2V0U2VjcmV0c1JlcXVlc3QSLAoIcmVxdWVzdHMYASADKAsyGi5zZGsudjFhbHBoYS5TZWNyZXRSZXF1ZXN0EhMKC2NhbGxiYWNrX2lkGAIgASgFIiIKE0F3YWl0U2VjcmV0c1JlcXVlc3QSCwoDaWRzGAEgAygFIqsBChRBd2FpdFNlY3JldHNSZXNwb25zZRJDCglyZXNwb25zZXMYASADKAsyMC5zZGsudjFhbHBoYS5Bd2FpdFNlY3JldHNSZXNwb25zZS5SZXNwb25zZXNFbnRyeRpOCg5SZXNwb25zZXNFbnRyeRILCgNrZXkYASABKAUSKwoFdmFsdWUYAiABKAsyHC5zZGsudjFhbHBoYS5TZWNyZXRSZXNwb25zZXM6AjgBIi4KDVNlY3JldFJlcXVlc3QSCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJIkUKBlNlY3JldBIKCgJpZBgBIAEoCRIRCgluYW1lc3BhY2UYAiABKAkSDQoFb3duZXIYAyABKAkSDQoFdmFsdWUYBCABKAkiSgoLU2VjcmV0RXJyb3ISCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJEg0KBW93bmVyGAMgASgJEg0KBWVycm9yGAQgASgJIm4KDlNlY3JldFJlc3BvbnNlEiUKBnNlY3JldBgBIAEoCzITLnNkay52MWFscGhhLlNlY3JldEgAEikKBWVycm9yGAIgASgLMhguc2RrLnYxYWxwaGEuU2VjcmV0RXJyb3JIAEIKCghyZXNwb25zZSJBCg9TZWNyZXRSZXNwb25zZXMSLgoJcmVzcG9uc2VzGAEgAygLMhsuc2RrLnYxYWxwaGEuU2VjcmV0UmVzcG9uc2UquAEKD0FnZ3JlZ2F0aW9uVHlwZRIgChxBR0dSRUdBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASGwoXQUdHUkVHQVRJT05fVFlQRV9NRURJQU4QARIeChpBR0dSRUdBVElPTl9UWVBFX0lERU5USUNBTBACEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1BSRUZJWBADEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1NVRkZJWBAEKjkKBE1vZGUSFAoQTU9ERV9VTlNQRUNJRklFRBAAEgwKCE1PREVfRE9OEAESDQoJTU9ERV9OT0RFEAJCaAoPY29tLnNkay52MWFscGhhQghTZGtQcm90b1ABogIDU1hYqgILU2RrLlYxYWxwaGHKAgtTZGtcVjFhbHBoYeICF1Nka1xWMWFscGhhXEdQQk1ldGFkYXRh6gIMU2RrOjpWMWFscGhhYgZwcm90bzM", [file_google_protobuf_any, file_google_protobuf_empty, file_values_v1_values]);
 var SimpleConsensusInputsSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 0);
+var ConsensusDescriptorSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 2);
 var ReportRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 3);
 var ReportResponseSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 4);
 var CapabilityRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 6);
@@ -8156,6 +8337,15 @@ var prepareReportRequest = (hexEncodedPayload, reportEncoder = EVM_DEFAULT_REPOR
   encodedPayload: hexToBase64(hexEncodedPayload),
   ...reportEncoder
 });
+function ok(responseOrFn) {
+  if (typeof responseOrFn === "function") {
+    return {
+      result: () => ok(responseOrFn().result)
+    };
+  } else {
+    return responseOrFn.statusCode >= 200 && responseOrFn.statusCode < 300;
+  }
+}
 function sendReport(runtime, report, fn) {
   const rawReport = report.x_generatedCodeOnly_unwrap();
   const request = fn(rawReport);
@@ -11785,6 +11975,33 @@ var defaultLookup = new NetworkLookup({
   testnetBySelectorByFamily
 });
 var getNetwork = (options) => defaultLookup.find(options);
+function consensusIdenticalAggregation() {
+  return simpleConsensus(AggregationType.IDENTICAL);
+}
+
+class ConsensusImpl {
+  descriptor;
+  defaultValue;
+  constructor(descriptor, defaultValue) {
+    this.descriptor = descriptor;
+    this.defaultValue = defaultValue;
+  }
+  withDefault(t) {
+    return new ConsensusImpl(this.descriptor, t);
+  }
+  _usesUToForceShape(_) {}
+}
+function simpleConsensus(agg) {
+  return new ConsensusImpl(simpleDescriptor(agg));
+}
+function simpleDescriptor(agg) {
+  return create(ConsensusDescriptorSchema, {
+    descriptor: {
+      case: "aggregation",
+      value: agg
+    }
+  });
+}
 
 class Int64 {
   static INT64_MIN = -(2n ** 63n);
@@ -16708,6 +16925,24 @@ var MarketFactoryAbi = [
   },
   {
     type: "function",
+    name: "mintCollateralTo",
+    inputs: [
+      {
+        name: "to",
+        type: "address",
+        internalType: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256"
+      }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
     name: "arbitrateUnsafeMarket",
     inputs: [
       {
@@ -18162,6 +18397,139 @@ var MarketFactoryAbi = [
     inputs: []
   }
 ];
+var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
+var ARB_MAX_SPEND_COLLATERAL = 200000000n;
+var ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n;
+var PROCESS_PENDING_WITHDRAWALS_ACTION = "processPendingWithdrawals";
+var WITHDRAW_BATCH_SIZE = 20n;
+var USDC_DECIMALS = 1000000n;
+var BRIDGE_BALANCE_THRESHOLD = 50000n * USDC_DECIMALS;
+var BRIDGE_TOP_UP_AMOUNT = 140000n * USDC_DECIMALS;
+var FACTORY_BALANCE_THRESHOLD = 210000n * USDC_DECIMALS;
+var FACTORY_TOP_UP_AMOUNT = 400000n * USDC_DECIMALS;
+var MINT_COLLATERAL_ACTION = "mintCollateralTo";
+var marketFactoryBridgeGetterAbi = parseAbi(["function predictionMarketBridge() view returns (address)"]);
+var erc20BalanceOfAbi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);
+var marketFactoryBalanceTopUp = (runtime2) => {
+  const marketFactoryCollateralCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "getMarketFactoryCollateralBalance"
+  });
+  const marketFactoryBridgeCallData = encodeFunctionData({
+    abi: marketFactoryBridgeGetterAbi,
+    functionName: "predictionMarketBridge"
+  });
+  const marketFactoryCollateralTokenCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "collateral"
+  });
+  const chainSummaries = runtime2.config.evms.map((evmConfig) => {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true
+    });
+    if (!network248) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+    }
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const callResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: marketFactoryCollateralCallData
+      })
+    }).result();
+    const factoryBalance = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "getMarketFactoryCollateralBalance",
+      data: bytesToHex(callResult.data)
+    });
+    const bridgeResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: marketFactoryBridgeCallData
+      })
+    }).result();
+    const bridgeAddress = decodeFunctionResult({
+      abi: marketFactoryBridgeGetterAbi,
+      functionName: "predictionMarketBridge",
+      data: bytesToHex(bridgeResult.data)
+    });
+    if (bridgeAddress === "0x0000000000000000000000000000000000000000") {
+      runtime2.log(`[${evmConfig.chainName}] predictionMarketBridge is not configured`);
+      return `${evmConfig.chainName}: bridge-not-configured factory=${factoryBalance.toString()}`;
+    }
+    const collateralResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: marketFactoryCollateralTokenCallData
+      })
+    }).result();
+    const collateralAddress = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "collateral",
+      data: bytesToHex(collateralResult.data)
+    });
+    const bridgeCollateralBalanceCallData = encodeFunctionData({
+      abi: erc20BalanceOfAbi,
+      functionName: "balanceOf",
+      args: [bridgeAddress]
+    });
+    const bridgeBalanceResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: collateralAddress,
+        data: bridgeCollateralBalanceCallData
+      })
+    }).result();
+    const bridgeCollateralBalance = decodeFunctionResult({
+      abi: erc20BalanceOfAbi,
+      functionName: "balanceOf",
+      data: bytesToHex(bridgeBalanceResult.data)
+    });
+    const maybeTopUpByReport = (receiver, amount, reason) => {
+      const mintPayload = encodeAbiParameters(parseAbiParameters("address receiver, uint256 amount"), [receiver, amount]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+        MINT_COLLATERAL_ACTION,
+        mintPayload
+      ]);
+      const reportResponse = runtime2.report({
+        ...prepareReportRequest(encodedReport)
+      }).result();
+      const writeReportResult = evmClient.writeReport(runtime2, {
+        receiver: evmConfig.marketFactoryAddress,
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000"
+        }
+      }).result();
+      runtime2.log("Waiting for write report response");
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime2.log(`[${evmConfig.chainName}] ${MINT_COLLATERAL_ACTION} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+        throw new Error(`${MINT_COLLATERAL_ACTION} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+      }
+      const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+      runtime2.log(`Write report transaction succeeded: ${txHash}`);
+      runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+      return `${reason}=topped-up to=${receiver} amount=${amount.toString()} tx=${txHash}`;
+    };
+    const actions = [];
+    if (bridgeCollateralBalance < BRIDGE_BALANCE_THRESHOLD) {
+      actions.push(maybeTopUpByReport(bridgeAddress, BRIDGE_TOP_UP_AMOUNT, "bridge"));
+    }
+    if (factoryBalance < FACTORY_BALANCE_THRESHOLD) {
+      actions.push(maybeTopUpByReport(evmConfig.marketFactoryAddress, FACTORY_TOP_UP_AMOUNT, "factory"));
+    }
+    if (actions.length > 0) {
+      return `${evmConfig.chainName}: ${actions.join(", ")}`;
+    }
+    return `${evmConfig.chainName}: healthy bridgeBalance=${bridgeCollateralBalance.toString()} factory=${factoryBalance.toString()}`;
+  });
+  return chainSummaries.join(" | ");
+};
 var PredictionMarketAbi = [
   {
     type: "constructor",
@@ -20087,13 +20455,69 @@ var PredictionMarketAbi = [
     inputs: []
   }
 ];
-var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
+var isHubFactoryConfig = (runtime2, evmConfig, evmClient) => {
+  const isHubCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "isHubFactory"
+  });
+  const isHubResult = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: evmConfig.marketFactoryAddress,
+      data: isHubCallData
+    })
+  }).result();
+  return decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "isHubFactory",
+    data: bytesToHex(isHubResult.data)
+  });
+};
+var processPendingWithdrawalsHandler = (runtime2) => {
+  let attemptedWrites = 0;
+  let successfulWrites = 0;
+  for (const evmConfig of runtime2.config.evms) {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true
+    });
+    if (!network248) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+    }
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const payload = encodeAbiParameters(parseAbiParameters("uint256 maxItems"), [WITHDRAW_BATCH_SIZE]);
+    const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+      PROCESS_PENDING_WITHDRAWALS_ACTION,
+      payload
+    ]);
+    const reportResponse = runtime2.report({
+      ...prepareReportRequest(encodedReport)
+    }).result();
+    attemptedWrites += 1;
+    const writeReportResult = evmClient.writeReport(runtime2, {
+      receiver: evmConfig.marketFactoryAddress,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: "10000000"
+      }
+    }).result();
+    if (writeReportResult.txStatus === TxStatus.REVERTED) {
+      runtime2.log(`[${evmConfig.chainName}] ${PROCESS_PENDING_WITHDRAWALS_ACTION} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+      continue;
+    }
+    const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+    runtime2.log(`[${evmConfig.chainName}] ${PROCESS_PENDING_WITHDRAWALS_ACTION} tx: ${txHash}`);
+    successfulWrites += 1;
+  }
+  return `pending-withdrawal batch writes=${successfulWrites}/${attemptedWrites}, batchSize=${WITHDRAW_BATCH_SIZE.toString()}`;
+};
 var resoloveEvent = (runtime2) => {
   const marketFactoryCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList"
   });
-  const PredictionCallData = encodeFunctionData({
+  const predictionCallData = encodeFunctionData({
     abi: PredictionMarketAbi,
     functionName: "checkResolutionTime"
   });
@@ -20107,6 +20531,10 @@ var resoloveEvent = (runtime2) => {
     throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
   }
   const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const hubFlag = isHubFactoryConfig(runtime2, sepoConfig, evmClient);
+  if (!hubFlag) {
+    return `Configured resolver chain is not hub: ${sepoConfig.chainName}`;
+  }
   const callResult = evmClient.callContract(runtime2, {
     call: encodeCallMsg({
       from: sender,
@@ -20119,23 +20547,44 @@ var resoloveEvent = (runtime2) => {
     functionName: "getActiveEventList",
     data: bytesToHex(callResult.data)
   });
-  if (activeEventList.length == 0)
+  if (activeEventList.length === 0) {
     return "No Active Events";
+  }
   activeEventList.forEach((eventAddress) => {
-    const callResult2 = evmClient.callContract(runtime2, {
+    const marketIdCallData = encodeFunctionData({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      args: [eventAddress]
+    });
+    const marketIdResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: sepoConfig.marketFactoryAddress,
+        data: marketIdCallData
+      })
+    }).result();
+    const marketId = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      data: bytesToHex(marketIdResult.data)
+    });
+    if (marketId === 0n) {
+      runtime2.log(`Skipping ${eventAddress}: marketIdByAddress returned 0`);
+      return;
+    }
+    const predictionStatusResult = evmClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: sender,
         to: eventAddress,
-        data: PredictionCallData
+        data: predictionCallData
       })
     }).result();
     const readyForResolve = decodeFunctionResult({
       abi: PredictionMarketAbi,
       functionName: "checkResolutionTime",
-      data: bytesToHex(callResult2.data)
+      data: bytesToHex(predictionStatusResult.data)
     });
     if (readyForResolve) {
-      const actionType = "ResolveMarket";
       const questionCallData = encodeFunctionData({
         abi: PredictionMarketAbi,
         functionName: "s_question"
@@ -20169,9 +20618,14 @@ var resoloveEvent = (runtime2) => {
         data: bytesToHex(rtResult.data)
       });
       runtime2.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
-      const resolution = 1;
-      const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [resolution, "https:working"]);
-      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [actionType, resolvePayload]);
+      const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
+        1,
+        "https:working"
+      ]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+        "ResolveMarket",
+        resolvePayload
+      ]);
       const reportResponse = runtime2.report({
         ...prepareReportRequest(encodedReport)
       }).result();
@@ -20189,16 +20643,576 @@ var resoloveEvent = (runtime2) => {
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
       runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
-      runtime2.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+      runtime2.log(`View transaction at https://sepolia.arbiscan.io/tx/${txHash}`);
     }
     runtime2.log(`ready to be resolve ${readyForResolve}`);
   });
-  return `${activeEventList.length}`;
+  const queueSummary = processPendingWithdrawalsHandler(runtime2);
+  return `active=${activeEventList.length}; ${queueSummary}`;
+};
+var syncCanonicalPrice = (runtime2) => {
+  if (runtime2.config.evms.length < 2) {
+    return "Need at least one hub and one spoke EVM config";
+  }
+  const hubConfig = runtime2.config.evms[0];
+  const spokeConfigs = runtime2.config.evms.slice(1);
+  const hubNetwork = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: hubConfig.chainName,
+    isTestnet: true
+  });
+  if (!hubNetwork) {
+    throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
+  }
+  const hubClient = new ClientCapability(hubNetwork.chainSelector.selector);
+  const spokeClients = spokeConfigs.map((spokeConfig) => {
+    const spokeNetwork = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: spokeConfig.chainName,
+      isTestnet: true
+    });
+    if (!spokeNetwork) {
+      throw new Error(`Unknown chain name: ${spokeConfig.chainName}`);
+    }
+    return {
+      config: spokeConfig,
+      client: new ClientCapability(spokeNetwork.chainSelector.selector)
+    };
+  });
+  const activeMarketCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList"
+  });
+  const activeMarketResult = hubClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: hubConfig.marketFactoryAddress,
+      data: activeMarketCallData
+    })
+  }).result();
+  const activeMarketList = decodeFunctionResult({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(activeMarketResult.data)
+  });
+  if (activeMarketList.length === 0) {
+    return "No active markets to sync";
+  }
+  let attemptedWrites = 0;
+  let successfulWrites = 0;
+  for (const marketAddress of activeMarketList) {
+    const marketIdCallData = encodeFunctionData({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      args: [marketAddress]
+    });
+    const marketIdCallResult = hubClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: hubConfig.marketFactoryAddress,
+        data: marketIdCallData
+      })
+    }).result();
+    const marketId = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "marketIdByAddress",
+      data: bytesToHex(marketIdCallResult.data)
+    });
+    if (marketId === 0n) {
+      runtime2.log(`Skipping ${marketAddress}: marketIdByAddress returned 0`);
+      continue;
+    }
+    const yesPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability"
+    });
+    const noPriceCallData = encodeFunctionData({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability"
+    });
+    const yesPriceResult = hubClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: yesPriceCallData
+      })
+    }).result();
+    const noPriceResult = hubClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: marketAddress,
+        data: noPriceCallData
+      })
+    }).result();
+    const yesPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getYesPriceProbability",
+      data: bytesToHex(yesPriceResult.data)
+    });
+    const noPriceE6 = decodeFunctionResult({
+      abi: PredictionMarketAbi,
+      functionName: "getNoPriceProbability",
+      data: bytesToHex(noPriceResult.data)
+    });
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 15 * 60);
+    const pricePayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil"), [marketId, yesPriceE6, noPriceE6, validUntil]);
+    const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+      "syncSpokeCanonicalPrice",
+      pricePayload
+    ]);
+    const reportResponse = runtime2.report({
+      ...prepareReportRequest(encodedReport)
+    }).result();
+    for (const spoke of spokeClients) {
+      attemptedWrites += 1;
+      const writeReportResult = spoke.client.writeReport(runtime2, {
+        receiver: spoke.config.marketFactoryAddress,
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000"
+        }
+      }).result();
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+        continue;
+      }
+      const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+      runtime2.log(`[${spoke.config.chainName}] syncSpokeCanonicalPrice tx for marketId=${marketId}: ${txHash}`);
+      successfulWrites += 1;
+    }
+  }
+  return `Synced ${activeMarketList.length} markets from hub to ${spokeClients.length} spokes (successful writes: ${successfulWrites}/${attemptedWrites})`;
+};
+var arbitrateUnsafeMarketHandler = (runtime2) => {
+  if (runtime2.config.evms.length === 0) {
+    return "No EVM config found";
+  }
+  const activeMarketCallData = encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "getActiveEventList"
+  });
+  const marketIdByAddressCallData = (marketAddress) => encodeFunctionData({
+    abi: MarketFactoryAbi,
+    functionName: "marketIdByAddress",
+    args: [marketAddress]
+  });
+  const getDeviationStatusCallData = encodeFunctionData({
+    abi: PredictionMarketAbi,
+    functionName: "getDeviationStatus"
+  });
+  let scannedMarkets = 0;
+  let unsafeMarkets = 0;
+  let correctedMarkets = 0;
+  for (const evmConfig of runtime2.config.evms) {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evmConfig.chainName,
+      isTestnet: true
+    });
+    if (!network248) {
+      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+    }
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    const activeMarketResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: activeMarketCallData
+      })
+    }).result();
+    const activeMarketList = decodeFunctionResult({
+      abi: MarketFactoryAbi,
+      functionName: "getActiveEventList",
+      data: bytesToHex(activeMarketResult.data)
+    });
+    for (const marketAddress of activeMarketList) {
+      scannedMarkets += 1;
+      const deviationResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: marketAddress,
+          data: getDeviationStatusCallData
+        })
+      }).result();
+      const [band, , , , allowYesForNo, allowNoForYes] = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "getDeviationStatus",
+        data: bytesToHex(deviationResult.data)
+      });
+      if (Number(band) !== 2) {
+        continue;
+      }
+      if (!allowYesForNo && !allowNoForYes) {
+        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: unsafe band without valid direction`);
+        continue;
+      }
+      unsafeMarkets += 1;
+      const marketIdCallResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: evmConfig.marketFactoryAddress,
+          data: marketIdByAddressCallData(marketAddress)
+        })
+      }).result();
+      const marketId = decodeFunctionResult({
+        abi: MarketFactoryAbi,
+        functionName: "marketIdByAddress",
+        data: bytesToHex(marketIdCallResult.data)
+      });
+      if (marketId === 0n) {
+        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: marketIdByAddress returned 0`);
+        continue;
+      }
+      const correctionPayload = encodeAbiParameters(parseAbiParameters("uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps"), [marketId, ARB_MAX_SPEND_COLLATERAL, ARB_MIN_DEVIATION_IMPROVEMENT_BPS]);
+      const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+        "priceCorrection",
+        correctionPayload
+      ]);
+      const reportResponse = runtime2.report({
+        ...prepareReportRequest(encodedReport)
+      }).result();
+      const writeReportResult = evmClient.writeReport(runtime2, {
+        receiver: evmConfig.marketFactoryAddress,
+        report: reportResponse,
+        gasConfig: {
+          gasLimit: "10000000"
+        }
+      }).result();
+      if (writeReportResult.txStatus === TxStatus.REVERTED) {
+        runtime2.log(`[${evmConfig.chainName}] priceCorrection REVERTED for marketId=${marketId}: ${writeReportResult.errorMessage || "unknown"}`);
+        continue;
+      }
+      const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+      runtime2.log(`[${evmConfig.chainName}] priceCorrection tx for marketId=${marketId}: ${txHash}`);
+      correctedMarkets += 1;
+    }
+  }
+  return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
+};
+var signUpWorkFlow = (runtime2) => {
+  const firestoreApiKey = runtime2.getSecret({ id: "FIREBASE_API_KEY" }).result();
+  const httpClient = new ClientCapability2;
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firestoreApiKey.value}`;
+  const dataToSend = {
+    returnSecureToken: true
+  };
+  const authRequester = (sendRequester) => {
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const req = {
+      url,
+      method: "POST",
+      body,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (!ok(res))
+      throw new Error(`Http request failed with status ${res.statusCode}`);
+    const bodyText = new TextDecoder().decode(res.body);
+    const readyToUse = JSON.parse(bodyText);
+    return readyToUse;
+  };
+  const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
+  return response;
+};
+var flattenFirestore = (doc) => {
+  if (!doc.fields)
+    return doc;
+  const flattened = { id: doc.name.split("/").pop() };
+  for (const [key, value2] of Object.entries(doc.fields)) {
+    const valObj = value2;
+    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
+    flattened[key] = actualValue;
+  }
+  return flattened;
+};
+var getFirestoreList = (runtime2, idToken) => {
+  const httpClient = new ClientCapability2;
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const listRequester = (sendRequester) => {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
+    const req = {
+      url,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200)
+      throw new Error("Failed to fetch list");
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
+  const rawDocs = response.documents || [];
+  return rawDocs.map((doc) => flattenFirestore(doc));
+};
+var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const httpClient = new ClientCapability2;
+  const writeRequester = (sendRequester) => {
+    const dataToSend = {
+      fields: {
+        question: { stringValue: question },
+        resolutionTime: { stringValue: resolutionTime },
+        geminiResponse: { stringValue: geminiData.response || "No response" },
+        created_at: { integerValue: Date.now().toString() }
+      }
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo`;
+    const req = {
+      url,
+      method: "POST",
+      body,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json"
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200) {
+      const errorText = new TextDecoder().decode(res.body);
+      throw new Error(`Firestore write failed: ${res.statusCode} - ${errorText}`);
+    }
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
+  return response.value;
+};
+var systemPrompt = `
+ROLE:
+You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
+
+You operate in THREE mandatory phases:
+1) Category Selection (Weighted Randomization)
+2) Event Generation
+3) Duplicate Detection Validation
+
+If duplication is detected at the semantic level, you MUST internally discard and regenerate before producing output.
+
+
+PHASE 1 — CATEGORY SELECTION (MANDATORY)
+
+
+You MUST select ONE category using weighted randomness with equal distribution:
+
+- Crypto: 25%
+- Politics: 25%
+- Sports: 25%
+- Tech/Culture: 25%
+
+You MUST NOT default to Crypto.
+You MUST generate the event ONLY within the selected category.
+You may not override this selection.
+
+
+PHASE 2 — EVENT GENERATION
+
+
+Generate exactly ONE high-engagement prediction event within the selected category.
+
+MANDATORY REQUIREMENTS:
+- Must resolve between 1 and 14 days from now.
+- Resolution time must be at least 24 hours AFTER closing time.
+- Must be binary (Yes/No) OR mutually exclusive multiple choice.
+- Must include exact UTC timestamps (YYYY-MM-DD HH:MM UTC).
+- Crypto events MUST specify exact exchange AND exact trading pair.
+- Must include explicit Postponement Rule in description.
+- Must resolve via objective, verifiable, authoritative data.
+- No ambiguity or vague wording.
+- No subjective outcomes.
+
+PROHIBITED:
+- Offensive or illegal topics.
+- Death/injury speculation.
+- Social media rumors as settlement basis.
+- Global average crypto prices.
+- Ambiguous timeframes.
+
+
+PHASE 3 — DUPLICATE DETECTION (STRICT)
+
+
+Ensure the generated event is NOT the same underlying real-world outcome as any existing market.
+
+SAME EVENT = DUPLICATE if:
+- Same asset + same threshold + same time window.
+- Same person/team winning same contest.
+- Same regulatory approval decision.
+- Same measurable outcome.
+- Only wording differs.
+
+DIFFERENT EVENT = UNIQUE if:
+- Different threshold.
+- Different asset.
+- Different time window.
+- Different measurable outcome.
+- Different decision or result.
+
+If semantic overlap exists, regenerate internally.
+Never output a duplicate.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE HIERARCHY (MANDATORY)
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. Official government/regulatory portals
+2. Primary sports data providers (official box scores)
+3. Major exchange APIs (Binance, Coinbase, Kraken)
+4. Tier-1 news (Reuters, AP)
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT RULES (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━
+- Output EXACTLY ONE event.
+- Output MUST be valid raw JSON.
+- Do NOT wrap in markdown.
+- Do NOT use backticks.
+- Do NOT include commentary.
+- Do NOT include explanations.
+- Do NOT include text before or after JSON.
+- JSON must start with { and end with }.
+- No trailing commas.
+
+Required JSON structure:
+
+{
+  "event_name": "Short, specific title",
+  "category": "Crypto/Politics/Sports/Tech",
+  "description": "Precise explanation including Postponement Rule.",
+  "options": ["Yes", "No"] OR ["Option A", "Option B"],
+  "closing_date": "YYYY-MM-DD HH:MM UTC",
+  "resolution_date": "YYYY-MM-DD HH:MM UTC",
+  "verification_source": "Exact authoritative entity or URL",
+  "trending_reason": "Why this topic is currently trending"
+}
+`;
+var userPrompt = `
+Generate exactly ONE unique prediction event that satisfies ALL rules.
+Return ONLY valid raw JSON.
+`;
+var askGemeni = (runtime2, previousEvents) => {
+  const gemeniApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
+  const httpClient = new ClientCapability2;
+  const result = httpClient.sendRequest(runtime2, prompt(gemeniApiKey, previousEvents), consensusIdenticalAggregation())().result();
+  runtime2.log(`returned data:  ${result.event_name}, ${result.category}, ${result.description}, ${result.options},`);
+  return result;
+};
+var prompt = (apikey, previousEvents) => (sendRequester) => {
+  const dataToSend = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    tools: [{ google_search: {} }],
+    contents: [
+      {
+        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
+      }
+    ]
+  };
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+  const body = Buffer.from(bodyBytes).toString("base64");
+  const req = {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+    method: "POST",
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apikey
+    }
+  };
+  const res = sendRequester.sendRequest(req).result();
+  if (!ok(res))
+    throw new Error(`Http request failed with status ${res.statusCode}`);
+  const rawData = new TextDecoder().decode(res.body);
+  const aires = JSON.parse(rawData);
+  const aiResponseString = aires?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const cleanJson = aiResponseString.replace(/```json|```/g, "").trim();
+  const readyToUse = JSON.parse(cleanJson);
+  return readyToUse;
+};
+var authWorkflow = (runtime2) => {
+  const response = signUpWorkFlow(runtime2);
+  runtime2.log(`returned data:  ${response.localId}`);
+  return `returned data:  ${response.expiresIn}`;
+};
+var txExplorer = (chainName, txHash) => {
+  if (chainName.includes("arbitrum")) {
+    return `https://sepolia.arbiscan.io/tx/${txHash}`;
+  }
+  return `https://sepolia.basescan.org//tx/${txHash}`;
+};
+var sendActionReport = (runtime2, evmConfig, actionType, payload) => {
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+    actionType,
+    payload
+  ]);
+  const reportResponse = runtime2.report({
+    ...prepareReportRequest(encodedReport)
+  }).result();
+  const writeReportResult = evmClient.writeReport(runtime2, {
+    receiver: evmConfig.marketFactoryAddress,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit: "10000000"
+    }
+  }).result();
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    runtime2.log(`[${evmConfig.chainName}] ${actionType} REVERTED: ${writeReportResult.errorMessage || "unknown"}`);
+    throw new Error(`${actionType} failed on ${evmConfig.chainName}: ${writeReportResult.errorMessage}`);
+  }
+  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+  runtime2.log(`[${evmConfig.chainName}] ${actionType} tx: ${txHash}`);
+  runtime2.log(`[${evmConfig.chainName}] ${txExplorer(evmConfig.chainName, txHash)}`);
+  return txHash;
+};
+var createPredictionMarketEvent = (runtime2) => {
+  const authInfo = signUpWorkFlow(runtime2);
+  const documents = getFirestoreList(runtime2, authInfo.idToken);
+  const hasMore = documents.length === 31;
+  const events = hasMore ? documents.slice(0, 30) : documents;
+  const filteredEvent = events.length > 0 ? events.map((event) => ({
+    question: event.question,
+    resolutionTime: event.resolutionTime
+  })) : [];
+  const eventInfo = askGemeni(runtime2, filteredEvent);
+  const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
+  const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
+  runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db`);
+  writeToFirestore(runtime2, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
+  runtime2.log(`id token: ${authInfo.idToken}`);
+  const marketFactoryCall = runtime2.config.evms.map((evmConfig) => {
+    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.event_name, closeTime, resolutionTime]);
+    sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
+    return `[${evmConfig.chainName}] ok`;
+  });
+  return marketFactoryCall.join(", ");
+};
+var createEventHelper = (runtime2) => {
+  const eventName = "Will BTC price be above $3,000 in 1 hour?";
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 7 * 60);
+  runtime2.config.evms.map((evmConfig) => {
+    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventName, closeTime, resolutionTime]);
+    sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
+    return `[${evmConfig.chainName}] ok`;
+  });
+  return "";
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
+    handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler)
   ];
 };
 async function main() {
@@ -20207,5 +21221,12 @@ async function main() {
 }
 main().catch(sendErrorResponse);
 export {
-  main
+  syncCanonicalPrice,
+  resoloveEvent,
+  marketFactoryBalanceTopUp,
+  main,
+  createPredictionMarketEvent,
+  createEventHelper,
+  authWorkflow,
+  arbitrateUnsafeMarketHandler
 };
