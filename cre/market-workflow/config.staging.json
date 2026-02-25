@@ -1,5 +1,38 @@
 {
   "schedule": "*/30 * * * * *",
+  "httpTriggerAuthorizedKeys": [],
+  "httpExecutionAuthorizedKeys": [],
+  "sponsorPolicy": {
+    "enabled": false,
+    "supportedChainIds": [
+      421614,
+      84532
+    ],
+    "allowedActions": [
+      "addLiquidity",
+      "removeLiquidity",
+      "swapYesForNo",
+      "swapNoForYes",
+      "mintCompleteSets",
+      "redeemCompleteSets"
+    ],
+    "maxAmountUsdc": "1000000000",
+    "maxSlippageBps": 300
+  },
+  "executePolicy": {
+    "enabled": false,
+    "allowedActionTypes": [
+      "createMarket",
+      "priceCorrection",
+      "addLiquidityToFactory",
+      "mintCollateralTo",
+      "WithCollatralAndFee",
+      "processPendingWithdrawals",
+      "broadCastPrice",
+      "broadCastResolution",
+      "syncSpokeCanonicalPrice"
+    ]
+  },
   "evms": [
     {
       

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRE Sponsor Flow (Minimal)</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --line: #334155;
+        --accent: #22d3ee;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: radial-gradient(circle at top, #1f2937, var(--bg));
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 32px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: linear-gradient(180deg, #0b1220, var(--panel));
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        font-size: 12px;
+        color: var(--muted);
+        gap: 6px;
+      }
+      input,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0b1020;
+        color: var(--text);
+        padding: 10px;
+        font-size: 13px;
+      }
+      textarea {
+        min-height: 140px;
+        resize: vertical;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: var(--accent);
+        color: #00212a;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #020617;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>CRE + Paymaster Sponsorship (Minimal UI)</h1>
+        <p>Build a sponsor request, send it to local adapter, adapter checks CRE policy then calls paymaster.</p>
+      </div>
+
+      <div class="card grid">
+        <label>CRE HTTP Trigger URL
+          <input id="creTriggerUrl" value="https://YOUR_CRE_HTTP_TRIGGER_URL" />
+        </label>
+        <label>CRE Execute Trigger URL (optional)
+          <input id="creExecuteTriggerUrl" value="" placeholder="https://YOUR_CRE_EXECUTE_TRIGGER_URL" />
+        </label>
+        <label>Paymaster JSON-RPC URL
+          <input id="paymasterRpcUrl" value="https://YOUR_PAYMASTER_RPC_URL" />
+        </label>
+        <label>EntryPoint
+          <input id="entryPoint" value="0x0000000071727de22e5e9d8baf0edac6f37da032" />
+        </label>
+        <label>Chain ID
+          <input id="chainId" type="number" value="84532" />
+        </label>
+        <label>Action
+          <input id="action" value="swapYesForNo" />
+        </label>
+        <label>Amount (USDC 6dp as integer string)
+          <input id="amountUsdc" value="1000000" />
+        </label>
+        <label>Slippage (bps)
+          <input id="slippageBps" type="number" value="150" />
+        </label>
+        <label>Report ActionType (for CRE execute mode)
+          <input id="reportActionType" value="createMarket" />
+        </label>
+        <label>Report PayloadHex (bytes, pre-encoded)
+          <input id="reportPayloadHex" value="0x" />
+        </label>
+        <label>Report Receiver (optional)
+          <input id="reportReceiver" value="" placeholder="0xMarketFactoryOrReceiver" />
+        </label>
+      </div>
+
+      <div class="card">
+        <label>UserOp JSON
+          <textarea id="userOp">
+{
+  "sender": "0x1111111111111111111111111111111111111111",
+  "nonce": "0x1",
+  "callData": "0x1234",
+  "signature": "0x1234"
+}
+          </textarea>
+        </label>
+        <div style="margin-top: 10px">
+          <button id="sendBtn">Request Sponsorship</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <pre id="output">Waiting...</pre>
+      </div>
+    </div>
+
+    <script>
+      const byId = (id) => document.getElementById(id);
+      const output = byId("output");
+
+      byId("sendBtn").addEventListener("click", async () => {
+        output.textContent = "Requesting...";
+        let userOp;
+        try {
+          userOp = JSON.parse(byId("userOp").value);
+        } catch {
+          output.textContent = "Invalid UserOp JSON";
+          return;
+        }
+
+        const payload = {
+          creTriggerUrl: byId("creTriggerUrl").value.trim(),
+          paymasterRpcUrl: byId("paymasterRpcUrl").value.trim(),
+          creExecuteTriggerUrl: byId("creExecuteTriggerUrl").value.trim() || undefined,
+          entryPoint: byId("entryPoint").value.trim(),
+          chainId: Number(byId("chainId").value),
+          action: byId("action").value.trim(),
+          amountUsdc: byId("amountUsdc").value.trim(),
+          slippageBps: Number(byId("slippageBps").value),
+          reportActionType: byId("reportActionType").value.trim(),
+          reportPayloadHex: byId("reportPayloadHex").value.trim(),
+          reportReceiver: byId("reportReceiver").value.trim() || undefined,
+          userOp,
+        };
+
+        try {
+          const res = await fetch("/api/sponsor", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          output.textContent = JSON.stringify({ status: res.status, ...data }, null, 2);
+        } catch (err) {
+          output.textContent = `Request failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
+    </script>
+  </body>
+</html>

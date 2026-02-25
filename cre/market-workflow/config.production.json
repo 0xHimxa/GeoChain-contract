@@ -1,3 +1,16 @@
 {
-  "schedule": "*/30 * * * * *"
+  "schedule": "*/30 * * * * *",
+  "httpTriggerAuthorizedKeys": [],
+  "httpExecutionAuthorizedKeys": [],
+  "sponsorPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "allowedActions": [],
+    "maxAmountUsdc": "0",
+    "maxSlippageBps": 0
+  },
+  "executePolicy": {
+    "enabled": false,
+    "allowedActionTypes": []
+  }
 }

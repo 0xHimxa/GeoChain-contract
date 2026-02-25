@@ -3,9 +3,31 @@ export type EvmConfig = {
   chainName: string;
 };
 
+export type AuthorizedKeyConfig = {
+  type: "KEY_TYPE_ECDSA_EVM";
+  publicKey: string;
+};
+
+export type SponsorPolicyConfig = {
+  enabled: boolean;
+  supportedChainIds: number[];
+  allowedActions: string[];
+  maxAmountUsdc: string;
+  maxSlippageBps: number;
+};
+
+export type ExecutePolicyConfig = {
+  enabled: boolean;
+  allowedActionTypes: string[];
+};
+
 export type Config = {
   schedule: string;
   evms: EvmConfig[];
+  httpTriggerAuthorizedKeys?: AuthorizedKeyConfig[];
+  httpExecutionAuthorizedKeys?: AuthorizedKeyConfig[];
+  sponsorPolicy?: SponsorPolicyConfig;
+  executePolicy?: ExecutePolicyConfig;
 };
 
 export const sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
