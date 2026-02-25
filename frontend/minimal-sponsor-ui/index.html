@@ -82,6 +82,16 @@
         border-radius: 10px;
         padding: 12px;
       }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
       @media (max-width: 760px) {
         .grid {
           grid-template-columns: 1fr;
@@ -94,6 +104,11 @@
       <div class="card">
         <h1>CRE Policy + Execute (Minimal UI)</h1>
         <p>Build a sponsor request, send it to local adapter, adapter checks CRE policy then calls CRE execute trigger.</p>
+        <div class="row" style="margin-top: 10px">
+          <button id="connectBtn" type="button">Connect Wallet</button>
+          <button id="signPermitBtn" type="button">Sign Permit</button>
+          <span id="walletStatus" class="status">Wallet: not connected</span>
+        </div>
       </div>
 
       <div class="card grid">
@@ -111,6 +126,21 @@
         </label>
         <label>Amount (USDC 6dp as integer string)
           <input id="amountUsdc" value="1000000" />
+        </label>
+        <label>Permit Token Address
+          <input id="permitToken" value="0x0000000000000000000000000000000000000000" />
+        </label>
+        <label>Permit Spender Address (editable)
+          <input id="permitSpender" value="0x0000000000000000000000000000000000000000" />
+        </label>
+        <label>Permit Domain Name
+          <input id="permitDomainName" value="USD Coin" />
+        </label>
+        <label>Permit Domain Version
+          <input id="permitDomainVersion" value="2" />
+        </label>
+        <label>Permit Deadline (unix sec)
+          <input id="permitDeadline" value="" placeholder="optional; auto set if empty" />
         </label>
         <label>Slippage (bps)
           <input id="slippageBps" type="number" value="150" />
@@ -136,7 +166,7 @@
   "value": "1000000",
   "nonce": "0",
   "deadline": "1893456000",
-  "signature": "0x",
+  "signature": "0x...",
   "domainName": "USD Coin",
   "domainVersion": "2"
 }
@@ -168,6 +198,149 @@
     <script>
       const byId = (id) => document.getElementById(id);
       const output = byId("output");
+      const walletStatus = byId("walletStatus");
+      const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+      const NONCES_SELECTOR = "0x7ecebe00";
+      let connectedAccount = "";
+
+      const setWalletStatus = (text) => {
+        walletStatus.textContent = text;
+      };
+
+      const connectWallet = async () => {
+        if (!window.ethereum) {
+          throw new Error("No injected wallet found (window.ethereum missing)");
+        }
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        const account = Array.isArray(accounts) && accounts[0] ? String(accounts[0]) : "";
+        if (!HEX_ADDRESS_REGEX.test(account)) {
+          throw new Error("Wallet did not return a valid account");
+        }
+        connectedAccount = account;
+        setWalletStatus(`Wallet: ${account}`);
+        return account;
+      };
+
+      const leftPad64 = (hexNoPrefix) => hexNoPrefix.padStart(64, "0");
+
+      const readPermitNonce = async (token, owner) => {
+        const callData = `${NONCES_SELECTOR}${leftPad64(owner.slice(2).toLowerCase())}`;
+        const result = await window.ethereum.request({
+          method: "eth_call",
+          params: [{ to: token, data: callData }, "latest"],
+        });
+        return BigInt(result).toString();
+      };
+
+      const signPermit = async () => {
+        const account = connectedAccount || (await connectWallet());
+        const chainId = Number(byId("chainId").value);
+        if (!Number.isInteger(chainId) || chainId <= 0) {
+          throw new Error("Invalid chainId");
+        }
+
+        const walletChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+        const walletChainId = Number.parseInt(walletChainIdHex, 16);
+        if (walletChainId !== chainId) {
+          throw new Error(`Wallet chainId ${walletChainId} does not match form chainId ${chainId}`);
+        }
+
+        const token = byId("permitToken").value.trim();
+        const spender = byId("permitSpender").value.trim();
+        const value = byId("amountUsdc").value.trim();
+        const domainName = byId("permitDomainName").value.trim();
+        const domainVersion = byId("permitDomainVersion").value.trim() || "1";
+        let deadline = byId("permitDeadline").value.trim();
+
+        if (!HEX_ADDRESS_REGEX.test(token)) throw new Error("Invalid permit token address");
+        if (!HEX_ADDRESS_REGEX.test(spender)) throw new Error("Invalid permit spender address");
+        if (!/^\d+$/.test(value)) throw new Error("amountUsdc must be a numeric string");
+        if (!domainName) throw new Error("Permit domain name is required");
+
+        if (!deadline) {
+          deadline = String(Math.floor(Date.now() / 1000) + 20 * 60);
+          byId("permitDeadline").value = deadline;
+        }
+        if (!/^\d+$/.test(deadline)) throw new Error("Permit deadline must be unix seconds");
+
+        const nonce = await readPermitNonce(token, account);
+        const typedData = {
+          types: {
+            EIP712Domain: [
+              { name: "name", type: "string" },
+              { name: "version", type: "string" },
+              { name: "chainId", type: "uint256" },
+              { name: "verifyingContract", type: "address" },
+            ],
+            Permit: [
+              { name: "owner", type: "address" },
+              { name: "spender", type: "address" },
+              { name: "value", type: "uint256" },
+              { name: "nonce", type: "uint256" },
+              { name: "deadline", type: "uint256" },
+            ],
+          },
+          primaryType: "Permit",
+          domain: {
+            name: domainName,
+            version: domainVersion,
+            chainId,
+            verifyingContract: token,
+          },
+          message: {
+            owner: account,
+            spender,
+            value,
+            nonce,
+            deadline,
+          },
+        };
+
+        const signature = await window.ethereum.request({
+          method: "eth_signTypedData_v4",
+          params: [account, JSON.stringify(typedData)],
+        });
+
+        const permit = {
+          token,
+          owner: account,
+          spender,
+          value,
+          nonce,
+          deadline,
+          signature,
+          domainName,
+          domainVersion,
+        };
+        byId("permit").value = JSON.stringify(permit, null, 2);
+
+        // Keep userOp sender aligned with signing account.
+        try {
+          const userOp = JSON.parse(byId("userOp").value);
+          userOp.sender = account;
+          byId("userOp").value = JSON.stringify(userOp, null, 2);
+        } catch {
+          // ignore malformed userOp here; request flow validates again.
+        }
+      };
+
+      byId("connectBtn").addEventListener("click", async () => {
+        try {
+          await connectWallet();
+        } catch (err) {
+          output.textContent = `Connect failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
+
+      byId("signPermitBtn").addEventListener("click", async () => {
+        try {
+          output.textContent = "Signing permit...";
+          await signPermit();
+          output.textContent = "Permit signature generated. You can now request sponsorship.";
+        } catch (err) {
+          output.textContent = `Sign permit failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
 
       byId("sendBtn").addEventListener("click", async () => {
         output.textContent = "Requesting...";
@@ -176,6 +349,10 @@
           permit = JSON.parse(byId("permit").value);
         } catch {
           output.textContent = "Invalid Permit JSON";
+          return;
+        }
+        if (!permit?.signature || permit.signature === "0x") {
+          output.textContent = "Permit is not signed. Click 'Sign Permit' first.";
           return;
         }
         let userOp;

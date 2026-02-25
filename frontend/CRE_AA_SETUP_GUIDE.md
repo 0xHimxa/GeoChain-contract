@@ -216,8 +216,9 @@ Fill:
 1. `CRE HTTP Trigger URL` (policy)
 2. `CRE Execute Trigger URL` (execute)
 3. `chainId`, `action`, limits
-4. `permit` JSON (token, owner, spender, value, nonce, deadline, signature, domainName).
-5. report fields:
+4. Set `permit token` + `spender`, then click `Sign Permit` in UI.
+5. `permit` JSON (token, owner, spender, value, nonce, deadline, signature, domainName).
+6. report fields:
    - `reportActionType`
    - `reportPayloadHex`
    - optional `reportReceiver`

@@ -36,7 +36,8 @@ Fill:
 - `CRE HTTP Trigger URL`
 - `CRE Execute Trigger URL`
 - request fields
-- permit JSON fields (`token`, `owner`, `spender`, `value`, `nonce`, `deadline`, `signature`, `domainName`, optional `domainVersion`)
+- permit fields (`token`, `spender`, domain), then click `Sign Permit`
+- permit JSON fields (`token`, `owner`, `spender`, `value`, `nonce`, `deadline`, `signature`, `domainName`, optional `domainVersion`) are auto-filled after signing
 - report fields (`Report ActionType`, `Report PayloadHex`, optional receiver)
 
 ## Manual execute trigger call
@@ -51,3 +52,7 @@ REPORT_ACTION_TYPE=createMarket \
 REPORT_PAYLOAD_HEX=0x... \
 bun run cre:execute
 ```
+
+## Input Parameter Reference
+
+- [FRONTEND_INPUT_PARAMS.md](/home/himxa/Desktop/market/contracts/frontend/minimal-sponsor-ui/FRONTEND_INPUT_PARAMS.md)
