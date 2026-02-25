@@ -5,7 +5,7 @@ This document explains:
 1. What was added/changed in this repo.
 2. Why each part exists.
 3. How to set everything up from zero.
-4. How to test both transaction modes.
+4. How to test CRE execute mode.
 
 It is written as a standalone guide without assuming prior setup.
 
@@ -56,7 +56,7 @@ It is written as a standalone guide without assuming prior setup.
   - `cre/market-workflow/config.staging.json`
   - `cre/market-workflow/config.production.json`
 - Purpose:
-  - Adds placeholders/toggles for policy + execute modes.
+  - Adds placeholders/toggles for policy + execute flow.
 
 ---
 
@@ -71,33 +71,19 @@ It is written as a standalone guide without assuming prior setup.
   - Local page to submit sponsor requests.
   - Adapter endpoint (`/api/sponsor`) to orchestrate:
     - policy trigger
-    - execute trigger OR paymaster path.
+    - execute trigger.
 
-#### AA scripts
+#### CLI script
 
 - Files:
-  - `scripts/checkBundler.ts`
-  - `scripts/checkPaymaster.ts`
-  - `scripts/testSponsoredUserOp.ts`
-  - `scripts/setupPimlicoEnv.ts`
   - `scripts/triggerExecuteReport.ts`
 - Purpose:
-  - Validate infra quickly.
-  - Send a real sponsored UserOp.
-  - Simplify env generation (Pimlico helper).
   - Trigger CRE execute endpoint from CLI.
 
-#### Package updates
+#### Package updates (used by frontend adapter)
 
 - File: `frontend/minimal-sponsor-ui/package.json`
-- Added dependencies:
-  - `permissionless`
-  - `viem`
-- Added scripts:
-  - `aa:setup:pimlico`
-  - `aa:check-bundler`
-  - `aa:check-paymaster`
-  - `aa:test-sponsored`
+- Added script:
   - `cre:execute`
 
 #### Env template
@@ -116,24 +102,13 @@ It is written as a standalone guide without assuming prior setup.
 
 ---
 
-## 2) System Modes (Important)
+## 2) System Mode (Important)
 
-There are two distinct transaction modes:
-
-### Mode 1: ERC-4337 paymaster mode
-
-- You create/send a UserOperation with bundler + paymaster infra.
-- Scripts used:
-  - `aa:check-bundler`
-  - `aa:check-paymaster`
-  - `aa:test-sponsored`
-
-### Mode 2: CRE execute mode
+This setup guide uses only CRE execute mode:
 
 - You call policy trigger first.
 - If approved, call execute trigger.
 - Execute trigger sends onchain tx using `writeReport` to your receiver contract (factory/market).
-- No paymaster required for this execution path.
 
 ---
 
@@ -165,28 +140,11 @@ cp .env.example .env
 
 Fill values manually or use helper.
 
-### Option A: manual `.env` fill
+### Manual `.env` fill
 
 Set at least:
 
-- `AA_CHAIN`
-- `AA_RPC_URL`
-- `AA_BUNDLER_URL`
-- `AA_PAYMASTER_URL`
-- `AA_OWNER_PRIVATE_KEY`
-- `AA_ENTRYPOINT`
-
-### Option B: Pimlico helper (quickest)
-
-```bash
-PIMLICO_API_KEY=YOUR_KEY \
-AA_CHAIN=baseSepolia \
-AA_RPC_URL=YOUR_RPC_URL \
-AA_OWNER_PRIVATE_KEY=0xYOUR_KEY \
-bun run aa:setup:pimlico
-```
-
-This writes `.env` and sets bundler + paymaster URLs in Pimlico format.
+- `CRE_TRIGGER_URL`
 
 ---
 
@@ -227,38 +185,18 @@ Store them in:
 
 ---
 
-## Step 5: Validate AA infrastructure (if using paymaster mode)
+## Step 5: Sanity-check policy trigger endpoint
 
-```bash
-cd /home/himxa/Desktop/market/contracts/frontend/minimal-sponsor-ui
-bun run aa:check-bundler
-bun run aa:check-paymaster
-```
+Use the trigger URL from Step 4 in the local UI or your HTTP client and confirm you receive either:
 
-Expected:
-
-- bundler returns `eth_supportedEntryPoints` containing your entrypoint.
-- paymaster returns `pm_supportedEntryPoints` and gas-price response.
+- `approved: true` with an `approvalId`, or
+- `approved: false` with a reason.
 
 ---
 
 ## 5) How To Test
 
-### Test A: Send sponsored UserOp directly
-
-```bash
-bun run aa:test-sponsored
-```
-
-Success output includes:
-
-- smart account address
-- userOp hash
-- included tx hash
-
----
-
-### Test B: Policy + Execute through local UI
+### Test A: Policy + Execute through local UI
 
 Run server:
 
@@ -290,7 +228,7 @@ Expected response:
 
 ---
 
-### Test C: Execute trigger from CLI
+### Test B: Execute trigger from CLI
 
 ```bash
 CRE_EXECUTE_TRIGGER_URL=... \
@@ -364,30 +302,12 @@ bun run cre:execute
 
 ---
 
-## 7) EntryPoint Clarification
-
-For public testnets/mainnets, you usually do **not** deploy your own EntryPoint.
-
-Default in this setup:
-
-- EntryPoint v0.7:
-  - `0x0000000071727de22e5e9d8baf0edac6f37da032`
-
-Deploy your own EntryPoint only for private/local AA infrastructure.
-
----
-
-## 8) Common Errors and Fixes
+## 7) Common Errors and Fixes
 
 ### `Missing env var ...`
 
 - You did not fill required `.env` values.
 - Fix: copy `.env.example` and fill all required fields.
-
-### `entryPoint not supported`
-
-- Bundler/paymaster and your configured entrypoint mismatch.
-- Fix: run both check scripts and align entrypoint value.
 
 ### `chainId not mapped in config.evms`
 
@@ -408,7 +328,7 @@ Deploy your own EntryPoint only for private/local AA infrastructure.
 
 ---
 
-## 9) Security Notes (Must Read)
+## 8) Security Notes (Must Read)
 
 1. Keep `allowedActionTypes` strict and minimal.
 2. Keep policy limits conservative during testing.
@@ -418,14 +338,11 @@ Deploy your own EntryPoint only for private/local AA infrastructure.
 
 ---
 
-## 10) Recommended First Validation Sequence
+## 9) Recommended First Validation Sequence
 
 1. `bun install`
 2. `.env` complete
-3. `aa:check-bundler`
-4. `aa:check-paymaster`
-5. Deploy/update CRE workflow with policy enabled
-6. Test policy trigger (expect approved/denied output)
-7. Test execute trigger with safe action/payload
-8. Verify tx appears on explorer and contract state changes as expected
-
+3. Deploy/update CRE workflow with policy enabled
+4. Test policy trigger (expect approved/denied output)
+5. Test execute trigger with safe action/payload
+6. Verify tx appears on explorer and contract state changes as expected

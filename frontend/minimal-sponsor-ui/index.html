@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CRE Sponsor Flow (Minimal)</title>
+    <title>CRE Execute Flow (Minimal)</title>
     <style>
       :root {
         --bg: #0f172a;
@@ -92,22 +92,16 @@
   <body>
     <div class="wrap">
       <div class="card">
-        <h1>CRE + Paymaster Sponsorship (Minimal UI)</h1>
-        <p>Build a sponsor request, send it to local adapter, adapter checks CRE policy then calls paymaster.</p>
+        <h1>CRE Policy + Execute (Minimal UI)</h1>
+        <p>Build a sponsor request, send it to local adapter, adapter checks CRE policy then calls CRE execute trigger.</p>
       </div>
 
       <div class="card grid">
         <label>CRE HTTP Trigger URL
           <input id="creTriggerUrl" value="https://YOUR_CRE_HTTP_TRIGGER_URL" />
         </label>
-        <label>CRE Execute Trigger URL (optional)
-          <input id="creExecuteTriggerUrl" value="" placeholder="https://YOUR_CRE_EXECUTE_TRIGGER_URL" />
-        </label>
-        <label>Paymaster JSON-RPC URL
-          <input id="paymasterRpcUrl" value="https://YOUR_PAYMASTER_RPC_URL" />
-        </label>
-        <label>EntryPoint
-          <input id="entryPoint" value="0x0000000071727de22e5e9d8baf0edac6f37da032" />
+        <label>CRE Execute Trigger URL
+          <input id="creExecuteTriggerUrl" value="https://YOUR_CRE_EXECUTE_TRIGGER_URL" />
         </label>
         <label>Chain ID
           <input id="chainId" type="number" value="84532" />
@@ -169,9 +163,7 @@
 
         const payload = {
           creTriggerUrl: byId("creTriggerUrl").value.trim(),
-          paymasterRpcUrl: byId("paymasterRpcUrl").value.trim(),
-          creExecuteTriggerUrl: byId("creExecuteTriggerUrl").value.trim() || undefined,
-          entryPoint: byId("entryPoint").value.trim(),
+          creExecuteTriggerUrl: byId("creExecuteTriggerUrl").value.trim(),
           chainId: Number(byId("chainId").value),
           action: byId("action").value.trim(),
           amountUsdc: byId("amountUsdc").value.trim(),

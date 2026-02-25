@@ -4,14 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "bun run server.ts",
-    "aa:setup:pimlico": "bun run scripts/setupPimlicoEnv.ts",
-    "aa:check-bundler": "bun run scripts/checkBundler.ts",
-    "aa:check-paymaster": "bun run scripts/checkPaymaster.ts",
-    "aa:test-sponsored": "bun run scripts/testSponsoredUserOp.ts",
     "cre:execute": "bun run scripts/triggerExecuteReport.ts"
-  },
-  "dependencies": {
-    "permissionless": "^0.2.45",
-    "viem": "^2.38.5"
   }
 }
