@@ -2,18 +2,23 @@
 pragma solidity 0.8.33;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title OutcomeToken
 /// @notice ERC20 claim token used by a market for one side of the outcome (YES or NO).
 /// @dev The owning `PredictionMarket` contract is the only account allowed to mint and burn.
-contract OutcomeToken is ERC20, Ownable {
+contract OutcomeToken is ERC20, ERC20Permit, Ownable {
     error OutcomeToken__InvalidMarketAddress();
 
     /// @param name_ Token name, usually `YES` or `NO`.
     /// @param symbol_ Token symbol, usually `YES` or `NO`.
     /// @param market_ Prediction market address that becomes token owner.
-    constructor(string memory name_, string memory symbol_, address market_) ERC20(name_, symbol_) Ownable(market_) {
+    constructor(string memory name_, string memory symbol_, address market_)
+        ERC20(name_, symbol_)
+        ERC20Permit(name_)
+        Ownable(market_)
+    {
         if (market_ == address(0)) revert OutcomeToken__InvalidMarketAddress();
     }
 

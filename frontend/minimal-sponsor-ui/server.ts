@@ -14,6 +14,7 @@ type SponsorApiRequest = {
   reportReceiver?: string;
   reportGasLimit?: string;
   session?: Record<string, unknown>;
+  permit?: Record<string, unknown>;
   userOp: Record<string, unknown>;
 };
 
@@ -69,6 +70,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     amountUsdc: body.amountUsdc,
     slippageBps: body.slippageBps,
     session: body.session,
+    permit: body.permit,
     userOp: body.userOp,
   };
 

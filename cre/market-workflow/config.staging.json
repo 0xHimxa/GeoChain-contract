@@ -18,6 +18,9 @@
     ],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
+    "requirePermitAuthorization": true,
+    "permitSpender": "",
+    "permitTokenByChainId": {},
     "maxAmountUsdc": "1000000000",
     "maxSlippageBps": 300
   },
