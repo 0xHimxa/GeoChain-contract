@@ -8,9 +8,6 @@
     "allowedActions": [],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
-    "requirePermitAuthorization": true,
-    "permitSpender": "",
-    "permitTokenByChainId": {},
     "maxAmountUsdc": "0",
     "maxSlippageBps": 0
   },

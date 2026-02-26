@@ -1,116 +1,79 @@
 # Frontend Input Parameters
 
-This file describes all input fields in `minimal-sponsor-ui/index.html` and how each value is used.
+This file describes input fields in `minimal-sponsor-ui/index.html` after permit removal.
 
 ## Trigger URLs
 
 - `CRE HTTP Trigger URL` (`creTriggerUrl`)
-  - Used by the local adapter (`server.ts`) for the policy request.
-  - Sent in the first call body to `httpSponsorPolicy.ts`.
+  - Used for sponsor policy decision (`httpSponsorPolicy.ts`).
 - `CRE Execute Trigger URL` (`creExecuteTriggerUrl`)
-  - Used by the local adapter for the execute request after policy approval.
-  - Sent in the second call body to `httpExecuteReport.ts`.
+  - Used for onchain report execution (`httpExecuteReport.ts`).
+- `CRE Session Revoke Trigger URL` (`creRevokeTriggerUrl`)
+  - Used to revoke active sessions.
 
-## Request Context
+## Chain + Routing
 
 - `Chain ID` (`chainId`)
-  - Target chain for policy and execute checks.
-  - Must match supported chains in CRE config.
+  - Drives policy checks and execute chain selection.
+  - Also used by `/api/chain-config` to auto-fill:
+    - `Execute Receiver Address`
+    - `Collateral Token Address`
+
+- `Execute Receiver Address` (`executeReceiverAddress`)
+  - The contract that receives CRE `writeReport` calls.
+  - For router actions, this should be your router receiver.
+
+- `Target Event Market Address` (`targetMarketAddress`)
+  - The specific market/event contract for router actions.
+  - Encoded inside `reportPayloadHex` when `auto` mode is used.
+
+## Trading Inputs
+
 - `Action` (`action`)
-  - Policy action label (for sponsor policy allowlist checks).
+  - Sponsor policy action label.
 - `Amount (USDC 6dp as integer string)` (`amountUsdc`)
-  - Requested token amount for the operation.
-  - Used by CRE to enforce amount policy.
-  - Used by CRE permit validation to ensure:
-    - permit `value >= amountUsdc`
-    - owner token `balanceOf >= amountUsdc`
+  - Amount used for both sponsor request and router payload encoding.
 - `Slippage (bps)` (`slippageBps`)
-  - Used by sponsor policy to enforce max slippage.
+  - Checked by sponsor policy and included in session intent signature.
 
-## Permit Signing Inputs
+## Vault Funding Inputs
 
-- `Permit Token Address` (`permitToken`)
-  - ERC20 token contract for EIP-2612 permit.
-  - Used as `verifyingContract` in typed data domain.
-- `Permit Spender Address` (`permitSpender`)
-  - Spender authorized by permit.
-  - Editable so you can change spender later.
-  - Should match `sponsorPolicy.permitSpender` if that policy value is set.
-- `Permit Domain Name` (`permitDomainName`)
-  - EIP-712 domain `name` used for signing/verification.
-  - Must match token's permit domain name.
-- `Permit Domain Version` (`permitDomainVersion`)
-  - EIP-712 domain `version` used for signing/verification.
-- `Permit Deadline (unix sec)` (`permitDeadline`)
-  - Permit expiry timestamp.
-  - If empty, UI auto-sets `now + 20 minutes`.
+- `Collateral Token Address` (`collateralTokenAddress`)
+  - ERC20 collateral token used for approve/deposit.
+
+Buttons:
+- `Approve Collateral`
+  - Sends ERC20 `approve(executeReceiverAddress, amountUsdc)` from wallet.
+- `Deposit To Vault`
+  - Calls router `depositCollateral(amountUsdc)` from wallet.
+  - User pays gas for this direct transaction.
+
+## Session Inputs
+
+- `Session Max Amount`, `Session Duration`, `Session Key Password`, `Session Allowed Actions`
+  - Used to create EIP-712 session grant and local encrypted session key.
+
+- `Session JSON`
+  - Stores session grant + latest request nonce/signature used in sponsor request.
 
 ## Report Execution Inputs
 
 - `Report ActionType` (`reportActionType`)
-  - Action encoded into CRE `writeReport` payload.
-  - Must be in `executePolicy.allowedActionTypes`.
+  - Must be allowed in `executePolicy.allowedActionTypes`.
 - `Report PayloadHex` (`reportPayloadHex`)
-  - Hex payload bytes passed to `writeReport`.
-- `Report Receiver` (`reportReceiver`, optional)
-  - Optional receiver override.
-  - If omitted, CRE uses chain config default receiver (`marketFactoryAddress`).
+  - `auto` builds router payload from current form fields.
+- `Router Outcome Token` (`routerOutcomeToken`)
+  - Used only for `routerWithdrawOutcomeFor` payload encoding.
 
-## JSON Inputs
+## UserOp Input
 
-- `Permit JSON` (`permit`)
-  - Auto-populated when you click `Sign Permit`.
-  - Also editable manually if needed.
-  - Expected shape:
-    - `token`, `owner`, `spender`, `value`, `nonce`, `deadline`, `signature`, `domainName`, `domainVersion`
 - `UserOp JSON` (`userOp`)
-  - Structural request metadata currently validated in policy:
-    - `sender`, `callData`, `signature`
-  - UI sets `userOp.sender` to connected wallet during permit signing.
+  - Structural metadata checked by sponsor policy (`sender`, `callData`, `signature`).
 
-## Buttons and Flow
+## Request Sponsorship Flow
 
-- `Connect Wallet`
-  - Connects injected wallet and stores selected account.
-- `Sign Permit`
-  - Reads token `nonces(owner)`.
-  - Builds EIP-712 Permit typed data.
-  - Requests wallet signature (`eth_signTypedData_v4`).
-  - Writes signed object into `Permit JSON`.
 - `Request Sponsorship`
-  - Sends all fields to local adapter `/api/sponsor`.
-  - Adapter performs:
-    1. policy call (`httpSponsorPolicy`)
-    2. execute call (`httpExecuteReport`) if approved.
-
-## Payload Mapping (Adapter -> CRE)
-
-Policy request body:
-
-```json
-{
-  "requestId": "ui_...",
-  "chainId": 84532,
-  "action": "swapYesForNo",
-  "amountUsdc": "1000000",
-  "slippageBps": 150,
-  "permit": {},
-  "userOp": {}
-}
-```
-
-Execute request body:
-
-```json
-{
-  "requestId": "exec_...",
-  "approvalId": "cre_approval_...",
-  "chainId": 84532,
-  "amountUsdc": "1000000",
-  "permit": {},
-  "actionType": "createMarket",
-  "payloadHex": "0x...",
-  "receiver": "0x...",
-  "gasLimit": "10000000"
-}
-```
+  1. Signs session intent locally with session key.
+  2. Calls `/api/sponsor`.
+  3. Adapter calls sponsor policy trigger.
+  4. If approved, adapter calls execute trigger to submit `writeReport`.

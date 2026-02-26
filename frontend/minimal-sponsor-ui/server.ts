@@ -14,7 +14,6 @@ type SponsorApiRequest = {
   reportReceiver?: string;
   reportGasLimit?: string;
   session?: Record<string, unknown>;
-  permit?: Record<string, unknown>;
   userOp: Record<string, unknown>;
 };
 
@@ -36,7 +35,33 @@ type ExecuteDecision = {
   submitted?: boolean;
 };
 
+type CreEvmConfig = {
+  chainName?: string;
+  routerReceiverAddress?: string;
+  collateralTokenAddress?: string;
+};
+
+type CreConfig = {
+  evms?: CreEvmConfig[];
+};
+
 const indexHtml = readFileSync(join(import.meta.dir, "index.html"), "utf-8");
+const creConfigPath = process.env.CRE_CONFIG_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "config.staging.json");
+
+const toChainId = (chainName: string): number | null => {
+  if (chainName.includes("arbitrum")) return 421614;
+  if (chainName.includes("base")) return 84532;
+  if (chainName === "ethereum-testnet-sepolia") return 11155111;
+  return null;
+};
+
+const readCreConfig = (): CreConfig => {
+  try {
+    return JSON.parse(readFileSync(creConfigPath, "utf-8")) as CreConfig;
+  } catch {
+    return {};
+  }
+};
 
 const json = (status: number, payload: unknown) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -70,7 +95,6 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     amountUsdc: body.amountUsdc,
     slippageBps: body.slippageBps,
     session: body.session,
-    permit: body.permit,
     userOp: body.userOp,
   };
 
@@ -123,6 +147,23 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   });
 };
 
+const handleChainConfig = (req: Request): Response => {
+  const chainIdRaw = new URL(req.url).searchParams.get("chainId");
+  const chainId = chainIdRaw ? Number(chainIdRaw) : NaN;
+  if (!Number.isInteger(chainId) || chainId <= 0) {
+    return json(400, { error: "invalid chainId" });
+  }
+
+  const cfg = readCreConfig();
+  const evm = (cfg.evms || []).find((item) => item.chainName && toChainId(item.chainName) === chainId);
+  return json(200, {
+    chainId,
+    executeReceiverAddress: evm?.routerReceiverAddress || "",
+    collateralTokenAddress: evm?.collateralTokenAddress || "",
+    configPath: creConfigPath,
+  });
+};
+
 const handleSessionRevoke = async (req: Request): Promise<Response> => {
   let body: RevokeSessionApiRequest;
   try {
@@ -172,6 +213,9 @@ const server = Bun.serve({
     const url = new URL(req.url);
     if (url.pathname === "/api/sponsor" && req.method === "POST") {
       return handleSponsor(req);
+    }
+    if (url.pathname === "/api/chain-config" && req.method === "GET") {
+      return handleChainConfig(req);
     }
     if (url.pathname === "/api/session/revoke" && req.method === "POST") {
       return handleSessionRevoke(req);

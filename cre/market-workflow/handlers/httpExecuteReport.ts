@@ -34,6 +34,7 @@ type ExecuteResponse = {
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
+const ROUTER_ACTION_PREFIX = "router";
 
 const toBigIntAmount = (value?: string): bigint => {
   if (!value) return 0n;
@@ -160,7 +161,13 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
     } satisfies ExecuteResponse);
   }
 
-  const receiver = (req.receiver || evmConfig.marketFactoryAddress) as `0x${string}`;
+  const isRouterAction = req.actionType.startsWith(ROUTER_ACTION_PREFIX);
+  const configuredRouterReceiver = evmConfig.routerReceiverAddress || "";
+  const receiver = (
+    (isRouterAction && HEX_ADDRESS_REGEX.test(configuredRouterReceiver)
+      ? configuredRouterReceiver
+      : req.receiver || evmConfig.marketFactoryAddress) as string
+  ) as `0x${string}`;
   if (!HEX_ADDRESS_REGEX.test(receiver)) {
     return JSON.stringify({
       submitted: false,

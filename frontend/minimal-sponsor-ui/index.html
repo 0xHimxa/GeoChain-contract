@@ -103,11 +103,12 @@
     <div class="wrap">
       <div class="card">
         <h1>CRE Policy + Execute (Session Key UI)</h1>
-        <p>Connect wallet, create one signed session grant, then reuse session key for requests.</p>
+        <p>Create one session, approve collateral once, deposit to vault, then reuse session key for sponsored router actions.</p>
         <div class="row" style="margin-top: 10px">
           <button id="connectBtn" type="button">Connect Wallet</button>
           <button id="createSessionBtn" type="button">Create Session</button>
-          <button id="signPermitBtn" type="button">Sign Permit</button>
+          <button id="approveCollateralBtn" type="button">Approve Collateral</button>
+          <button id="depositCollateralBtn" type="button">Deposit To Vault</button>
           <button id="revokeSessionBtn" type="button">Revoke Session</button>
           <span id="walletStatus" class="status">Wallet: not connected</span>
         </div>
@@ -132,20 +133,8 @@
         <label>Amount (USDC 6dp as integer string)
           <input id="amountUsdc" value="1000000" />
         </label>
-        <label>Permit Token Address
-          <input id="permitToken" value="0x0000000000000000000000000000000000000000" />
-        </label>
-        <label>Permit Spender Address
-          <input id="permitSpender" value="0x0000000000000000000000000000000000000000" />
-        </label>
-        <label>Permit Domain Name
-          <input id="permitDomainName" value="YES" />
-        </label>
-        <label>Permit Domain Version
-          <input id="permitDomainVersion" value="1" />
-        </label>
-        <label>Permit Deadline (unix sec)
-          <input id="permitDeadline" value="" placeholder="optional; auto set if empty" />
+        <label>Collateral Token Address
+          <input id="collateralTokenAddress" value="0x0000000000000000000000000000000000000000" />
         </label>
         <label>Session Max Amount (USDC 6dp)
           <input id="sessionMaxAmountUsdc" value="10000000" />
@@ -168,11 +157,11 @@
         <label>Report PayloadHex (`auto` to encode router payload)
           <input id="reportPayloadHex" value="auto" />
         </label>
-        <label>Report Receiver (optional)
-          <input id="reportReceiver" value="" placeholder="0xMarketFactoryOrReceiver" />
+        <label>Execute Receiver Address (router/factory that receives CRE report)
+          <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" />
         </label>
-        <label>Router Market Address (for router actions)
-          <input id="routerMarketAddress" value="0x0000000000000000000000000000000000000000" />
+        <label>Target Event Market Address (for router actions)
+          <input id="targetMarketAddress" value="0x0000000000000000000000000000000000000000" />
         </label>
         <label>Router Outcome Token (for withdraw action)
           <input id="routerOutcomeToken" value="0x0000000000000000000000000000000000000000" />
@@ -193,24 +182,6 @@
   "grantSignature": "0x...",
   "requestNonce": "",
   "requestSignature": "0x"
-}
-          </textarea>
-        </label>
-      </div>
-
-      <div class="card">
-        <label>Permit JSON
-          <textarea id="permit">
-{
-  "token": "0x0000000000000000000000000000000000000000",
-  "owner": "0x1111111111111111111111111111111111111111",
-  "spender": "0x2222222222222222222222222222222222222222",
-  "value": "1000000",
-  "nonce": "0",
-  "deadline": "1893456000",
-  "signature": "0x...",
-  "domainName": "YES",
-  "domainVersion": "1"
 }
           </textarea>
         </label>
@@ -245,9 +216,13 @@
       const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
       const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
       const NONCE_REGEX = /^[a-zA-Z0-9_-]{8,80}$/;
-      const NONCES_SELECTOR = "0x7ecebe00";
       const EIP712_NAME = "CRE Session Authorization";
       const EIP712_VERSION = "1";
+      const ERC20_ABI = [
+        "function approve(address spender, uint256 amount) external returns (bool)",
+        "function allowance(address owner, address spender) external view returns (uint256)",
+      ];
+      const ROUTER_ABI = ["function depositCollateral(uint256 amount) external"];
       let connectedAccount = "";
 
       const setWalletStatus = (text) => {
@@ -315,15 +290,18 @@
         return ethers.keccak256(ethers.toUtf8Bytes(serialized));
       };
 
-      const leftPad64 = (hexNoPrefix) => hexNoPrefix.padStart(64, "0");
-
-      const readPermitNonce = async (token, owner) => {
-        const callData = `${NONCES_SELECTOR}${leftPad64(owner.slice(2).toLowerCase())}`;
-        const result = await window.ethereum.request({
-          method: "eth_call",
-          params: [{ to: token, data: callData }, "latest"],
-        });
-        return BigInt(result).toString();
+      const resolveChainConfig = async () => {
+        const chainId = Number(byId("chainId").value);
+        if (!Number.isInteger(chainId) || chainId <= 0) return;
+        const res = await fetch(`/api/chain-config?chainId=${chainId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (HEX_ADDRESS_REGEX.test(data.executeReceiverAddress || "")) {
+          byId("executeReceiverAddress").value = data.executeReceiverAddress;
+        }
+        if (HEX_ADDRESS_REGEX.test(data.collateralTokenAddress || "")) {
+          byId("collateralTokenAddress").value = data.collateralTokenAddress;
+        }
       };
 
       const bytesToBase64 = (bytes) => {
@@ -466,7 +444,7 @@
         const abi = ethers.AbiCoder.defaultAbiCoder();
         const amountUsdc = byId("amountUsdc").value.trim();
         const slippageBps = Number(byId("slippageBps").value);
-        const routerMarketAddress = byId("routerMarketAddress").value.trim();
+        const targetMarketAddress = byId("targetMarketAddress").value.trim();
         const routerOutcomeToken = byId("routerOutcomeToken").value.trim();
 
         if (!HEX_ADDRESS_REGEX.test(user)) throw new Error("Invalid user address for router payload");
@@ -483,29 +461,29 @@
           if (!HEX_ADDRESS_REGEX.test(routerOutcomeToken)) throw new Error("Invalid Router Outcome Token address");
           return abi.encode(["address", "address", "uint256"], [user, routerOutcomeToken, amountUsdc]);
         }
-        if (!HEX_ADDRESS_REGEX.test(routerMarketAddress)) throw new Error("Invalid Router Market Address");
+        if (!HEX_ADDRESS_REGEX.test(targetMarketAddress)) throw new Error("Invalid target market address");
         if (actionType === "routerMintCompleteSets") {
-          return abi.encode(["address", "address", "uint256"], [user, routerMarketAddress, amountUsdc]);
+          return abi.encode(["address", "address", "uint256"], [user, targetMarketAddress, amountUsdc]);
         }
         if (actionType === "routerRedeemCompleteSets") {
-          return abi.encode(["address", "address", "uint256"], [user, routerMarketAddress, amountUsdc]);
+          return abi.encode(["address", "address", "uint256"], [user, targetMarketAddress, amountUsdc]);
         }
         if (actionType === "routerSwapYesForNo") {
-          return abi.encode(["address", "address", "uint256", "uint256"], [user, routerMarketAddress, amountUsdc, 0]);
+          return abi.encode(["address", "address", "uint256", "uint256"], [user, targetMarketAddress, amountUsdc, 0]);
         }
         if (actionType === "routerSwapNoForYes") {
-          return abi.encode(["address", "address", "uint256", "uint256"], [user, routerMarketAddress, amountUsdc, 0]);
+          return abi.encode(["address", "address", "uint256", "uint256"], [user, targetMarketAddress, amountUsdc, 0]);
         }
         if (actionType === "routerAddLiquidity") {
           return abi.encode(
             ["address", "address", "uint256", "uint256", "uint256"],
-            [user, routerMarketAddress, amountUsdc, amountUsdc, 0]
+            [user, targetMarketAddress, amountUsdc, amountUsdc, 0]
           );
         }
         if (actionType === "routerRemoveLiquidity") {
           return abi.encode(
             ["address", "address", "uint256", "uint256", "uint256"],
-            [user, routerMarketAddress, amountUsdc, 0, 0]
+            [user, targetMarketAddress, amountUsdc, 0, 0]
           );
         }
         throw new Error(`Unsupported auto router actionType: ${actionType} on chain ${chainId}`);
@@ -599,7 +577,7 @@
         byId("session").value = JSON.stringify(session, null, 2);
       };
 
-      const signPermit = async () => {
+      const approveCollateral = async () => {
         const account = connectedAccount || (await connectWallet());
         const chainId = Number(byId("chainId").value);
         if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chainId");
@@ -610,75 +588,41 @@
           throw new Error(`Wallet chainId ${walletChainId} does not match form chainId ${chainId}`);
         }
 
-        const token = byId("permitToken").value.trim();
-        const spender = byId("permitSpender").value.trim();
+        const token = byId("collateralTokenAddress").value.trim();
+        const spender = byId("executeReceiverAddress").value.trim();
         const value = byId("amountUsdc").value.trim();
-        const domainName = byId("permitDomainName").value.trim();
-        const domainVersion = byId("permitDomainVersion").value.trim() || "1";
-        let deadline = byId("permitDeadline").value.trim();
 
-        if (!HEX_ADDRESS_REGEX.test(token)) throw new Error("Invalid permit token address");
-        if (!HEX_ADDRESS_REGEX.test(spender)) throw new Error("Invalid permit spender address");
+        if (!HEX_ADDRESS_REGEX.test(token)) throw new Error("Invalid collateral token address");
+        if (!HEX_ADDRESS_REGEX.test(spender)) throw new Error("Invalid execute receiver address");
         if (!/^\d+$/.test(value) || BigInt(value) <= 0n) throw new Error("amountUsdc must be a positive numeric string");
-        if (!domainName) throw new Error("Permit domain name is required");
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        const erc20 = new ethers.Contract(token, ERC20_ABI, signer);
+        const tx = await erc20.approve(spender, value);
+        await tx.wait();
+        return tx.hash;
+      };
 
-        if (!deadline) {
-          deadline = String(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
-          byId("permitDeadline").value = deadline;
+      const depositCollateral = async () => {
+        const chainId = Number(byId("chainId").value);
+        if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chainId");
+        const amount = byId("amountUsdc").value.trim();
+        const router = byId("executeReceiverAddress").value.trim();
+        if (!HEX_ADDRESS_REGEX.test(router)) throw new Error("Invalid execute receiver address");
+        if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) throw new Error("amountUsdc must be a positive numeric string");
+
+        const walletChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+        const walletChainId = Number.parseInt(walletChainIdHex, 16);
+        if (walletChainId !== chainId) {
+          throw new Error(`Wallet chainId ${walletChainId} does not match form chainId ${chainId}`);
         }
-        if (!/^\d+$/.test(deadline)) throw new Error("Permit deadline must be unix seconds");
 
-        const nonce = await readPermitNonce(token, account);
-
-        const typedData = {
-          types: {
-            EIP712Domain: [
-              { name: "name", type: "string" },
-              { name: "version", type: "string" },
-              { name: "chainId", type: "uint256" },
-              { name: "verifyingContract", type: "address" },
-            ],
-            Permit: [
-              { name: "owner", type: "address" },
-              { name: "spender", type: "address" },
-              { name: "value", type: "uint256" },
-              { name: "nonce", type: "uint256" },
-              { name: "deadline", type: "uint256" },
-            ],
-          },
-          primaryType: "Permit",
-          domain: {
-            name: domainName,
-            version: domainVersion,
-            chainId,
-            verifyingContract: token,
-          },
-          message: {
-            owner: account,
-            spender,
-            value,
-            nonce,
-            deadline,
-          },
-        };
-
-        const signature = await window.ethereum.request({
-          method: "eth_signTypedData_v4",
-          params: [account, JSON.stringify(typedData)],
-        });
-
-        const permit = {
-          token,
-          owner: account,
-          spender,
-          value,
-          nonce,
-          deadline,
-          signature,
-          domainName,
-          domainVersion,
-        };
-        byId("permit").value = JSON.stringify(permit, null, 2);
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        const routerContract = new ethers.Contract(router, ROUTER_ABI, signer);
+        const tx = await routerContract.depositCollateral(amount);
+        await tx.wait();
+        return tx.hash;
       };
 
       byId("connectBtn").addEventListener("click", async () => {
@@ -686,6 +630,14 @@
           await connectWallet();
         } catch (err) {
           output.textContent = `Connect failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
+
+      byId("chainId").addEventListener("change", async () => {
+        try {
+          await resolveChainConfig();
+        } catch (err) {
+          output.textContent = `Chain config load failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       });
 
@@ -699,13 +651,23 @@
         }
       });
 
-      byId("signPermitBtn").addEventListener("click", async () => {
+      byId("approveCollateralBtn").addEventListener("click", async () => {
         try {
-          output.textContent = "Signing permit...";
-          await signPermit();
-          output.textContent = "Permit signed. You can now request sponsorship.";
+          output.textContent = "Sending collateral approval transaction...";
+          const hash = await approveCollateral();
+          output.textContent = `Collateral approved. txHash=${hash}`;
         } catch (err) {
-          output.textContent = `Sign permit failed: ${err instanceof Error ? err.message : String(err)}`;
+          output.textContent = `Approve failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
+
+      byId("depositCollateralBtn").addEventListener("click", async () => {
+        try {
+          output.textContent = "Depositing collateral to vault...";
+          const hash = await depositCollateral();
+          output.textContent = `Deposit sent. txHash=${hash}`;
+        } catch (err) {
+          output.textContent = `Deposit failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       });
 
@@ -773,15 +735,11 @@
         output.textContent = "Requesting...";
         try {
           const session = JSON.parse(byId("session").value);
-          const permit = JSON.parse(byId("permit").value);
           const userOp = parseUserOp();
           const requestId = `ui_${Date.now()}_${randomHex(4)}`;
 
           if (!session?.sessionId || !session?.grantSignature) {
             throw new Error("Session JSON missing required fields");
-          }
-          if (!permit?.signature || permit.signature === "0x") {
-            throw new Error("Permit is missing signature; click Sign Permit");
           }
           const sessionPassword = byId("sessionPassword").value;
           if (typeof sessionPassword !== "string" || sessionPassword.length < 8) {
@@ -849,9 +807,8 @@
             slippageBps,
             reportActionType,
             reportPayloadHex,
-            reportReceiver: byId("reportReceiver").value.trim() || undefined,
+            reportReceiver: byId("executeReceiverAddress").value.trim() || undefined,
             session: signedSession,
-            permit,
             userOp,
           };
 
@@ -866,6 +823,8 @@
           output.textContent = `Request failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       });
+
+      resolveChainConfig().catch(() => {});
     </script>
   </body>
 </html>

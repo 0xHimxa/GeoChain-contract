@@ -45,6 +45,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     bytes32 private constant HASHED_REMOVE_LIQ = keccak256(abi.encode("routerRemoveLiquidity"));
 
     IERC20 public immutable collateralToken;
+    uint256 public totalCollateralCredits;
 
     // Market allowlist to avoid interacting with arbitrary contracts.
     mapping(address => bool) public allowedMarkets;
@@ -64,6 +65,14 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     event SwappedNoForYes(address indexed user, address indexed market, uint256 noIn, uint256 yesOut);
     event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
     event LiquidityRemoved(address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut);
+
+    /// @notice Returns collateral tokens currently held by router but not mapped to user collateral credits.
+    /// @dev This helps detect accidental direct transfers to the vault.
+    function getUntrackedCollateral() external view returns (uint256) {
+        uint256 balance = collateralToken.balanceOf(address(this));
+        if (balance <= totalCollateralCredits) return 0;
+        return balance - totalCollateralCredits;
+    }
 
     constructor(address collateral, address forwarder, address initialOwner) ReceiverTemplate(forwarder, initialOwner) {
         if (collateral == address(0)) revert Router__ZeroAddress();
@@ -115,6 +124,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     function _depositCollateral(address user, uint256 amount) internal {
         collateralToken.safeTransferFrom(user, address(this), amount);
         collateralCredits[user] += amount;
+        totalCollateralCredits += amount;
         emit Deposited(user, amount);
     }
 
@@ -122,6 +132,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         uint256 bal = collateralCredits[user];
         if (bal < amount) revert Router__InsufficientBalance();
         collateralCredits[user] = bal - amount;
+        totalCollateralCredits -= amount;
         collateralToken.safeTransfer(user, amount);
         emit CollateralWithdrawn(user, amount);
     }
@@ -141,6 +152,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         uint256 userCollateral = collateralCredits[user];
         if (userCollateral < amount) revert Router__InsufficientBalance();
         collateralCredits[user] = userCollateral - amount;
+        totalCollateralCredits -= amount;
 
         address yes = IPredictionMarketLike(market).yesToken();
         address no = IPredictionMarketLike(market).noToken();
@@ -181,6 +193,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         if (collateralAfter < collateralBefore) revert Router__InvalidDelta();
         uint256 collateralDelta = collateralAfter - collateralBefore;
         collateralCredits[user] += collateralDelta;
+        totalCollateralCredits += collateralDelta;
 
         emit CompleteSetsRedeemed(user, market, amount, collateralDelta);
     }

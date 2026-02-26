@@ -1,7 +1,6 @@
 import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { type Config } from "../Constant-variable/config";
 import { createApprovalRecord, getFirestoreIdToken } from "../firebase/sessionStore";
-import { validatePermitAuthorization, type PermitAuthorization } from "./permitValidation";
 import { validateSessionAuthorization, type SessionAuthorization } from "./sessionValidation";
 
 // Payload shape expected by CRE HTTP trigger callers (frontend/adapter).
@@ -12,7 +11,6 @@ type SponsorRequest = {
   amountUsdc?: string;
   slippageBps?: number;
   session?: SessionAuthorization;
-  permit?: PermitAuthorization;
   userOp?: {
     sender?: string;
     nonce?: string;
@@ -176,16 +174,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   });
   if (!sessionValidation.ok || !sessionValidation.sessionId) {
     return JSON.stringify(makeDecision(requestId, sessionValidation.reason || "invalid session authorization"));
-  }
-
-  const permitValidation = await validatePermitAuthorization(runtime, {
-    chainId: request.chainId,
-    amount,
-    permit: request.permit,
-    expectedOwner: sender,
-  });
-  if (!permitValidation.ok) {
-    return JSON.stringify(makeDecision(requestId, permitValidation.reason || "invalid permit authorization"));
   }
 
   const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 120;

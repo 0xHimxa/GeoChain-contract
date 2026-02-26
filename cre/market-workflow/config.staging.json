@@ -18,9 +18,6 @@
     ],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
-    "requirePermitAuthorization": true,
-    "permitSpender": "",
-    "permitTokenByChainId": {},
     "maxAmountUsdc": "1000000000",
     "maxSlippageBps": 300
   },
@@ -51,13 +48,17 @@
     {
       
 "marketFactoryAddress": "0xA8735c76fA6E04f705204100FbE56582f0e420eD",
-      "chainName": "ethereum-testnet-sepolia-arbitrum-1"
+      "chainName": "ethereum-testnet-sepolia-arbitrum-1",
+      "routerReceiverAddress": "",
+      "collateralTokenAddress": ""
     },
       {
       
 
       "marketFactoryAddress": "0x89D7F9aA690cDCB2265351FcA0fD260Ed0c7608E",
-      "chainName": "ethereum-testnet-sepolia-base-1"
+      "chainName": "ethereum-testnet-sepolia-base-1",
+      "routerReceiverAddress": "",
+      "collateralTokenAddress": ""
 
     }
 

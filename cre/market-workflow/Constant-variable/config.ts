@@ -1,6 +1,8 @@
 export type EvmConfig = {
   marketFactoryAddress: string;
   chainName: string;
+  routerReceiverAddress?: string;
+  collateralTokenAddress?: string;
 };
 
 export type AuthorizedKeyConfig = {
@@ -16,9 +18,6 @@ export type SponsorPolicyConfig = {
   maxSlippageBps: number;
   requireSessionAuthorization?: boolean;
   sessionMaxDurationSec?: number;
-  requirePermitAuthorization?: boolean;
-  permitSpender?: string;
-  permitTokenByChainId?: Record<string, string>;
 };
 
 export type ExecutePolicyConfig = {
