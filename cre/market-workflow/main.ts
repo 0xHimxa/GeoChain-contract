@@ -8,6 +8,7 @@ import { type Config } from "./Constant-variable/config";
 import {processPendingWithdrawalsHandler} from "./handlers/marketWithdrawal";
 import { sponsorUserOpPolicyHandler } from "./handlers/httpSponsorPolicy";
 import { executeReportHttpHandler } from "./handlers/httpExecuteReport";
+import { revokeSessionHttpHandler } from "./handlers/httpRevokeSession";
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
@@ -37,6 +38,12 @@ const initWorkflow = (config: Config) => {
           authorizedKeys: httpAuthorizedKeys,
         }),
         sponsorUserOpPolicyHandler
+      ),
+      handler(
+        http.trigger({
+          authorizedKeys: httpAuthorizedKeys,
+        }),
+        revokeSessionHttpHandler
       ),
     ];
     if (hasHttpExecutionTriggerKeys) {
@@ -84,4 +91,5 @@ export {
   resoloveEvent,
   sponsorUserOpPolicyHandler,
   executeReportHttpHandler,
+  revokeSessionHttpHandler,
 };

@@ -16,9 +16,8 @@
       "mintCompleteSets",
       "redeemCompleteSets"
     ],
-    "requirePermitAuthorization": true,
-    "permitSpender": "",
-    "permitTokenByChainId": {},
+    "requireSessionAuthorization": true,
+    "sessionMaxDurationSec": 86400,
     "maxAmountUsdc": "1000000000",
     "maxSlippageBps": 300
   },

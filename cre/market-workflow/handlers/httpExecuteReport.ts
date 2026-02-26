@@ -9,14 +9,13 @@ import {
 } from "@chainlink/cre-sdk";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { type Config } from "../Constant-variable/config";
-import { validatePermitAuthorization, type PermitAuthorization } from "./permitValidation";
+import { consumeApprovalRecord, getFirestoreIdToken } from "../firebase/sessionStore";
 
 type ExecuteRequest = {
   requestId?: string;
   approvalId?: string;
   chainId?: number;
   amountUsdc?: string;
-  permit?: PermitAuthorization;
   receiver?: string;
   actionType?: string;
   payloadHex?: `0x${string}`;
@@ -121,16 +120,18 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
     } satisfies ExecuteResponse);
   }
 
-  const permitValidation = await validatePermitAuthorization(runtime, {
+  const firestoreToken = getFirestoreIdToken(runtime);
+  const approvalConsumption = consumeApprovalRecord(runtime, firestoreToken, {
+    approvalId: req.approvalId,
     chainId: req.chainId,
-    amount,
-    permit: req.permit,
+    amountUsdc: amount.toString(),
+    nowUnix: BigInt(Math.floor(runtime.now().getTime() / 1000)),
   });
-  if (!permitValidation.ok) {
+  if (!approvalConsumption.ok) {
     return JSON.stringify({
       submitted: false,
       requestId,
-      reason: permitValidation.reason || "invalid permit authorization",
+      reason: approvalConsumption.reason || "invalid sponsorship approval",
     } satisfies ExecuteResponse);
   }
 

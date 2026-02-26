@@ -14,9 +14,8 @@ export type SponsorPolicyConfig = {
   allowedActions: string[];
   maxAmountUsdc: string;
   maxSlippageBps: number;
-  requirePermitAuthorization?: boolean;
-  permitSpender?: string;
-  permitTokenByChainId?: Record<string, string>;
+  requireSessionAuthorization?: boolean;
+  sessionMaxDurationSec?: number;
 };
 
 export type ExecutePolicyConfig = {

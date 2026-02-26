@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 type SponsorApiRequest = {
+  requestId?: string;
   creTriggerUrl: string;
   creExecuteTriggerUrl: string;
   chainId: number;
@@ -12,8 +13,26 @@ type SponsorApiRequest = {
   reportPayloadHex: string;
   reportReceiver?: string;
   reportGasLimit?: string;
-  permit?: Record<string, unknown>;
+  session?: Record<string, unknown>;
   userOp: Record<string, unknown>;
+};
+
+type RevokeSessionApiRequest = {
+  requestId?: string;
+  creRevokeTriggerUrl: string;
+  sessionId: string;
+  owner: string;
+  chainId: number;
+  revokeSignature: string;
+};
+
+type CrePolicyDecision = {
+  approved?: boolean;
+  approvalId?: string;
+};
+
+type ExecuteDecision = {
+  submitted?: boolean;
 };
 
 const indexHtml = readFileSync(join(import.meta.dir, "index.html"), "utf-8");
@@ -44,12 +63,12 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   }
 
   const crePayload = {
-    requestId: `ui_${Date.now()}`,
+    requestId: body.requestId || `ui_${Date.now()}`,
     chainId: body.chainId,
     action: body.action,
     amountUsdc: body.amountUsdc,
     slippageBps: body.slippageBps,
-    permit: body.permit,
+    session: body.session,
     userOp: body.userOp,
   };
 
@@ -59,7 +78,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     body: JSON.stringify(crePayload),
   });
 
-  const creDecision = await creResponse.json();
+  const creDecision = (await creResponse.json()) as CrePolicyDecision;
   if (!creResponse.ok || !creDecision?.approved) {
     return json(403, {
       approved: false,
@@ -77,11 +96,10 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   }
 
   const executePayload = {
-    requestId: `exec_${Date.now()}`,
+    requestId: `${body.requestId || `ui_${Date.now()}`}_exec`,
     approvalId: creDecision.approvalId,
     chainId: body.chainId,
     amountUsdc: body.amountUsdc,
-    permit: body.permit,
     actionType: body.reportActionType,
     payloadHex: body.reportPayloadHex,
     receiver: body.reportReceiver,
@@ -93,7 +111,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(executePayload),
   });
-  const executeJson = await executeRes.json();
+  const executeJson = (await executeRes.json()) as ExecuteDecision;
 
   return json(executeRes.ok ? 200 : 502, {
     approved: !!executeJson?.submitted,
@@ -101,6 +119,36 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     creDecision,
     execute: executeJson,
   });
+};
+
+const handleSessionRevoke = async (req: Request): Promise<Response> => {
+  let body: RevokeSessionApiRequest;
+  try {
+    body = (await req.json()) as RevokeSessionApiRequest;
+  } catch {
+    return json(400, { error: "invalid JSON body" });
+  }
+
+  if (!body.creRevokeTriggerUrl) {
+    return json(400, { error: "missing creRevokeTriggerUrl" });
+  }
+
+  const revokePayload = {
+    requestId: body.requestId || `revoke_${Date.now()}`,
+    sessionId: body.sessionId,
+    owner: body.owner,
+    chainId: body.chainId,
+    revokeSignature: body.revokeSignature,
+  };
+
+  const revokeRes = await fetch(body.creRevokeTriggerUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(revokePayload),
+  });
+
+  const revokeJson = await revokeRes.json();
+  return json(revokeRes.ok ? 200 : 502, revokeJson);
 };
 
 const port = Number(process.env.PORT || 5173);
@@ -122,6 +170,9 @@ const server = Bun.serve({
     const url = new URL(req.url);
     if (url.pathname === "/api/sponsor" && req.method === "POST") {
       return handleSponsor(req);
+    }
+    if (url.pathname === "/api/session/revoke" && req.method === "POST") {
+      return handleSessionRevoke(req);
     }
     if (url.pathname === "/" && req.method === "GET") {
       return new Response(indexHtml, {

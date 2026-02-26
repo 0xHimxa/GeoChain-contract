@@ -6,9 +6,8 @@
     "enabled": false,
     "supportedChainIds": [],
     "allowedActions": [],
-    "requirePermitAuthorization": true,
-    "permitSpender": "",
-    "permitTokenByChainId": {},
+    "requireSessionAuthorization": true,
+    "sessionMaxDurationSec": 86400,
     "maxAmountUsdc": "0",
     "maxSlippageBps": 0
   },

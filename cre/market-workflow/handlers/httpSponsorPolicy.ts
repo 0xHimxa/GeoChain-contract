@@ -1,6 +1,7 @@
 import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { type Config } from "../Constant-variable/config";
-import { validatePermitAuthorization, type PermitAuthorization } from "./permitValidation";
+import { createApprovalRecord, getFirestoreIdToken } from "../firebase/sessionStore";
+import { validateSessionAuthorization, type SessionAuthorization } from "./sessionValidation";
 
 // Payload shape expected by CRE HTTP trigger callers (frontend/adapter).
 type SponsorRequest = {
@@ -9,7 +10,7 @@ type SponsorRequest = {
   action?: string;
   amountUsdc?: string;
   slippageBps?: number;
-  permit?: PermitAuthorization;
+  session?: SessionAuthorization;
   userOp?: {
     sender?: string;
     nonce?: string;
@@ -160,23 +161,40 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     return JSON.stringify(makeDecision(requestId, "invalid userOp.signature"));
   }
 
-  const permitValidation = await validatePermitAuthorization(runtime, {
+  const sessionValidation = await validateSessionAuthorization(runtime, {
     chainId: request.chainId,
     amount,
-    permit: request.permit,
-    expectedOwner: sender,
+    amountUsdcRaw: request.amountUsdc || "0",
+    action: request.action,
+    requestId,
+    slippageBps: typeof request.slippageBps === "number" ? request.slippageBps : 0,
+    sender,
+    callData,
+    session: request.session,
   });
-  if (!permitValidation.ok) {
-    return JSON.stringify(makeDecision(requestId, permitValidation.reason || "invalid permit authorization"));
+  if (!sessionValidation.ok || !sessionValidation.sessionId) {
+    return JSON.stringify(makeDecision(requestId, sessionValidation.reason || "invalid session authorization"));
   }
 
-  // Short-lived approval window so execute flow cannot reuse old decisions forever.
+  const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 120;
+  const approvalId = `cre_approval_${runtime.now().getTime()}_${requestId.slice(-8)}_${sender.slice(2, 8)}`;
+  const firestoreToken = getFirestoreIdToken(runtime);
+  createApprovalRecord(runtime, firestoreToken, {
+    approvalId,
+    requestId,
+    sessionId: sessionValidation.sessionId,
+    chainId: request.chainId,
+    amountUsdc: amount.toString(),
+    expiresAtUnix: BigInt(approvalExpiresAtUnix),
+  });
+
+  // Short-lived approval window so execute flow cannot replay old sponsor decisions forever.
   const decision: SponsorDecision = {
     approved: true,
     reason: "approved by CRE sponsor policy",
     requestId,
-    approvalId: `cre_approval_${runtime.now().toString()}_${sender.slice(2, 8)}`,
-    approvalExpiresAtUnix: Math.floor(runtime.now().getTime() / 1000) + 120,
+    approvalId,
+    approvalExpiresAtUnix,
   };
 
   runtime.log(
