@@ -16,6 +16,16 @@
   },
   "executePolicy": {
     "enabled": false,
-    "allowedActionTypes": []
+    "allowedActionTypes": [
+      "routerDepositFor",
+      "routerWithdrawCollateralFor",
+      "routerWithdrawOutcomeFor",
+      "routerMintCompleteSets",
+      "routerRedeemCompleteSets",
+      "routerSwapYesForNo",
+      "routerSwapNoForYes",
+      "routerAddLiquidity",
+      "routerRemoveLiquidity"
+    ]
   }
 }

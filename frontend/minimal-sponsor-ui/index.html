@@ -163,13 +163,19 @@
           <input id="slippageBps" type="number" value="150" />
         </label>
         <label>Report ActionType (for CRE execute mode)
-          <input id="reportActionType" value="createMarket" />
+          <input id="reportActionType" value="routerMintCompleteSets" />
         </label>
-        <label>Report PayloadHex (bytes, pre-encoded)
-          <input id="reportPayloadHex" value="0x" />
+        <label>Report PayloadHex (`auto` to encode router payload)
+          <input id="reportPayloadHex" value="auto" />
         </label>
         <label>Report Receiver (optional)
           <input id="reportReceiver" value="" placeholder="0xMarketFactoryOrReceiver" />
+        </label>
+        <label>Router Market Address (for router actions)
+          <input id="routerMarketAddress" value="0x0000000000000000000000000000000000000000" />
+        </label>
+        <label>Router Outcome Token (for withdraw action)
+          <input id="routerOutcomeToken" value="0x0000000000000000000000000000000000000000" />
         </label>
       </div>
 
@@ -454,6 +460,55 @@
           throw new Error("Invalid userOp.signature");
         }
         return userOp;
+      };
+
+      const buildRouterReportPayloadHex = (actionType, user, chainId) => {
+        const abi = ethers.AbiCoder.defaultAbiCoder();
+        const amountUsdc = byId("amountUsdc").value.trim();
+        const slippageBps = Number(byId("slippageBps").value);
+        const routerMarketAddress = byId("routerMarketAddress").value.trim();
+        const routerOutcomeToken = byId("routerOutcomeToken").value.trim();
+
+        if (!HEX_ADDRESS_REGEX.test(user)) throw new Error("Invalid user address for router payload");
+        if (!/^\d+$/.test(amountUsdc)) throw new Error("amountUsdc must be numeric for router payload");
+        if (!Number.isInteger(slippageBps) || slippageBps < 0) throw new Error("invalid slippageBps");
+
+        if (actionType === "routerDepositFor") {
+          return abi.encode(["address", "uint256"], [user, amountUsdc]);
+        }
+        if (actionType === "routerWithdrawCollateralFor") {
+          return abi.encode(["address", "uint256"], [user, amountUsdc]);
+        }
+        if (actionType === "routerWithdrawOutcomeFor") {
+          if (!HEX_ADDRESS_REGEX.test(routerOutcomeToken)) throw new Error("Invalid Router Outcome Token address");
+          return abi.encode(["address", "address", "uint256"], [user, routerOutcomeToken, amountUsdc]);
+        }
+        if (!HEX_ADDRESS_REGEX.test(routerMarketAddress)) throw new Error("Invalid Router Market Address");
+        if (actionType === "routerMintCompleteSets") {
+          return abi.encode(["address", "address", "uint256"], [user, routerMarketAddress, amountUsdc]);
+        }
+        if (actionType === "routerRedeemCompleteSets") {
+          return abi.encode(["address", "address", "uint256"], [user, routerMarketAddress, amountUsdc]);
+        }
+        if (actionType === "routerSwapYesForNo") {
+          return abi.encode(["address", "address", "uint256", "uint256"], [user, routerMarketAddress, amountUsdc, 0]);
+        }
+        if (actionType === "routerSwapNoForYes") {
+          return abi.encode(["address", "address", "uint256", "uint256"], [user, routerMarketAddress, amountUsdc, 0]);
+        }
+        if (actionType === "routerAddLiquidity") {
+          return abi.encode(
+            ["address", "address", "uint256", "uint256", "uint256"],
+            [user, routerMarketAddress, amountUsdc, amountUsdc, 0]
+          );
+        }
+        if (actionType === "routerRemoveLiquidity") {
+          return abi.encode(
+            ["address", "address", "uint256", "uint256", "uint256"],
+            [user, routerMarketAddress, amountUsdc, 0, 0]
+          );
+        }
+        throw new Error(`Unsupported auto router actionType: ${actionType} on chain ${chainId}`);
       };
 
       const createSession = async () => {
@@ -774,6 +829,16 @@
           };
           byId("session").value = JSON.stringify(signedSession, null, 2);
 
+          const reportActionType = byId("reportActionType").value.trim();
+          const reportPayloadInput = byId("reportPayloadHex").value.trim();
+          const reportPayloadHex =
+            reportPayloadInput.toLowerCase() === "auto"
+              ? buildRouterReportPayloadHex(reportActionType, userOp.sender, chainId)
+              : reportPayloadInput;
+          if (!HEX_BYTES_REGEX.test(reportPayloadHex)) {
+            throw new Error("Report PayloadHex must be valid hex bytes");
+          }
+
           const payload = {
             requestId,
             creTriggerUrl: byId("creTriggerUrl").value.trim(),
@@ -782,8 +847,8 @@
             action: byId("action").value.trim(),
             amountUsdc: byId("amountUsdc").value.trim(),
             slippageBps,
-            reportActionType: byId("reportActionType").value.trim(),
-            reportPayloadHex: byId("reportPayloadHex").value.trim(),
+            reportActionType,
+            reportPayloadHex,
             reportReceiver: byId("reportReceiver").value.trim() || undefined,
             session: signedSession,
             permit,
