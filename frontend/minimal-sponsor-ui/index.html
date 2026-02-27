@@ -301,12 +301,22 @@
         return ethers.keccak256(ethers.toUtf8Bytes(serialized));
       };
 
+      const parseJsonResponse = async (res) => {
+        const raw = await res.text();
+        if (!raw.trim()) return {};
+        try {
+          return JSON.parse(raw);
+        } catch {
+          throw new Error(`Server returned non-JSON response (status ${res.status}): ${raw.slice(0, 300)}`);
+        }
+      };
+
       const resolveChainConfig = async () => {
         const chainId = Number(byId("chainId").value);
         if (!Number.isInteger(chainId) || chainId <= 0) return;
         const res = await fetch(`/api/chain-config?chainId=${chainId}`);
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         if (HEX_ADDRESS_REGEX.test(data.collateralTokenAddress || "")) {
           byId("collateralTokenAddress").value = data.collateralTokenAddress;
         }
@@ -712,7 +722,7 @@
               revokeSignature,
             }),
           });
-          const data = await res.json();
+          const data = await parseJsonResponse(res);
           if (res.ok && data?.revoked) {
             await idbDelete(storageKey(session.sessionId));
           }
@@ -805,7 +815,7 @@
             headers: { "content-type": "application/json" },
             body: JSON.stringify(payload),
           });
-          const data = await res.json();
+          const data = await parseJsonResponse(res);
           output.textContent = JSON.stringify({ status: res.status, ...data }, null, 2);
         } catch (err) {
           output.textContent = `Request failed: ${err instanceof Error ? err.message : String(err)}`;

@@ -63,7 +63,8 @@ const addressFromPublicKey = (publicKey: string): string | null => {
 
 export const validateSessionAuthorization = async (
   runtime: Runtime<Config>,
-  input: SessionValidationInput
+  input: SessionValidationInput,
+  existingFirestoreToken?: string
 ): Promise<SessionValidationResult> => {
   const requireSession = runtime.config.sponsorPolicy?.requireSessionAuthorization ?? true;
   if (!requireSession) return { ok: true };
@@ -169,7 +170,7 @@ export const validateSessionAuthorization = async (
   });
   if (!requestSigOk) return { ok: false, reason: "invalid session request signature" };
 
-  const firestoreToken = getFirestoreIdToken(runtime);
+  const firestoreToken = existingFirestoreToken || getFirestoreIdToken(runtime);
   const storeSessionResult = upsertAndValidateSession(runtime, firestoreToken, {
     sessionId,
     owner: owner.toLowerCase(),

@@ -1,9 +1,19 @@
 {
   "schedule": "*/30 * * * * *",
-  "httpTriggerAuthorizedKeys": [],
-  "httpExecutionAuthorizedKeys": [],
+  "httpTriggerAuthorizedKeys": [
+    {
+      "type": "KEY_TYPE_ECDSA_EVM",
+      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
+    }
+  ],
+  "httpExecutionAuthorizedKeys": [
+    {
+      "type": "KEY_TYPE_ECDSA_EVM",
+      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
+    }
+  ],
   "sponsorPolicy": {
-    "enabled": false,
+    "enabled": true,
     "supportedChainIds": [
       421614,
       84532
@@ -22,7 +32,7 @@
     "maxSlippageBps": 300
   },
   "executePolicy": {
-    "enabled": false,
+    "enabled": true,
     "allowedActionTypes": [
       "createMarket",
       "priceCorrection",

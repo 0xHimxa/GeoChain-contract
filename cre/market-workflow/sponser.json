@@ -1,0 +1,28 @@
+{
+    "requestId": "ui_1772175814933_23cb09cb",
+    "chainId": 84532,
+    "action": "swapYesForNo",
+    "amountUsdc": "1000000",
+    "sender": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
+    "slippageBps": 150,
+    "session": {
+        "sessionId": "sess_1772175801154_9218e36d70b2df63",
+        "owner": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
+        "sessionPublicKey": "0x0498970723b98a386cf32c5328470d8a0fa3ad4b4c794385d74d6b0d21d4f0d0d93a873b39087d2d7e8d7253ecd6b1c2abfd60755b898ef2d4bf7509efcf8964db",
+        "chainId": 84532,
+        "allowedActions": [
+            "addLiquidity",
+            "removeLiquidity",
+            "swapNoForYes",
+            "swapYesForNo"
+        ],
+        "maxAmountUsdc": "10000000",
+        "expiresAtUnix": 1772179401,
+        "grantSignature": "0x7d9a19dfd749fb1a65fef9d938ccf2b88da12d5c883d5983d5f42d8e6ea736a4034c5d6d1fa0d349716e66c5ac28bc9f2f8fea4f031a28024c6491b0d75214481c",
+        "requestNonce": "nonce_1acb3678bf871e579f3084ae",
+        "requestSignature": "0xf563263067d2a6ee2bcb3bf39189d6e15989373243196941cbac68a1db0db0e939f612a97db6017d52f5b6193d981aca2044147f84e1368938a560090b9aa5491b"
+    }
+}
+
+
+

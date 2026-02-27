@@ -59,6 +59,8 @@ const json = (status: number, payload: unknown) =>
     },
   });
 
+const toErrorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 // Local mock endpoint:
 // 1) logs policy payload
 // 2) logs execute payload
@@ -178,13 +180,28 @@ const server = Bun.serve({
 
     const url = new URL(req.url);
     if (url.pathname === "/api/sponsor" && req.method === "POST") {
-      return handleSponsor(req);
+      try {
+        return await handleSponsor(req);
+      } catch (error) {
+        console.error("[API_SPONSOR_ERROR]", error);
+        return json(500, { error: "internal sponsor error", detail: toErrorMessage(error) });
+      }
     }
     if (url.pathname === "/api/chain-config" && req.method === "GET") {
-      return handleChainConfig(req);
+      try {
+        return handleChainConfig(req);
+      } catch (error) {
+        console.error("[API_CHAIN_CONFIG_ERROR]", error);
+        return json(500, { error: "internal chain-config error", detail: toErrorMessage(error) });
+      }
     }
     if (url.pathname === "/api/session/revoke" && req.method === "POST") {
-      return handleSessionRevoke(req);
+      try {
+        return await handleSessionRevoke(req);
+      } catch (error) {
+        console.error("[API_REVOKE_ERROR]", error);
+        return json(500, { error: "internal revoke error", detail: toErrorMessage(error) });
+      }
     }
     if (url.pathname === "/" && req.method === "GET") {
       return new Response(indexHtml, {

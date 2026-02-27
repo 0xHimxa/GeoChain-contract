@@ -23,6 +23,7 @@ type SponsorDecision = {
 };
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+const PRICISION = 1000000n
 const DEFAULT_MAX_AMOUNT_USDC = 1000n;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
 const DEFAULT_ALLOWED_ACTIONS = new Set([
@@ -146,6 +147,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     return JSON.stringify(makeDecision(requestId, "invalid sender"));
   }
 
+  const firestoreToken = getFirestoreIdToken(runtime);
   const sessionValidation = await validateSessionAuthorization(runtime, {
     chainId: request.chainId,
     amount,
@@ -155,14 +157,13 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     slippageBps: typeof request.slippageBps === "number" ? request.slippageBps : 0,
     sender,
     session: request.session,
-  });
+  }, firestoreToken);
   if (!sessionValidation.ok || !sessionValidation.sessionId) {
     return JSON.stringify(makeDecision(requestId, sessionValidation.reason || "invalid session authorization"));
   }
 
   const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 120;
   const approvalId = `cre_approval_${runtime.now().getTime()}_${requestId.slice(-8)}_${sender.slice(2, 8)}`;
-  const firestoreToken = getFirestoreIdToken(runtime);
   createApprovalRecord(runtime, firestoreToken, {
     approvalId,
     requestId,
