@@ -195,8 +195,8 @@
           <label>Execute Receiver Address (used for approve/deposit only)
             <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" />
           </label>
-          <label>Report ActionType (for CRE execute mode)
-            <input id="reportActionType" value="routerMintCompleteSets" />
+          <label>Report ActionType (auto-derived from Action)
+            <input id="reportActionType" value="routerSwapYesForNo" readonly />
           </label>
           <label>Report PayloadHex (`auto` to encode router payload)
             <input id="reportPayloadHex" value="auto" />
@@ -235,6 +235,14 @@
         "function allowance(address owner, address spender) external view returns (uint256)",
       ];
       const ROUTER_ABI = ["function depositCollateral(uint256 amount) external"];
+      const ACTION_TO_REPORT_ACTION_TYPE = {
+        addLiquidity: "routerAddLiquidity",
+        removeLiquidity: "routerRemoveLiquidity",
+        swapYesForNo: "routerSwapYesForNo",
+        swapNoForYes: "routerSwapNoForYes",
+        mintCompleteSets: "routerMintCompleteSets",
+        redeemCompleteSets: "routerRedeemCompleteSets",
+      };
       let connectedAccount = "";
 
       const setWalletStatus = (text) => {
@@ -448,6 +456,19 @@
         return account;
       };
 
+      const deriveReportActionType = (action) => {
+        const mapped = ACTION_TO_REPORT_ACTION_TYPE[String(action || "").trim()];
+        if (!mapped) {
+          throw new Error(`Unsupported action for sponsorship: ${action}`);
+        }
+        return mapped;
+      };
+
+      const syncReportActionTypeFromAction = () => {
+        const action = byId("action").value.trim();
+        byId("reportActionType").value = deriveReportActionType(action);
+      };
+
       const buildRouterReportPayloadHex = (actionType, user, chainId) => {
         const abi = ethers.AbiCoder.defaultAbiCoder();
         const amountUsdc = byId("amountUsdc").value.trim();
@@ -643,6 +664,14 @@
         }
       });
 
+      byId("action").addEventListener("input", () => {
+        try {
+          syncReportActionTypeFromAction();
+        } catch {
+          // Keep last valid value while user types.
+        }
+      });
+
       byId("createSessionBtn").addEventListener("click", async () => {
         try {
           output.textContent = "Creating session key...";
@@ -756,6 +785,9 @@
           if (!Number.isInteger(slippageBps) || slippageBps < 0) {
             throw new Error("slippageBps must be a non-negative integer");
           }
+          const action = byId("action").value.trim();
+          const reportActionType = deriveReportActionType(action);
+          byId("reportActionType").value = reportActionType;
 
           const encrypted = await idbGet(storageKey(session.sessionId));
           if (!encrypted) throw new Error("Session private key missing locally; create session again");
@@ -770,7 +802,7 @@
             sessionId: session.sessionId,
             requestNonce,
             chainId,
-            action: byId("action").value.trim(),
+            action,
             amountUsdc: byId("amountUsdc").value.trim(),
             slippageBps,
             sender,
@@ -788,7 +820,6 @@
           };
           byId("session").value = JSON.stringify(signedSession, null, 2);
 
-          const reportActionType = byId("reportActionType").value.trim();
           const reportPayloadInput = byId("reportPayloadHex").value.trim();
           const reportPayloadHex =
             reportPayloadInput.toLowerCase() === "auto"
@@ -801,7 +832,7 @@
           const payload = {
             requestId,
             chainId,
-            action: byId("action").value.trim(),
+            action,
             amountUsdc: byId("amountUsdc").value.trim(),
             slippageBps,
             reportActionType,
@@ -822,6 +853,7 @@
         }
       });
 
+      syncReportActionTypeFromAction();
       resolveChainConfig().catch(() => {});
     </script>
   </body>

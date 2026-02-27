@@ -57,19 +57,19 @@
   "evms": [
     {
       
-      "marketFactoryAddress": "0xA8735c76fA6E04f705204100FbE56582f0e420eD",
+      "marketFactoryAddress": "0x50045D38580b7f0c326E371c45f9ca22a0768fa7",
       "chainName": "ethereum-testnet-sepolia-arbitrum-1",
-      "routerReceiverAddress": "",
-      "collateralTokenAddress": "",
+      "routerReceiverAddress": "0xf2992507E9589307Ea5f02225C5439Ee451d13EC",
+      "collateralTokenAddress": "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
       "reportGasLimit": "10000000"
     },
       {
       
 
-      "marketFactoryAddress": "0x89D7F9aA690cDCB2265351FcA0fD260Ed0c7608E",
+      "marketFactoryAddress": "0xa11dE127E008aC5489D28C4130792981DB047654",
       "chainName": "ethereum-testnet-sepolia-base-1",
-      "routerReceiverAddress": "",
-      "collateralTokenAddress": "",
+      "routerReceiverAddress": "0x65d7401B58C63841c72834D34141039ef41b52c8",
+      "collateralTokenAddress": "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
       "reportGasLimit": "10000000"
 
     }

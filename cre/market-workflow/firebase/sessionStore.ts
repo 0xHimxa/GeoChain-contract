@@ -35,6 +35,8 @@ export type ApprovalRecord = {
   requestId: string;
   sessionId: string;
   chainId: number;
+  action: string;
+  actionType: string;
   amountUsdc: string;
   expiresAtUnix: bigint;
 };
@@ -42,6 +44,8 @@ export type ApprovalRecord = {
 type StoredApproval = {
   sessionId: string;
   chainId: number;
+  action: string;
+  actionType: string;
   amountUsdc: string;
   expiresAtUnix: bigint;
   used: boolean;
@@ -360,6 +364,8 @@ export const createApprovalRecord = (
         requestId: { stringValue: approval.requestId },
         sessionId: { stringValue: approval.sessionId },
         chainId: { integerValue: String(approval.chainId) },
+        action: { stringValue: approval.action },
+        actionType: { stringValue: approval.actionType },
         amountUsdc: { stringValue: approval.amountUsdc },
         expiresAtUnix: { integerValue: approval.expiresAtUnix.toString() },
         used: { booleanValue: false },
@@ -394,17 +400,21 @@ const parseApprovalDoc = (doc: FirestoreDoc | null): StoredApproval | null => {
 
   const sessionId = asString(fields.sessionId);
   const chainId = asInteger(fields.chainId);
+  const action = asString(fields.action);
+  const actionType = asString(fields.actionType);
   const amountUsdc = asString(fields.amountUsdc);
   const expiresAtUnix = asInteger(fields.expiresAtUnix);
   const used = asBoolean(fields.used);
 
-  if (!sessionId || chainId === null || !amountUsdc || expiresAtUnix === null || used === null) {
+  if (!sessionId || chainId === null || !action || !actionType || !amountUsdc || expiresAtUnix === null || used === null) {
     return null;
   }
 
   return {
     sessionId,
     chainId: Number(chainId),
+    action,
+    actionType,
     amountUsdc,
     expiresAtUnix,
     used,
@@ -443,6 +453,7 @@ export const consumeApprovalRecord = (
   expected: {
     approvalId: string;
     chainId: number;
+    actionType: string;
     amountUsdc: string;
     nowUnix: bigint;
   }
@@ -454,6 +465,7 @@ export const consumeApprovalRecord = (
   if (!stored) return { ok: false, reason: "approval state is malformed" };
   if (stored.used) return { ok: false, reason: "approval already used" };
   if (stored.chainId !== expected.chainId) return { ok: false, reason: "approval chain mismatch" };
+  if (stored.actionType !== expected.actionType) return { ok: false, reason: "approval actionType mismatch" };
   if (stored.amountUsdc !== expected.amountUsdc) return { ok: false, reason: "approval amount mismatch" };
   if (stored.expiresAtUnix < expected.nowUnix) return { ok: false, reason: "approval expired" };
 

@@ -119,21 +119,6 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
     } satisfies ExecuteResponse);
   }
 
-  const firestoreToken = getFirestoreIdToken(runtime);
-  const approvalConsumption = consumeApprovalRecord(runtime, firestoreToken, {
-    approvalId: req.approvalId,
-    chainId: req.chainId,
-    amountUsdc: amount.toString(),
-    nowUnix: BigInt(Math.floor(runtime.now().getTime() / 1000)),
-  });
-  if (!approvalConsumption.ok) {
-    return JSON.stringify({
-      submitted: false,
-      requestId,
-      reason: approvalConsumption.reason || "invalid sponsorship approval",
-    } satisfies ExecuteResponse);
-  }
-
   if (!req.actionType || !execPolicy.allowedActionTypes.includes(req.actionType)) {
     return JSON.stringify({
       submitted: false,
@@ -147,6 +132,22 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
       submitted: false,
       requestId,
       reason: "invalid payloadHex",
+    } satisfies ExecuteResponse);
+  }
+
+  const firestoreToken = getFirestoreIdToken(runtime);
+  const approvalConsumption = consumeApprovalRecord(runtime, firestoreToken, {
+    approvalId: req.approvalId,
+    chainId: req.chainId,
+    actionType: req.actionType,
+    amountUsdc: amount.toString(),
+    nowUnix: BigInt(Math.floor(runtime.now().getTime() / 1000)),
+  });
+  if (!approvalConsumption.ok) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: approvalConsumption.reason || "invalid sponsorship approval",
     } satisfies ExecuteResponse);
   }
 

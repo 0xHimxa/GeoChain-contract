@@ -8,6 +8,8 @@ type SponsorRequest = {
   requestId?: string;
   chainId?: number;
   action?: string;
+  actionType?: string;
+  reportActionType?: string;
   amountUsdc?: string;
   sender?: string;
   slippageBps?: number;
@@ -34,6 +36,14 @@ const DEFAULT_ALLOWED_ACTIONS = new Set([
   "mintCompleteSets",
   "redeemCompleteSets",
 ]);
+const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
+  addLiquidity: "routerAddLiquidity",
+  removeLiquidity: "routerRemoveLiquidity",
+  swapYesForNo: "routerSwapYesForNo",
+  swapNoForYes: "routerSwapNoForYes",
+  mintCompleteSets: "routerMintCompleteSets",
+  redeemCompleteSets: "routerRedeemCompleteSets",
+};
 
 /**
  * CRE gives HTTP trigger input as bytes.
@@ -76,6 +86,7 @@ const makeDecision = (
 
 export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const policy = runtime.config.sponsorPolicy;
+  const executePolicy = runtime.config.executePolicy;
   const authKeys = runtime.config.httpTriggerAuthorizedKeys || [];
 
   // Fast fail when sponsorship is globally disabled.
@@ -121,6 +132,24 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
 
   if (!request.action || !policy.allowedActions.includes(request.action)) {
     return JSON.stringify(makeDecision(requestId, "action is not sponsorable"));
+  }
+  const expectedActionType = ACTION_TO_ROUTER_ACTION_TYPE[request.action];
+  if (!expectedActionType) {
+    return JSON.stringify(makeDecision(requestId, "action is not mappable to execute actionType"));
+  }
+
+  const requestedActionType = (request.actionType || request.reportActionType || "").trim();
+  if (!requestedActionType) {
+    return JSON.stringify(makeDecision(requestId, "missing actionType"));
+  }
+  if (requestedActionType !== expectedActionType) {
+    return JSON.stringify(makeDecision(requestId, "actionType does not match sponsored action"));
+  }
+  if (!executePolicy?.enabled) {
+    return JSON.stringify(makeDecision(requestId, "execute policy disabled"));
+  }
+  if (!executePolicy.allowedActionTypes.includes(requestedActionType)) {
+    return JSON.stringify(makeDecision(requestId, "actionType not allowed by execute policy"));
   }
 
   const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;
@@ -169,6 +198,8 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     requestId,
     sessionId: sessionValidation.sessionId,
     chainId: request.chainId,
+    action: request.action,
+    actionType: requestedActionType,
     amountUsdc: amount.toString(),
     expiresAtUnix: BigInt(approvalExpiresAtUnix),
   });
