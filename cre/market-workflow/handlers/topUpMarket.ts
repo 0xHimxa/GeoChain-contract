@@ -26,11 +26,14 @@ import {
 const USDC_DECIMALS = 1_000_000n;
 const BRIDGE_BALANCE_THRESHOLD = 50_000n * USDC_DECIMALS;
 const BRIDGE_TOP_UP_AMOUNT = 140_000n * USDC_DECIMALS;
+const ROUTER_BALANCE_THRESHOLD = 50_000n * USDC_DECIMALS;
+const ROUTER_TOP_UP_AMOUNT = 140_000n * USDC_DECIMALS;
 const FACTORY_BALANCE_THRESHOLD = 210_000n * USDC_DECIMALS;
 const FACTORY_TOP_UP_AMOUNT = 400_000n * USDC_DECIMALS;
 const MINT_COLLATERAL_ACTION = "mintCollateralTo";
 
 const marketFactoryBridgeGetterAbi = parseAbi(["function predictionMarketBridge() view returns (address)"]);
+const marketFactoryRouterGetterAbi = parseAbi(["function predictionMarketRouter() view returns (address)"]);
 const erc20BalanceOfAbi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);
 
 
@@ -46,6 +49,10 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
   const marketFactoryBridgeCallData = encodeFunctionData({
     abi: marketFactoryBridgeGetterAbi,
     functionName: "predictionMarketBridge",
+  });
+  const marketFactoryRouterCallData = encodeFunctionData({
+    abi: marketFactoryRouterGetterAbi,
+    functionName: "predictionMarketRouter",
   });
   const marketFactoryCollateralTokenCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
@@ -97,10 +104,21 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
       data: bytesToHex(bridgeResult.data),
     }) as `0x${string}`;
 
-    if (bridgeAddress === "0x0000000000000000000000000000000000000000") {
-      runtime.log(`[${evmConfig.chainName}] predictionMarketBridge is not configured`);
-      return `${evmConfig.chainName}: bridge-not-configured factory=${factoryBalance.toString()}`;
-    }
+    const routerResult = evmClient
+      .callContract(runtime, {
+        call: encodeCallMsg({
+          from: sender,
+          to: evmConfig.marketFactoryAddress as `0x${string}`,
+          data: marketFactoryRouterCallData,
+        }),
+      })
+      .result();
+
+    const routerAddress = decodeFunctionResult({
+      abi: marketFactoryRouterGetterAbi,
+      functionName: "predictionMarketRouter",
+      data: bytesToHex(routerResult.data),
+    }) as `0x${string}`;
 
     const collateralResult = evmClient
       .callContract(runtime, {
@@ -118,27 +136,59 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
       data: bytesToHex(collateralResult.data),
     }) as `0x${string}`;
 
-    const bridgeCollateralBalanceCallData = encodeFunctionData({
-      abi: erc20BalanceOfAbi,
-      functionName: "balanceOf",
-      args: [bridgeAddress],
-    });
+    let bridgeCollateralBalance = 0n;
+    if (bridgeAddress !== "0x0000000000000000000000000000000000000000") {
+      const bridgeCollateralBalanceCallData = encodeFunctionData({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [bridgeAddress],
+      });
 
-    const bridgeBalanceResult = evmClient
-      .callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: collateralAddress,
-          data: bridgeCollateralBalanceCallData,
-        }),
-      })
-      .result();
+      const bridgeBalanceResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: sender,
+            to: collateralAddress,
+            data: bridgeCollateralBalanceCallData,
+          }),
+        })
+        .result();
 
-    const bridgeCollateralBalance = decodeFunctionResult({
-      abi: erc20BalanceOfAbi,
-      functionName: "balanceOf",
-      data: bytesToHex(bridgeBalanceResult.data),
-    }) as bigint;
+      bridgeCollateralBalance = decodeFunctionResult({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        data: bytesToHex(bridgeBalanceResult.data),
+      }) as bigint;
+    } else {
+      runtime.log(`[${evmConfig.chainName}] predictionMarketBridge is not configured`);
+    }
+
+    let routerCollateralBalance = 0n;
+    if (routerAddress !== "0x0000000000000000000000000000000000000000") {
+      const routerCollateralBalanceCallData = encodeFunctionData({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [routerAddress],
+      });
+
+      const routerBalanceResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: sender,
+            to: collateralAddress,
+            data: routerCollateralBalanceCallData,
+          }),
+        })
+        .result();
+
+      routerCollateralBalance = decodeFunctionResult({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        data: bytesToHex(routerBalanceResult.data),
+      }) as bigint;
+    } else {
+      runtime.log(`[${evmConfig.chainName}] predictionMarketRouter is not configured`);
+    }
 
     const maybeTopUpByReport = (receiver: `0x${string}`, amount: bigint, reason: string): string => {
       const mintPayload = encodeAbiParameters(parseAbiParameters("address receiver, uint256 amount"), [receiver, amount]);
@@ -178,8 +228,12 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
 
     const actions: string[] = [];
 
-    if (bridgeCollateralBalance < BRIDGE_BALANCE_THRESHOLD) {
+    if (bridgeAddress !== "0x0000000000000000000000000000000000000000" && bridgeCollateralBalance < BRIDGE_BALANCE_THRESHOLD) {
       actions.push(maybeTopUpByReport(bridgeAddress, BRIDGE_TOP_UP_AMOUNT, "bridge"));
+    }
+
+    if (routerAddress !== "0x0000000000000000000000000000000000000000" && routerCollateralBalance < ROUTER_BALANCE_THRESHOLD) {
+      actions.push(maybeTopUpByReport(routerAddress, ROUTER_TOP_UP_AMOUNT, "router"));
     }
 
     if (factoryBalance < FACTORY_BALANCE_THRESHOLD) {
@@ -196,9 +250,16 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
       return `${evmConfig.chainName}: ${actions.join(", ")}`;
     }
 
-    return `${evmConfig.chainName}: healthy bridgeBalance=${bridgeCollateralBalance.toString()} factory=${factoryBalance.toString()}`;
+    const bridgeStatus = bridgeAddress === "0x0000000000000000000000000000000000000000"
+      ? "bridge=not-configured"
+      : `bridgeBalance=${bridgeCollateralBalance.toString()}`;
+
+    const routerStatus = routerAddress === "0x0000000000000000000000000000000000000000"
+      ? "router=not-configured"
+      : `routerBalance=${routerCollateralBalance.toString()}`;
+
+    return `${evmConfig.chainName}: healthy ${bridgeStatus} ${routerStatus} factory=${factoryBalance.toString()}`;
   });
 
   return chainSummaries.join(" | ");
 };
-

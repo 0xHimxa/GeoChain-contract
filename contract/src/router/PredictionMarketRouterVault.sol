@@ -169,7 +169,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
 
     /// @dev Credits user collateral from already-funded, untracked router collateral.
     /// Used by settlement flows where collateral arrives to router before internal accounting credit.
-    function _creditFromUntrackedCollateral(address user, uint256 amount) internal {
+    function _creditFromUntrackedCollateral(address user, uint256 amount) internal view {
         if (user == address(0)) revert Router__ZeroAddress();
         if (amount == 0) revert Router__InvalidAmount();
 
@@ -405,5 +405,14 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         if (allowance >= amountNeeded) return;
         uint256 increase = type(uint256).max - allowance;
         token.safeIncreaseAllowance(spender, increase);
+    }
+
+
+
+    function getRouterUntrackedValue () external view returns (uint256 untracked) {
+  uint256 balance = collateralToken.balanceOf(address(this));
+        uint256 credited = totalCollateralCredits;
+         untracked = balance > credited ? balance - credited : 0;
+
     }
 }
