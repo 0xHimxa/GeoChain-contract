@@ -30,7 +30,6 @@ export type SessionValidationInput = {
   amountUsdcRaw: string;
   slippageBps: number;
   sender: string;
-  callData: string;
   session?: SessionAuthorization;
 };
 
@@ -124,7 +123,7 @@ export const validateSessionAuthorization = async (
   }
 
   if (!isAddressEqual(input.sender, owner)) {
-    return { ok: false, reason: "session.owner must match userOp.sender" };
+    return { ok: false, reason: "session.owner must match sender" };
   }
 
   const allowedActionsHash = keccak256(stringToHex(serializeAllowedActions(allowedActions)));
@@ -158,7 +157,6 @@ export const validateSessionAuthorization = async (
     amountUsdc: input.amount,
     slippageBps: BigInt(input.slippageBps),
     sender: input.sender as `0x${string}`,
-    callData: input.callData as `0x${string}`,
   };
 
   const requestSigOk = await verifyTypedData({

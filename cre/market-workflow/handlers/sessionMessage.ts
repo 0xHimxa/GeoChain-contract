@@ -17,7 +17,6 @@ export type SponsorIntentShape = {
   amountUsdc: string;
   slippageBps: number;
   sender: string;
-  callData: string;
 };
 
 export type SessionRevokeShape = {
@@ -51,7 +50,6 @@ export const SPONSOR_INTENT_TYPES = {
     { name: "amountUsdc", type: "uint256" },
     { name: "slippageBps", type: "uint256" },
     { name: "sender", type: "address" },
-    { name: "callData", type: "bytes" },
   ],
 } as const;
 

@@ -9,14 +9,9 @@ type SponsorRequest = {
   chainId?: number;
   action?: string;
   amountUsdc?: string;
+  sender?: string;
   slippageBps?: number;
   session?: SessionAuthorization;
-  userOp?: {
-    sender?: string;
-    nonce?: string;
-    callData?: string;
-    signature?: string;
-  };
 };
 
 type SponsorDecision = {
@@ -28,7 +23,6 @@ type SponsorDecision = {
 };
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
-const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 const DEFAULT_MAX_AMOUNT_USDC = 1000n;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
 const DEFAULT_ALLOWED_ACTIONS = new Set([
@@ -147,18 +141,9 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     return JSON.stringify(makeDecision(requestId, "slippage exceeds sponsorship policy"));
   }
 
-  // Basic structural checks for a UserOperation-like object.
-  const sender = request.userOp?.sender || "";
-  const signature = request.userOp?.signature || "";
-  const callData = request.userOp?.callData || "";
+  const sender = request.sender || "";
   if (!HEX_ADDRESS_REGEX.test(sender)) {
-    return JSON.stringify(makeDecision(requestId, "invalid userOp.sender"));
-  }
-  if (!HEX_BYTES_REGEX.test(callData)) {
-    return JSON.stringify(makeDecision(requestId, "invalid userOp.callData"));
-  }
-  if (!HEX_BYTES_REGEX.test(signature) || signature === "0x") {
-    return JSON.stringify(makeDecision(requestId, "invalid userOp.signature"));
+    return JSON.stringify(makeDecision(requestId, "invalid sender"));
   }
 
   const sessionValidation = await validateSessionAuthorization(runtime, {
@@ -169,7 +154,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     requestId,
     slippageBps: typeof request.slippageBps === "number" ? request.slippageBps : 0,
     sender,
-    callData,
     session: request.session,
   });
   if (!sessionValidation.ok || !sessionValidation.sessionId) {

@@ -188,16 +188,6 @@
       </div>
 
       <div class="card">
-        <label>UserOp JSON
-          <textarea id="userOp">
-{
-  "sender": "0x1111111111111111111111111111111111111111",
-  "nonce": "0x1",
-  "callData": "0x1234",
-  "signature": "0x1234"
-}
-          </textarea>
-        </label>
         <div style="margin-top: 10px">
           <button id="sendBtn">Request Sponsorship</button>
         </div>
@@ -273,7 +263,6 @@
           { name: "amountUsdc", type: "uint256" },
           { name: "slippageBps", type: "uint256" },
           { name: "sender", type: "address" },
-          { name: "callData", type: "bytes" },
         ],
       };
 
@@ -430,16 +419,6 @@
         return account;
       };
 
-      const parseUserOp = () => {
-        const userOp = JSON.parse(byId("userOp").value);
-        if (!HEX_ADDRESS_REGEX.test(userOp?.sender || "")) throw new Error("Invalid userOp.sender");
-        if (!HEX_BYTES_REGEX.test(userOp?.callData || "")) throw new Error("Invalid userOp.callData");
-        if (!HEX_BYTES_REGEX.test(userOp?.signature || "") || userOp.signature === "0x") {
-          throw new Error("Invalid userOp.signature");
-        }
-        return userOp;
-      };
-
       const buildRouterReportPayloadHex = (actionType, user, chainId) => {
         const abi = ethers.AbiCoder.defaultAbiCoder();
         const amountUsdc = byId("amountUsdc").value.trim();
@@ -516,12 +495,6 @@
         const walletChainId = Number.parseInt(walletChainIdHex, 16);
         if (walletChainId !== chainId) {
           throw new Error(`Wallet chainId ${walletChainId} does not match form chainId ${chainId}`);
-        }
-
-        const userOp = parseUserOp();
-        if (userOp.sender.toLowerCase() !== account.toLowerCase()) {
-          userOp.sender = account;
-          byId("userOp").value = JSON.stringify(userOp, null, 2);
         }
 
         const sessionWallet = ethers.Wallet.createRandom();
@@ -735,7 +708,6 @@
         output.textContent = "Requesting...";
         try {
           const session = JSON.parse(byId("session").value);
-          const userOp = parseUserOp();
           const requestId = `ui_${Date.now()}_${randomHex(4)}`;
 
           if (!session?.sessionId || !session?.grantSignature) {
@@ -750,6 +722,8 @@
           if (Number(session.chainId) !== chainId) {
             throw new Error("Form chainId must match session.chainId");
           }
+          const sender = String(session.owner || "").trim();
+          if (!HEX_ADDRESS_REGEX.test(sender)) throw new Error("Session JSON has invalid owner/sender address");
           const slippageBps = Number(byId("slippageBps").value);
           if (!Number.isInteger(slippageBps) || slippageBps < 0) {
             throw new Error("slippageBps must be a non-negative integer");
@@ -771,8 +745,7 @@
             action: byId("action").value.trim(),
             amountUsdc: byId("amountUsdc").value.trim(),
             slippageBps,
-            sender: userOp.sender,
-            callData: userOp.callData,
+            sender,
           };
           const requestSignature = await sessionWallet.signTypedData(
             eip712Domain(chainId),
@@ -791,7 +764,7 @@
           const reportPayloadInput = byId("reportPayloadHex").value.trim();
           const reportPayloadHex =
             reportPayloadInput.toLowerCase() === "auto"
-              ? buildRouterReportPayloadHex(reportActionType, userOp.sender, chainId)
+              ? buildRouterReportPayloadHex(reportActionType, sender, chainId)
               : reportPayloadInput;
           if (!HEX_BYTES_REGEX.test(reportPayloadHex)) {
             throw new Error("Report PayloadHex must be valid hex bytes");
@@ -809,7 +782,7 @@
             reportPayloadHex,
             reportReceiver: byId("executeReceiverAddress").value.trim() || undefined,
             session: signedSession,
-            userOp,
+            sender,
           };
 
           const res = await fetch("/api/sponsor", {

@@ -8,13 +8,13 @@ type SponsorApiRequest = {
   chainId: number;
   action: string;
   amountUsdc: string;
+  sender: string;
   slippageBps: number;
   reportActionType: string;
   reportPayloadHex: string;
   reportReceiver?: string;
   reportGasLimit?: string;
   session?: Record<string, unknown>;
-  userOp: Record<string, unknown>;
 };
 
 type RevokeSessionApiRequest = {
@@ -93,9 +93,9 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     chainId: body.chainId,
     action: body.action,
     amountUsdc: body.amountUsdc,
+    sender: body.sender,
     slippageBps: body.slippageBps,
     session: body.session,
-    userOp: body.userOp,
   };
 
   const creResponse = await fetch(body.creTriggerUrl, {
