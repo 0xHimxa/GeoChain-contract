@@ -35,9 +35,18 @@
         font-size: 20px;
         margin: 0 0 8px;
       }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 6px;
+      }
       p {
         margin: 0;
         color: var(--muted);
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 10px;
       }
       .grid {
         display: grid;
@@ -92,6 +101,9 @@
         font-size: 12px;
         color: var(--muted);
       }
+      .actions {
+        margin-top: 10px;
+      }
       @media (max-width: 760px) {
         .grid {
           grid-template-columns: 1fr;
@@ -103,72 +115,49 @@
     <div class="wrap">
       <div class="card">
         <h1>CRE Policy + Execute (Session Key UI)</h1>
-        <p>Create one session, approve collateral once, deposit to vault, then reuse session key for sponsored router actions.</p>
-        <div class="row" style="margin-top: 10px">
+        <p>Separated into sections below: first configure/create session, then configure/perform operation.</p>
+        <div class="row actions">
           <button id="connectBtn" type="button">Connect Wallet</button>
-          <button id="createSessionBtn" type="button">Create Session</button>
-          <button id="approveCollateralBtn" type="button">Approve Collateral</button>
-          <button id="depositCollateralBtn" type="button">Deposit To Vault</button>
-          <button id="revokeSessionBtn" type="button">Revoke Session</button>
           <span id="walletStatus" class="status">Wallet: not connected</span>
         </div>
       </div>
 
-      <div class="card grid">
-        <label>CRE HTTP Trigger URL
-          <input id="creTriggerUrl" value="https://YOUR_CRE_HTTP_TRIGGER_URL" />
-        </label>
-        <label>CRE Execute Trigger URL
-          <input id="creExecuteTriggerUrl" value="https://YOUR_CRE_EXECUTE_TRIGGER_URL" />
-        </label>
-        <label>CRE Session Revoke Trigger URL
-          <input id="creRevokeTriggerUrl" value="https://YOUR_CRE_REVOKE_TRIGGER_URL" />
-        </label>
-        <label>Chain ID
-          <input id="chainId" type="number" value="84532" />
-        </label>
-        <label>Action
-          <input id="action" value="swapYesForNo" />
-        </label>
-        <label>Amount (USDC 6dp as integer string)
-          <input id="amountUsdc" value="1000000" />
-        </label>
-        <label>Collateral Token Address
-          <input id="collateralTokenAddress" value="0x0000000000000000000000000000000000000000" />
-        </label>
-        <label>Session Max Amount (USDC 6dp)
-          <input id="sessionMaxAmountUsdc" value="10000000" />
-        </label>
-        <label>Session Duration (seconds)
-          <input id="sessionDurationSec" type="number" value="3600" />
-        </label>
-        <label>Session Key Password
-          <input id="sessionPassword" type="password" value="" placeholder="at least 8 chars; never sent to server" />
-        </label>
-        <label>Session Allowed Actions (comma separated)
-          <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity" />
-        </label>
-        <label>Slippage (bps)
-          <input id="slippageBps" type="number" value="150" />
-        </label>
-        <label>Report ActionType (for CRE execute mode)
-          <input id="reportActionType" value="routerMintCompleteSets" />
-        </label>
-        <label>Report PayloadHex (`auto` to encode router payload)
-          <input id="reportPayloadHex" value="auto" />
-        </label>
-        <label>Execute Receiver Address (router/factory that receives CRE report)
-          <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" />
-        </label>
-        <label>Target Event Market Address (for router actions)
-          <input id="targetMarketAddress" value="0x0000000000000000000000000000000000000000" />
-        </label>
-        <label>Router Outcome Token (for withdraw action)
-          <input id="routerOutcomeToken" value="0x0000000000000000000000000000000000000000" />
-        </label>
+      <div class="card">
+        <h2>1) Network</h2>
+        <p class="hint">Set chain/network values used across session and operation actions.</p>
+        <div class="grid">
+          <label>Chain ID
+            <input id="chainId" type="number" value="84532" />
+          </label>
+        </div>
       </div>
 
       <div class="card">
+        <h2>2) Create And Manage Session</h2>
+        <p class="hint">Use these fields only when creating or revoking a session key.</p>
+        <div class="grid">
+          <label>Session Max Amount (USDC 6dp)
+            <input id="sessionMaxAmountUsdc" value="10000000" />
+          </label>
+          <label>Session Duration (seconds)
+            <input id="sessionDurationSec" type="number" value="3600" />
+          </label>
+          <label>Session Key Password
+            <input id="sessionPassword" type="password" value="" placeholder="at least 8 chars; never sent to server" />
+          </label>
+          <label>Session Allowed Actions (comma separated)
+            <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity" />
+          </label>
+        </div>
+        <div class="row actions">
+          <button id="createSessionBtn" type="button">Create Session</button>
+          <button id="revokeSessionBtn" type="button">Revoke Session</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3) Session JSON</h2>
+        <p class="hint">Auto-generated after Create Session; used when requesting sponsorship.</p>
         <label>Session JSON
           <textarea id="session">
 {
@@ -188,7 +177,40 @@
       </div>
 
       <div class="card">
-        <div style="margin-top: 10px">
+        <h2>4) Operation And Sponsorship</h2>
+        <p class="hint">Fill these fields for approval/deposit and sponsorship request execution.</p>
+        <div class="grid">
+          <label>Action
+            <input id="action" value="swapYesForNo" />
+          </label>
+          <label>Amount (USDC 6dp as integer string)
+            <input id="amountUsdc" value="1000000" />
+          </label>
+          <label>Slippage (bps)
+            <input id="slippageBps" type="number" value="150" />
+          </label>
+          <label>Collateral Token Address
+            <input id="collateralTokenAddress" value="0x0000000000000000000000000000000000000000" />
+          </label>
+          <label>Execute Receiver Address (used for approve/deposit only)
+            <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" />
+          </label>
+          <label>Report ActionType (for CRE execute mode)
+            <input id="reportActionType" value="routerMintCompleteSets" />
+          </label>
+          <label>Report PayloadHex (`auto` to encode router payload)
+            <input id="reportPayloadHex" value="auto" />
+          </label>
+          <label>Target Event Market Address (for router actions)
+            <input id="targetMarketAddress" value="0x0000000000000000000000000000000000000000" />
+          </label>
+          <label>Router Outcome Token (for withdraw action)
+            <input id="routerOutcomeToken" value="0x0000000000000000000000000000000000000000" />
+          </label>
+        </div>
+        <div class="row actions">
+          <button id="approveCollateralBtn" type="button">Approve Collateral</button>
+          <button id="depositCollateralBtn" type="button">Deposit To Vault</button>
           <button id="sendBtn">Request Sponsorship</button>
         </div>
       </div>
@@ -285,9 +307,6 @@
         const res = await fetch(`/api/chain-config?chainId=${chainId}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (HEX_ADDRESS_REGEX.test(data.executeReceiverAddress || "")) {
-          byId("executeReceiverAddress").value = data.executeReceiverAddress;
-        }
         if (HEX_ADDRESS_REGEX.test(data.collateralTokenAddress || "")) {
           byId("collateralTokenAddress").value = data.collateralTokenAddress;
         }
@@ -580,8 +599,6 @@
         const chainId = Number(byId("chainId").value);
         if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chainId");
         const amount = byId("amountUsdc").value.trim();
-        const router = byId("executeReceiverAddress").value.trim();
-        if (!HEX_ADDRESS_REGEX.test(router)) throw new Error("Invalid execute receiver address");
         if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) throw new Error("amountUsdc must be a positive numeric string");
 
         const walletChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
@@ -592,6 +609,8 @@
 
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
+        const router = byId("executeReceiverAddress").value.trim();
+        if (!HEX_ADDRESS_REGEX.test(router)) throw new Error("Invalid execute receiver address");
         const routerContract = new ethers.Contract(router, ROUTER_ABI, signer);
         const tx = await routerContract.depositCollateral(amount);
         await tx.wait();
@@ -687,7 +706,6 @@
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               requestId,
-              creRevokeTriggerUrl: byId("creRevokeTriggerUrl").value.trim(),
               sessionId: session.sessionId,
               owner: session.owner,
               chainId: Number(session.chainId),
@@ -772,15 +790,12 @@
 
           const payload = {
             requestId,
-            creTriggerUrl: byId("creTriggerUrl").value.trim(),
-            creExecuteTriggerUrl: byId("creExecuteTriggerUrl").value.trim(),
             chainId,
             action: byId("action").value.trim(),
             amountUsdc: byId("amountUsdc").value.trim(),
             slippageBps,
             reportActionType,
             reportPayloadHex,
-            reportReceiver: byId("executeReceiverAddress").value.trim() || undefined,
             session: signedSession,
             sender,
           };

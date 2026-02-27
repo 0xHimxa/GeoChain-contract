@@ -16,10 +16,8 @@ type ExecuteRequest = {
   approvalId?: string;
   chainId?: number;
   amountUsdc?: string;
-  receiver?: string;
   actionType?: string;
   payloadHex?: `0x${string}`;
-  gasLimit?: string;
 };
 
 type ExecuteResponse = {
@@ -166,7 +164,7 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
   const receiver = (
     (isRouterAction && HEX_ADDRESS_REGEX.test(configuredRouterReceiver)
       ? configuredRouterReceiver
-      : req.receiver || evmConfig.marketFactoryAddress) as string
+      : evmConfig.marketFactoryAddress) as string
   ) as `0x${string}`;
   if (!HEX_ADDRESS_REGEX.test(receiver)) {
     return JSON.stringify({
@@ -204,7 +202,7 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
       receiver,
       report,
       gasConfig: {
-        gasLimit: req.gasLimit || "10000000",
+        gasLimit: evmConfig.reportGasLimit,
       },
     })
     .result();

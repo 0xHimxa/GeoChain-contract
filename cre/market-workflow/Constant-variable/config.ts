@@ -3,6 +3,7 @@ export type EvmConfig = {
   chainName: string;
   routerReceiverAddress?: string;
   collateralTokenAddress?: string;
+  reportGasLimit?: string;
 };
 
 export type AuthorizedKeyConfig = {
