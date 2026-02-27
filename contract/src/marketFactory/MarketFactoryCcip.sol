@@ -189,6 +189,14 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         emit PredictionMarketBridgeUpdated(bridge);
     }
 
+    /// @notice Sets optional router contract that receives market allowlist updates.
+    /// @dev New markets call `setMarketAllowed(market, true)` on this router during `_createMarket`.
+    function setPredictionMarketRouter(address router) external onlyOwner {
+        if (router == address(0)) revert MarketFactory__ZeroAddress();
+        predictionMarketRouter = router;
+        emit PredictionMarketRouterUpdated(router);
+    }
+
     /// @notice Removes a resolved market from active tracking.
     /// @dev Authorization is restricted to the market itself or factory owner.
     /// Uses swap-and-pop removal pattern:

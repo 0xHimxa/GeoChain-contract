@@ -33,6 +33,8 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     error Router__InsufficientBalance();
     error Router__InvalidDelta();
     error Router__ActionNotRecognized();
+    error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
+
 
     bytes32 private constant HASHED_DEPOSIT_FOR = keccak256(abi.encode("routerDepositFor"));
     bytes32 private constant HASHED_WITHDRAW_COLLATERAL = keccak256(abi.encode("routerWithdrawCollateralFor"));
@@ -46,6 +48,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
+    address public immutable marketFactory;
 
     // Market allowlist to avoid interacting with arbitrary contracts.
     mapping(address => bool) public allowedMarkets;
@@ -54,6 +57,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     mapping(address => uint256) public collateralCredits;
     mapping(address => mapping(address => uint256)) public tokenCredits; // user => token => amount
     mapping(address => mapping(address => uint256)) public lpShareCredits; // user => market => shares
+
 
     event MarketAllowlistUpdated(address indexed market, bool allowed);
     event Deposited(address indexed user, uint256 amount);
@@ -74,16 +78,20 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         return balance - totalCollateralCredits;
     }
 
-    constructor(address collateral, address forwarder, address initialOwner) ReceiverTemplate(forwarder, initialOwner) {
+    constructor(address collateral, address forwarder, address initialOwner,address _marketFactory) ReceiverTemplate(forwarder, initialOwner) {
         if (collateral == address(0)) revert Router__ZeroAddress();
         collateralToken = IERC20(collateral);
+        marketFactory = _marketFactory;
     }
 
-    function setMarketAllowed(address market, bool allowed) external onlyOwner {
+
+    function setMarketAllowed(address market, bool allowed) external  {
+        if(msg.sender != marketFactory  && msg.sender != owner()) revert PredictionMarketRouterVault__NotAuthorizedMarketMapper();
         if (market == address(0)) revert Router__ZeroAddress();
         allowedMarkets[market] = allowed;
         emit MarketAllowlistUpdated(market, allowed);
     }
+     
 
     function depositCollateral(uint256 amount) external nonReentrant {
         _depositCollateral(msg.sender, amount);

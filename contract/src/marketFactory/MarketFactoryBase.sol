@@ -19,6 +19,10 @@ interface IPredictionMarketBridgeMapper {
     function setMarketIdMapping(uint256 marketId, address market) external;
 }
 
+interface IPredictionMarketRouterMapper {
+    function setMarketAllowed(address market, bool allowed) external;
+}
+
 /// @title MarketFactoryBase
 /// @notice Base storage and shared creation logic for factory modules.
 abstract contract MarketFactoryBase is
@@ -128,6 +132,7 @@ abstract contract MarketFactoryBase is
     event CanonicalPriceMessageReceived(uint256 indexed marketId, uint256 yesPriceE6, uint256 noPriceE6, uint64 nonce);
     event ResolutionMessageReceived(uint256 indexed marketId, Resolution indexed outcome, uint64 nonce);
     event PredictionMarketBridgeUpdated(address indexed bridge);
+    event PredictionMarketRouterUpdated(address indexed router);
     event UnsafeArbitrageExecuted(
         address indexed market,
         bool indexed yesForNo,
@@ -165,6 +170,8 @@ abstract contract MarketFactoryBase is
     uint256 internal initialCanonicalPriceE6;
     /// @notice Optional bridge contract updated with new market mappings.
     address public predictionMarketBridge;
+    /// @notice Optional router contract updated with market allowlist entries.
+    address public predictionMarketRouter;
 
     error MarketFactory__ZeroLiquidity();
     error MarketFactory__ZeroAddress();
@@ -340,10 +347,7 @@ abstract contract MarketFactoryBase is
         marketById[marketCount] = address(m);
         marketIdByAddress[address(m)] = marketCount;
         m.setMarketId(marketCount);
-        if (predictionMarketBridge != address(0)) {
-            IPredictionMarketBridgeMapper(predictionMarketBridge).setMarketIdMapping(marketCount, address(m));
-        }
-
+        
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
         m.setCrossChainController(address(this));
@@ -354,6 +358,14 @@ abstract contract MarketFactoryBase is
                 initialCanonicalPriceE6, initialCanonicalPriceE6, block.timestamp + initialCanonicalPriceWindow, nonce
             );
         }
+
+        if (predictionMarketBridge != address(0)) {
+            IPredictionMarketBridgeMapper(predictionMarketBridge).setMarketIdMapping(marketCount, address(m));
+        }
+        if (predictionMarketRouter != address(0)) {
+            IPredictionMarketRouterMapper(predictionMarketRouter).setMarketAllowed(address(m), true);
+        }
+
 
         m.transferOwnership(owner());
 

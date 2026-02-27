@@ -37,6 +37,20 @@ contract MockRouter is IRouterClient {
     }
 }
 
+contract MockPredictionRouter {
+    mapping(address => bool) public allowedMarkets;
+    uint256 public setCalls;
+    address public lastMarket;
+    bool public lastAllowed;
+
+    function setMarketAllowed(address market, bool allowed) external {
+        allowedMarkets[market] = allowed;
+        setCalls++;
+        lastMarket = market;
+        lastAllowed = allowed;
+    }
+}
+
 struct CanonicalPriceSync {
     uint256 marketId;
     uint256 yesPriceE6;
@@ -66,6 +80,7 @@ contract MarketFactoryTest is Test {
     OutcomeToken collateral;
     MarketFactory market;
     MockRouter router;
+    MockPredictionRouter predictionRouter;
     OutcomeToken feeToken;
     address forwarder = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address marketOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
@@ -84,6 +99,7 @@ contract MarketFactoryTest is Test {
         collateral = OutcomeToken(collateralAddress);
         market = MarketFactory(proxyAddress);
         router = new MockRouter();
+        predictionRouter = new MockPredictionRouter();
         feeToken = new OutcomeToken("FEE", "FEE", address(this));
     }
 
@@ -218,6 +234,19 @@ contract MarketFactoryTest is Test {
         assertEq(market.marketIdByAddress(secondMarket), 2);
         assertEq(market.marketToIndex(firstMarket), 0);
         assertEq(market.marketToIndex(secondMarket), 1);
+    }
+
+    function testCreateMarketSetsMarketAllowedOnPredictionRouter() external {
+        vm.prank(marketOwner);
+        market.setPredictionMarketRouter(address(predictionRouter));
+
+        vm.prank(marketOwner);
+        address created = market.createMarket("router allowlist", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);
+
+        assertEq(predictionRouter.allowedMarkets(created), true);
+        assertEq(predictionRouter.setCalls(), 1);
+        assertEq(predictionRouter.lastMarket(), created);
+        assertEq(predictionRouter.lastAllowed(), true);
     }
 
     function testRemoveResolvedMarketSwapAndPopUpdatesUintIndexes() external {

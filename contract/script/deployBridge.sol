@@ -34,7 +34,7 @@ uint64 arbChainSelector = 3478487238524512106;
   
     function run() external {
         vm.startBroadcast(trader);
-        //PredictionMarketBridge bridge =   PredictionMarketBridge(0xc90E272314115fe79B42741E439a8fD8A58a8aEF);
+        PredictionMarketBridge bridge =   PredictionMarketBridge(0xc90E272314115fe79B42741E439a8fD8A58a8aEF);
         bridge.setCcipConfig(router, link);
         bridge.setMarketFactory(marketFactory);
         bridge.setSupportedChainSelector(arbChainSelector, true);
