@@ -58,8 +58,17 @@
       "routerSwapNoForYes",
       "routerAddLiquidity",
       "routerRemoveLiquidity",
-      "routerCreditFromFiat"
+      "routerCreditFromFiat",
+      "routerCreditFromEth"
     ]
+  },
+  "ethCreditPolicy": {
+    "enabled": true,
+    "supportedChainIds": [
+      421614,
+      84532
+    ],
+    "maxAmountUsdc": "10000000000"
   },
   "fiatCreditPolicy": {
     "enabled": true,
@@ -67,7 +76,7 @@
       421614,
       84532
     ],
-    "maxAmountUsdc": "100000000000",
+    "maxAmountUsdc": "10000000000",
     "allowedProviders": [
       "mock",
       "stripe",
@@ -82,6 +91,7 @@
       "chainName": "ethereum-testnet-sepolia-arbitrum-1",
       "routerReceiverAddress": "0xf2992507E9589307Ea5f02225C5439Ee451d13EC",
       "collateralTokenAddress": "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
+      "ethToUsdcRateE6": "3000000000",
       "reportGasLimit": "10000000"
     },
       {
@@ -91,6 +101,7 @@
       "chainName": "ethereum-testnet-sepolia-base-1",
       "routerReceiverAddress": "0x65d7401B58C63841c72834D34141039ef41b52c8",
       "collateralTokenAddress": "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
+      "ethToUsdcRateE6": "3000000000",
       "reportGasLimit": "10000000"
 
     }

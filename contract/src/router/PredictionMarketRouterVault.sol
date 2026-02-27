@@ -34,6 +34,8 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     error Router__InsufficientUntrackedCollateral();
     error Router__InvalidDelta();
     error Router__InvalidAmount();
+    error Router__InvalidDepositId();
+    error Router__EthDepositAlreadyProcessed();
     error Router__ActionNotRecognized();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
@@ -48,6 +50,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     bytes32 private constant HASHED_ADD_LIQ = keccak256(abi.encode("routerAddLiquidity"));
     bytes32 private constant HASHED_REMOVE_LIQ = keccak256(abi.encode("routerRemoveLiquidity"));
     bytes32 private constant HASHED_CREDIT_FROM_FIAT = keccak256(abi.encode("routerCreditFromFiat"));
+    bytes32 private constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
@@ -60,6 +63,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     mapping(address => uint256) public collateralCredits;
     mapping(address => mapping(address => uint256)) public tokenCredits; // user => token => amount
     mapping(address => mapping(address => uint256)) public lpShareCredits; // user => market => shares
+    mapping(bytes32 => bool) public processedEthDeposits;
 
 
     event MarketAllowlistUpdated(address indexed market, bool allowed);
@@ -73,6 +77,12 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
     event LiquidityRemoved(address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut);
     event CollateralCreditedFromFiat(address indexed user, uint256 amount);
+    event EthReceived(address indexed sender, uint256 amountWei);
+    event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
+
+    receive() external payable {
+        emit EthReceived(msg.sender, msg.value);
+    }
 
     /// @notice Returns collateral tokens currently held by router but not mapped to user collateral credits.
     /// @dev This helps detect accidental direct transfers to the vault.
@@ -158,8 +168,8 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     }
 
     /// @dev Credits user collateral from already-funded, untracked router collateral.
-    /// Used by fiat settlement flow where collateral arrives to router before internal accounting credit.
-    function _creditCollateralFromFiat(address user, uint256 amount) internal {
+    /// Used by settlement flows where collateral arrives to router before internal accounting credit.
+    function _creditFromUntrackedCollateral(address user, uint256 amount) internal {
         if (user == address(0)) revert Router__ZeroAddress();
         if (amount == 0) revert Router__InvalidAmount();
 
@@ -167,10 +177,23 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         uint256 credited = totalCollateralCredits;
         uint256 untracked = balance > credited ? balance - credited : 0;
         if (untracked < amount) revert Router__InsufficientUntrackedCollateral();
+    }
 
+    function _creditCollateralFromFiat(address user, uint256 amount) internal {
+        _creditFromUntrackedCollateral(user, amount);
         collateralCredits[user] += amount;
         totalCollateralCredits += amount;
         emit CollateralCreditedFromFiat(user, amount);
+    }
+
+    function _creditCollateralFromEth(address user, uint256 amount, bytes32 depositId) internal {
+        if (depositId == bytes32(0)) revert Router__InvalidDepositId();
+        if (processedEthDeposits[depositId]) revert Router__EthDepositAlreadyProcessed();
+        _creditFromUntrackedCollateral(user, amount);
+        processedEthDeposits[depositId] = true;
+        collateralCredits[user] += amount;
+        totalCollateralCredits += amount;
+        emit CollateralCreditedFromEth(user, amount, depositId);
     }
 
     function _mintCompleteSets(address user, address market, uint256 amount) internal {
@@ -359,6 +382,9 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         } else if (actionTypeHash == HASHED_CREDIT_FROM_FIAT) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
             _creditCollateralFromFiat(user, amount);
+        } else if (actionTypeHash == HASHED_CREDIT_FROM_ETH) {
+            (address user, uint256 amount, bytes32 depositId) = abi.decode(payload, (address, uint256, bytes32));
+            _creditCollateralFromEth(user, amount, depositId);
         } else {
             revert Router__ActionNotRecognized();
         }

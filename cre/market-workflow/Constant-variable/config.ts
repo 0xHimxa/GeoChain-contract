@@ -4,6 +4,7 @@ export type EvmConfig = {
   routerReceiverAddress?: string;
   collateralTokenAddress?: string;
   reportGasLimit?: string;
+  ethToUsdcRateE6?: string;
 };
 
 export type AuthorizedKeyConfig = {
@@ -33,6 +34,12 @@ export type FiatCreditPolicyConfig = {
   allowedProviders: string[];
 };
 
+export type EthCreditPolicyConfig = {
+  enabled: boolean;
+  supportedChainIds: number[];
+  maxAmountUsdc: string;
+};
+
 export type Config = {
   schedule: string;
   evms: EvmConfig[];
@@ -42,6 +49,7 @@ export type Config = {
   sponsorPolicy?: SponsorPolicyConfig;
   executePolicy?: ExecutePolicyConfig;
   fiatCreditPolicy?: FiatCreditPolicyConfig;
+  ethCreditPolicy?: EthCreditPolicyConfig;
 };
 
 export const sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";

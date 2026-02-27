@@ -1,15 +1,27 @@
-import { CronCapability, HTTPCapability, handler, Runner, type Workflow } from "@chainlink/cre-sdk";
+import { CronCapability, EVMClient, HTTPCapability, getNetwork, handler, Runner, type Workflow } from "@chainlink/cre-sdk";
 import { marketFactoryBalanceTopUp } from "./handlers/topUpMarket";
 import { resoloveEvent } from "./handlers/resolve";
 import { syncCanonicalPrice } from "./handlers/syncPrice";
 import { arbitrateUnsafeMarketHandler } from "./handlers/arbitrage";
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/marketCreation";
 import { type Config } from "./Constant-variable/config";
-import {processPendingWithdrawalsHandler} from "./handlers/marketWithdrawal";
+import { processPendingWithdrawalsHandler } from "./handlers/marketWithdrawal";
 import { sponsorUserOpPolicyHandler } from "./handlers/httpSponsorPolicy";
 import { executeReportHttpHandler } from "./handlers/httpExecuteReport";
 import { revokeSessionHttpHandler } from "./handlers/httpRevokeSession";
 import { fiatCreditHttpHandler } from "./handlers/httpFiatCredit";
+import { ethCreditFromLogsHandler } from "./handlers/ethCreditFromLogs";
+
+const ETH_RECEIVED_EVENT_SIG = "0xe98f6e2bbf18d38ab3110207f18cc6cc79ca9fcd98fb75e8f5fdc7fc4f09d5e3";
+
+const toChainId = (chainName: string): number | null => {
+  if (chainName.includes("arbitrum")) return 421614;
+  if (chainName.includes("base")) return 84532;
+  if (chainName === "ethereum-testnet-sepolia") return 11155111;
+  return null;
+};
+
+const hexToBase64 = (hex: string): string => Buffer.from(hex.replace(/^0x/, ""), "hex").toString("base64");
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
@@ -20,6 +32,8 @@ const initWorkflow = (config: Config) => {
   const hasHttpTriggerKeys = httpAuthorizedKeys.length > 0;
   const hasHttpExecutionTriggerKeys = httpExecutionAuthorizedKeys.length > 0;
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
+  const ethCreditPolicy = config.ethCreditPolicy;
+  const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
 
   const cronWorkflows: Workflow<Config> = [
     handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
@@ -71,7 +85,48 @@ const initWorkflow = (config: Config) => {
       ]
     : [];
 
-  return [...cronWorkflows, ...sponsorHttpWorkflows, ...executeHttpWorkflows, ...fiatCreditHttpWorkflows];
+  const ethCreditLogWorkflows: Workflow<Config> = hasEthCredit
+    ? config.evms
+        .filter((evm) => {
+          const chainId = toChainId(evm.chainName);
+          return (
+            chainId !== null
+            && ethCreditPolicy?.supportedChainIds.includes(chainId)
+            && Boolean(evm.routerReceiverAddress)
+          );
+        })
+        .map((evm) => {
+          const network = getNetwork({
+            chainFamily: "evm",
+            chainSelectorName: evm.chainName,
+            isTestnet: true,
+          });
+          if (!network) {
+            throw new Error(`Unknown chain name for eth log trigger: ${evm.chainName}`);
+          }
+          const evmClient = new EVMClient(network.chainSelector.selector);
+          return handler(
+            evmClient.logTrigger({
+              addresses: [hexToBase64(evm.routerReceiverAddress as string)],
+              topics: [
+                { values: [hexToBase64(ETH_RECEIVED_EVENT_SIG)] },
+                { values: [] },
+                { values: [] },
+                { values: [] },
+              ],
+            }),
+            ethCreditFromLogsHandler
+          );
+        })
+    : [];
+
+  return [
+    ...cronWorkflows,
+    ...sponsorHttpWorkflows,
+    ...executeHttpWorkflows,
+    ...fiatCreditHttpWorkflows,
+    ...ethCreditLogWorkflows,
+  ];
 };
 
 export async function main() {
@@ -92,4 +147,5 @@ export {
   executeReportHttpHandler,
   revokeSessionHttpHandler,
   fiatCreditHttpHandler,
+  ethCreditFromLogsHandler,
 };

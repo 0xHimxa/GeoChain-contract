@@ -24,8 +24,14 @@
       "routerSwapNoForYes",
       "routerAddLiquidity",
       "routerRemoveLiquidity",
-      "routerCreditFromFiat"
+      "routerCreditFromFiat",
+      "routerCreditFromEth"
     ]
+  },
+  "ethCreditPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "maxAmountUsdc": "0"
   },
   "fiatCreditPolicy": {
     "enabled": false,
