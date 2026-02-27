@@ -61,7 +61,7 @@ contract PredictionMarketTest is Test {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
         mockFactory = new MockMarketFactory();
         implementation = new PredictionMarket();
-        marketDeployer = new MarketDeployer(address(implementation),address(this));
+        marketDeployer = new MarketDeployer(address(implementation), address(mockFactory));
 
         market = PredictionMarket(
             mockFactory.deployMarket(
@@ -133,13 +133,13 @@ contract PredictionMarketTest is Test {
 
     function testConstructorRevertInvalidArguments() external {
         vm.expectRevert(MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor.selector);
-        marketDeployer.deployPredictionMarket("", address(collateral), 1, 2, FORWARDER);
+        mockFactory.deployMarket(marketDeployer, "", address(collateral), 1, 2, FORWARDER);
 
         vm.expectRevert(MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor.selector);
-        marketDeployer.deployPredictionMarket("q", address(0), 1, 2, FORWARDER);
+        mockFactory.deployMarket(marketDeployer, "q", address(0), 1, 2, FORWARDER);
 
         vm.expectRevert(MarketErrors.PredictionMarket__CloseTimeGreaterThanResolutionTime.selector);
-        marketDeployer.deployPredictionMarket("q", address(collateral), 3, 2, FORWARDER);
+        mockFactory.deployMarket(marketDeployer, "q", address(collateral), 3, 2, FORWARDER);
     }
 
     function testSeedLiquidityRevertWhenAlreadySeeded() external {

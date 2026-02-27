@@ -102,6 +102,8 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     error PredictionMarket__RiskExposureExemptZeroAddress();
     error PredictionMarket__InvalidMarketId();
     error PredictionMarket__MarketIdAlreadySet();
+    error PredictionMarket__InvalidOutcomeTokenAddress();
+    error PredictionMarket__OutcomeTokensAlreadySet();
 
     enum DeviationBand {
         Normal,
@@ -129,8 +131,8 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     /// 1) wire pausable/receiver ownership state,
     /// 2) validate constructor-like arguments (non-zero addresses, non-empty question, valid timestamps),
     /// 3) store immutable-like market metadata,
-    /// 4) deploy YES/NO outcome token contracts owned by this market,
-    /// 5) set default state and canonical-deviation policy thresholds.
+    /// 4) set default state and canonical-deviation policy thresholds.
+    /// Outcome tokens are wired separately by deployer after clone init.
     /// This function is called once by the deployer immediately after clone creation.
     function initialize(
         string memory _question,
@@ -163,9 +165,6 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         closeTime = _closeTime;
         resolutionTime = _resolutionTime;
 
-        yesToken = new OutcomeToken("YES", "YES", address(this));
-        noToken = new OutcomeToken("NO", "NO", address(this));
-
         state = State.Open;
         softDeviationBps = 150;
         stressDeviationBps = 300;
@@ -175,6 +174,21 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         unsafeMaxOutBps = 50;
 
         marketFactory = MarketFactory(_marketfactory);
+    }
+
+    /// @notice Wires pre-deployed YES/NO outcome token contracts exactly once.
+    /// @dev Intended to be called by owner during deployment bootstrap before market becomes active.
+    function setOutcomeTokens(address yesTokenAddress, address noTokenAddress) external onlyOwner {
+        if (yesTokenAddress == address(0) || noTokenAddress == address(0)) {
+            revert PredictionMarket__InvalidOutcomeTokenAddress();
+        }
+        if (yesTokenAddress == noTokenAddress) revert PredictionMarket__InvalidOutcomeTokenAddress();
+        if (address(yesToken) != address(0) || address(noToken) != address(0)) {
+            revert PredictionMarket__OutcomeTokensAlreadySet();
+        }
+
+        yesToken = OutcomeToken(yesTokenAddress);
+        noToken = OutcomeToken(noTokenAddress);
     }
 
     modifier marketOpen() {

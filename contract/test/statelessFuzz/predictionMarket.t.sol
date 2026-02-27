@@ -51,7 +51,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
         mockFactory = new MockMarketFactoryFuzz();
         implementation = new PredictionMarket();
-        marketDeployer = new MarketDeployer(address(implementation),address(this));
+        marketDeployer = new MarketDeployer(address(implementation), address(mockFactory));
 
         market = PredictionMarket(
             mockFactory.deployMarket(

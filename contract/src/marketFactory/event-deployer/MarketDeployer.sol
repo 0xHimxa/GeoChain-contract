@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {PredictionMarket} from "../../predictionMarket/PredictionMarket.sol";
+import {OutcomeToken} from "../../token/OutcomeToken.sol";
 
 /// @title MarketDeployer
 /// @notice Deploys market clones for the factory and initializes each instance.
@@ -67,8 +68,14 @@ contract MarketDeployer {
         address forwarder
     ) external onlyOnwer returns (address market) {
         market = Clones.clone(marketImplementation);
+
         PredictionMarket(market).initialize(
-            question, collateral, closeTime, resolutionTime, msg.sender, forwarder, msg.sender
+            question, collateral, closeTime, resolutionTime, msg.sender, forwarder, address(this)
         );
+
+        OutcomeToken yesToken = new OutcomeToken("YES", "YES", market);
+        OutcomeToken noToken = new OutcomeToken("NO", "NO", market);
+        PredictionMarket(market).setOutcomeTokens(address(yesToken), address(noToken));
+        PredictionMarket(market).transferOwnership(msg.sender);
     }
 }
