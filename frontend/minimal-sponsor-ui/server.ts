@@ -21,6 +21,24 @@ type RevokeSessionApiRequest = {
   revokeSignature: string;
 };
 
+type FiatPaymentSuccessApiRequest = {
+  requestId?: string;
+  chainId?: number;
+  user?: string;
+  provider?: string;
+  amountUsd?: string;
+  paymentId?: string;
+};
+
+type CreFiatCreditPayload = {
+  requestId: string;
+  paymentId: string;
+  chainId: number;
+  user: string;
+  amountUsdc: string;
+  provider: string;
+};
+
 type CreEvmConfig = {
   chainName?: string;
   routerReceiverAddress?: string;
@@ -32,6 +50,7 @@ type CreConfig = {
 };
 
 const indexHtml = readFileSync(join(import.meta.dir, "index.html"), "utf-8");
+const fiatPaymentHtml = readFileSync(join(import.meta.dir, "fiat-payment.html"), "utf-8");
 const creConfigPath = process.env.CRE_CONFIG_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "config.staging.json");
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
@@ -173,6 +192,98 @@ const handleSessionRevoke = async (req: Request): Promise<Response> => {
   });
 };
 
+const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+const PROVIDERS = new Set(["google_pay", "card", "stripe", "mock"]);
+
+const parseUsdToUsdcE6 = (value: string): string => {
+  const raw = String(value || "").trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(raw)) {
+    throw new Error("amountUsd must be numeric with up to 6 decimals");
+  }
+  const [whole, fraction = ""] = raw.split(".");
+  const wholePart = BigInt(whole) * 1_000_000n;
+  const fractionPart = BigInt((fraction + "000000").slice(0, 6));
+  const amount = wholePart + fractionPart;
+  if (amount <= 0n) {
+    throw new Error("amountUsd must be greater than zero");
+  }
+  return amount.toString();
+};
+
+const sanitizeId = (value: string, fallbackPrefix: string): string => {
+  const raw = String(value || "").trim();
+  if (!raw) return `${fallbackPrefix}_${Date.now()}`;
+  if (!/^[a-zA-Z0-9._:-]{6,128}$/.test(raw)) {
+    throw new Error(`invalid ${fallbackPrefix}`);
+  }
+  return raw;
+};
+
+const handleFiatPaymentSuccess = async (req: Request): Promise<Response> => {
+  let body: FiatPaymentSuccessApiRequest;
+  try {
+    body = (await req.json()) as FiatPaymentSuccessApiRequest;
+  } catch {
+    return json(400, { error: "invalid JSON body" });
+  }
+
+  const chainId = Number(body.chainId);
+  if (!Number.isInteger(chainId) || chainId <= 0) {
+    return json(400, { error: "invalid chainId" });
+  }
+
+  const user = String(body.user || "").trim();
+  if (!HEX_ADDRESS_REGEX.test(user)) {
+    return json(400, { error: "invalid user address" });
+  }
+
+  const provider = String(body.provider || "").trim().toLowerCase();
+  if (!PROVIDERS.has(provider)) {
+    return json(400, { error: "invalid provider" });
+  }
+
+  let requestId: string;
+  let paymentId: string;
+  let amountUsdc: string;
+  try {
+    requestId = sanitizeId(body.requestId || "", "fiat_req");
+    paymentId = sanitizeId(body.paymentId || "", "pay");
+    amountUsdc = parseUsdToUsdcE6(String(body.amountUsd || ""));
+  } catch (error) {
+    return json(400, { error: toErrorMessage(error) });
+  }
+
+  const providerSuccess = {
+    provider,
+    paymentId,
+    status: "success",
+    user,
+    chainId,
+    amountUsd: String(body.amountUsd || "").trim(),
+    settledAtUnix: Math.floor(Date.now() / 1000),
+  };
+
+  const crePayload: CreFiatCreditPayload = {
+    requestId,
+    paymentId,
+    chainId,
+    user,
+    amountUsdc,
+    provider,
+  };
+
+  console.log("[MOCK_PROVIDER_SUCCESS] payload=", JSON.stringify(providerSuccess));
+  console.log("[MOCK_CRE_FIAT_CREDIT] payload=", JSON.stringify(crePayload));
+
+  return json(200, {
+    ok: true,
+    sentToCre: false,
+    reason: "payload structured and logged only",
+    providerSuccess,
+    crePayload,
+  });
+};
+
 const port = Number(process.env.PORT || 5173);
 
 const server = Bun.serve({
@@ -214,8 +325,21 @@ const server = Bun.serve({
         return json(500, { error: "internal revoke error", detail: toErrorMessage(error) });
       }
     }
+    if (url.pathname === "/api/fiat-payment-success" && req.method === "POST") {
+      try {
+        return await handleFiatPaymentSuccess(req);
+      } catch (error) {
+        console.error("[API_FIAT_PAYMENT_SUCCESS_ERROR]", error);
+        return json(500, { error: "internal fiat payment error", detail: toErrorMessage(error) });
+      }
+    }
     if (url.pathname === "/" && req.method === "GET") {
       return new Response(indexHtml, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }
+    if (url.pathname === "/fiat" && req.method === "GET") {
+      return new Response(fiatPaymentHtml, {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
     }

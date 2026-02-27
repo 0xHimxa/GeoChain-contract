@@ -59,6 +59,7 @@ type StoredSession = SessionGrantRecord & {
 
 const SESSIONS_COLLECTION = "aa_sessions";
 const APPROVALS_COLLECTION = "aa_approvals";
+const FIAT_PAYMENTS_COLLECTION = "fiat_payments";
 
 const toBase64Body = (payload: unknown): string => {
   const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
@@ -480,4 +481,43 @@ export const consumeApprovalRecord = (
   if (!marked) return { ok: false, reason: "approval could not be consumed" };
 
   return { ok: true, sessionId: stored.sessionId };
+};
+
+export const consumeFiatPaymentRecord = (
+  runtime: Runtime<Config>,
+  idToken: string,
+  input: {
+    paymentId: string;
+    requestId: string;
+    chainId: number;
+    user: string;
+    amountUsdc: string;
+    provider: string;
+    nowUnix: bigint;
+  }
+): { ok: true } | { ok: false; reason: string } => {
+  const projectId = getProjectId(runtime);
+  const url = `${baseUrl(projectId)}/${FIAT_PAYMENTS_COLLECTION}/${encodeURIComponent(input.paymentId)}?currentDocument.exists=false`;
+
+  const response = sendFirestoreRequest(runtime, idToken, {
+    url,
+    method: "PATCH",
+    body: {
+      fields: {
+        paymentId: { stringValue: input.paymentId },
+        requestId: { stringValue: input.requestId },
+        chainId: { integerValue: String(input.chainId) },
+        user: { stringValue: input.user.toLowerCase() },
+        amountUsdc: { stringValue: input.amountUsdc },
+        provider: { stringValue: input.provider },
+        consumedAtUnix: { integerValue: input.nowUnix.toString() },
+      },
+    },
+  });
+
+  if (response.statusCode === 200) return { ok: true };
+  if (response.statusCode === 409 || response.statusCode === 412) {
+    return { ok: false, reason: "payment already consumed" };
+  }
+  return { ok: false, reason: `failed to consume payment (${response.statusCode})` };
 };

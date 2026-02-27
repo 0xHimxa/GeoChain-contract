@@ -26,13 +26,22 @@ export type ExecutePolicyConfig = {
   allowedActionTypes: string[];
 };
 
+export type FiatCreditPolicyConfig = {
+  enabled: boolean;
+  supportedChainIds: number[];
+  maxAmountUsdc: string;
+  allowedProviders: string[];
+};
+
 export type Config = {
   schedule: string;
   evms: EvmConfig[];
   httpTriggerAuthorizedKeys?: AuthorizedKeyConfig[];
   httpExecutionAuthorizedKeys?: AuthorizedKeyConfig[];
+  httpFiatCreditAuthorizedKeys?: AuthorizedKeyConfig[];
   sponsorPolicy?: SponsorPolicyConfig;
   executePolicy?: ExecutePolicyConfig;
+  fiatCreditPolicy?: FiatCreditPolicyConfig;
 };
 
 export const sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";

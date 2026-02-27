@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fiat Payment Mock -> CRE Payload</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #111827;
+        --muted: #94a3b8;
+        --text: #e5e7eb;
+        --line: #334155;
+        --accent: #22d3ee;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top, #1f2937, var(--bg));
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: linear-gradient(180deg, #0b1220, var(--panel));
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      input,
+      select {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0b1020;
+        color: var(--text);
+        padding: 10px;
+        font-size: 13px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: var(--accent);
+        color: #04212a;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #020617;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 120px;
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Web2 Payment Mock (Google Pay/Card)</h1>
+        <p>
+          This page simulates provider success and sends data to local backend only.
+          Backend builds the exact payload expected by `httpFiatCredit`.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="grid">
+          <label>Chain ID
+            <input id="chainId" type="number" value="84532" />
+          </label>
+          <label>User Address
+            <input id="user" value="0x1111111111111111111111111111111111111111" />
+          </label>
+          <label>Provider
+            <select id="provider">
+              <option value="google_pay">google_pay</option>
+              <option value="card">card</option>
+            </select>
+          </label>
+          <label>Amount (USD)
+            <input id="amountUsd" value="1.25" />
+          </label>
+          <label>Payment ID (optional)
+            <input id="paymentId" value="" placeholder="auto-generated if empty" />
+          </label>
+          <label>Request ID (optional)
+            <input id="requestId" value="" placeholder="auto-generated if empty" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="simulateBtn" type="button">Simulate Provider Success</button>
+          <a href="/" style="color: var(--accent)">Back to sponsor page</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <pre id="output">Waiting...</pre>
+      </div>
+    </div>
+
+    <script>
+      const byId = (id) => document.getElementById(id);
+      const output = byId("output");
+
+      const randomId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+
+      byId("simulateBtn").addEventListener("click", async () => {
+        output.textContent = "Processing...";
+        try {
+          const body = {
+            chainId: Number(byId("chainId").value),
+            user: byId("user").value.trim(),
+            provider: byId("provider").value.trim(),
+            amountUsd: byId("amountUsd").value.trim(),
+            paymentId: byId("paymentId").value.trim() || randomId("pay"),
+            requestId: byId("requestId").value.trim() || randomId("fiat_req"),
+          };
+
+          const res = await fetch("/api/fiat-payment-success", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const text = await res.text();
+          output.textContent = text;
+        } catch (error) {
+          output.textContent = JSON.stringify(
+            { error: error instanceof Error ? error.message : String(error) },
+            null,
+            2
+          );
+        }
+      });
+    </script>
+  </body>
+</html>

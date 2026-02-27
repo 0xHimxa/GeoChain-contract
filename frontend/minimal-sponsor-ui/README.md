@@ -31,6 +31,7 @@ bun run dev
 Open:
 
 - `http://localhost:5173`
+- `http://localhost:5173/fiat` (new web2 payment mock page)
 
 Fill:
 
@@ -57,3 +58,22 @@ bun run cre:execute
 ## Input Parameter Reference
 
 - [FRONTEND_INPUT_PARAMS.md](/home/himxa/Desktop/market/contracts/frontend/minimal-sponsor-ui/FRONTEND_INPUT_PARAMS.md)
+
+## Fiat Mock Endpoint (No CRE Call)
+
+- `POST /api/fiat-payment-success`
+- Purpose: simulate provider success, shape payload for `httpFiatCredit`, and log it only.
+- No CRE URL/request is used in this endpoint.
+
+Example request:
+
+```json
+{
+  "chainId": 84532,
+  "user": "0x1111111111111111111111111111111111111111",
+  "provider": "google_pay",
+  "amountUsd": "2.50",
+  "paymentId": "pay_demo_001",
+  "requestId": "fiat_req_demo_001"
+}
+```

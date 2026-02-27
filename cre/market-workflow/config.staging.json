@@ -12,6 +12,12 @@
       "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
     }
   ],
+  "httpFiatCreditAuthorizedKeys": [
+    {
+      "type": "KEY_TYPE_ECDSA_EVM",
+      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
+    }
+  ],
   "sponsorPolicy": {
     "enabled": true,
     "supportedChainIds": [
@@ -51,7 +57,22 @@
       "routerSwapYesForNo",
       "routerSwapNoForYes",
       "routerAddLiquidity",
-      "routerRemoveLiquidity"
+      "routerRemoveLiquidity",
+      "routerCreditFromFiat"
+    ]
+  },
+  "fiatCreditPolicy": {
+    "enabled": true,
+    "supportedChainIds": [
+      421614,
+      84532
+    ],
+    "maxAmountUsdc": "100000000000",
+    "allowedProviders": [
+      "mock",
+      "stripe",
+      "google_pay",
+      "card"
     ]
   },
   "evms": [

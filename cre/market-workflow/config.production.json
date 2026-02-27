@@ -2,6 +2,7 @@
   "schedule": "*/30 * * * * *",
   "httpTriggerAuthorizedKeys": [],
   "httpExecutionAuthorizedKeys": [],
+  "httpFiatCreditAuthorizedKeys": [],
   "sponsorPolicy": {
     "enabled": false,
     "supportedChainIds": [],
@@ -22,7 +23,14 @@
       "routerSwapYesForNo",
       "routerSwapNoForYes",
       "routerAddLiquidity",
-      "routerRemoveLiquidity"
+      "routerRemoveLiquidity",
+      "routerCreditFromFiat"
     ]
+  },
+  "fiatCreditPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "maxAmountUsdc": "0",
+    "allowedProviders": []
   }
 }

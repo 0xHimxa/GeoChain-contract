@@ -9,14 +9,17 @@ import {processPendingWithdrawalsHandler} from "./handlers/marketWithdrawal";
 import { sponsorUserOpPolicyHandler } from "./handlers/httpSponsorPolicy";
 import { executeReportHttpHandler } from "./handlers/httpExecuteReport";
 import { revokeSessionHttpHandler } from "./handlers/httpRevokeSession";
+import { fiatCreditHttpHandler } from "./handlers/httpFiatCredit";
 
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
   const http = new HTTPCapability();
   const httpAuthorizedKeys = config.httpTriggerAuthorizedKeys || [];
   const httpExecutionAuthorizedKeys = config.httpExecutionAuthorizedKeys || [];
+  const httpFiatCreditAuthorizedKeys = config.httpFiatCreditAuthorizedKeys || [];
   const hasHttpTriggerKeys = httpAuthorizedKeys.length > 0;
   const hasHttpExecutionTriggerKeys = httpExecutionAuthorizedKeys.length > 0;
+  const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
 
   const cronWorkflows: Workflow<Config> = [
     handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
@@ -29,50 +32,46 @@ const initWorkflow = (config: Config) => {
     // handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
     // handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
   ];
+  const sponsorHttpWorkflows: Workflow<Config> = hasHttpTriggerKeys
+    ? [
+        handler(
+          http.trigger({
+            authorizedKeys: httpAuthorizedKeys,
+          }),
+          sponsorUserOpPolicyHandler
+        ),
+        handler(
+          http.trigger({
+            authorizedKeys: httpAuthorizedKeys,
+          }),
+          revokeSessionHttpHandler
+        ),
+      ]
+    : [];
 
-  if (hasHttpTriggerKeys) {
-    // Add a dedicated HTTP-triggered policy endpoint for AA sponsorship decisions.
-    const httpWorkflows: Workflow<Config> = [
-      handler(
-        http.trigger({
-          authorizedKeys: httpAuthorizedKeys,
-        }),
-        sponsorUserOpPolicyHandler
-      ),
-      handler(
-        http.trigger({
-          authorizedKeys: httpAuthorizedKeys,
-        }),
-        revokeSessionHttpHandler
-      ),
-    ];
-    if (hasHttpExecutionTriggerKeys) {
-      const httpExecutionWorkflows: Workflow<Config> = [
+  const executeHttpWorkflows: Workflow<Config> = hasHttpExecutionTriggerKeys
+    ? [
         handler(
           http.trigger({
             authorizedKeys: httpExecutionAuthorizedKeys,
           }),
           executeReportHttpHandler
         ),
-      ];
-      return [...cronWorkflows, ...httpWorkflows, ...httpExecutionWorkflows];
-    }
-    return [...cronWorkflows, ...httpWorkflows];
-  }
+      ]
+    : [];
 
-  if (hasHttpExecutionTriggerKeys) {
-    const httpExecutionWorkflows: Workflow<Config> = [
-      handler(
-        http.trigger({
-          authorizedKeys: httpExecutionAuthorizedKeys,
-        }),
-        executeReportHttpHandler
-      ),
-    ];
-    return [...cronWorkflows, ...httpExecutionWorkflows];
-  }
+  const fiatCreditHttpWorkflows: Workflow<Config> = hasHttpFiatCreditKeys
+    ? [
+        handler(
+          http.trigger({
+            authorizedKeys: httpFiatCreditAuthorizedKeys,
+          }),
+          fiatCreditHttpHandler
+        ),
+      ]
+    : [];
 
-  return cronWorkflows;
+  return [...cronWorkflows, ...sponsorHttpWorkflows, ...executeHttpWorkflows, ...fiatCreditHttpWorkflows];
 };
 
 export async function main() {
@@ -92,4 +91,5 @@ export {
   sponsorUserOpPolicyHandler,
   executeReportHttpHandler,
   revokeSessionHttpHandler,
+  fiatCreditHttpHandler,
 };

@@ -31,7 +31,9 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     error Router__MarketNotAllowed();
     error Router__CollateralMismatch();
     error Router__InsufficientBalance();
+    error Router__InsufficientUntrackedCollateral();
     error Router__InvalidDelta();
+    error Router__InvalidAmount();
     error Router__ActionNotRecognized();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
@@ -45,6 +47,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     bytes32 private constant HASHED_SWAP_NO_FOR_YES = keccak256(abi.encode("routerSwapNoForYes"));
     bytes32 private constant HASHED_ADD_LIQ = keccak256(abi.encode("routerAddLiquidity"));
     bytes32 private constant HASHED_REMOVE_LIQ = keccak256(abi.encode("routerRemoveLiquidity"));
+    bytes32 private constant HASHED_CREDIT_FROM_FIAT = keccak256(abi.encode("routerCreditFromFiat"));
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
@@ -69,6 +72,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     event SwappedNoForYes(address indexed user, address indexed market, uint256 noIn, uint256 yesOut);
     event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
     event LiquidityRemoved(address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut);
+    event CollateralCreditedFromFiat(address indexed user, uint256 amount);
 
     /// @notice Returns collateral tokens currently held by router but not mapped to user collateral credits.
     /// @dev This helps detect accidental direct transfers to the vault.
@@ -151,6 +155,22 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         tokenCredits[user][token] = bal - amount;
         IERC20(token).safeTransfer(user, amount);
         emit OutcomeWithdrawn(user, token, amount);
+    }
+
+    /// @dev Credits user collateral from already-funded, untracked router collateral.
+    /// Used by fiat settlement flow where collateral arrives to router before internal accounting credit.
+    function _creditCollateralFromFiat(address user, uint256 amount) internal {
+        if (user == address(0)) revert Router__ZeroAddress();
+        if (amount == 0) revert Router__InvalidAmount();
+
+        uint256 balance = collateralToken.balanceOf(address(this));
+        uint256 credited = totalCollateralCredits;
+        uint256 untracked = balance > credited ? balance - credited : 0;
+        if (untracked < amount) revert Router__InsufficientUntrackedCollateral();
+
+        collateralCredits[user] += amount;
+        totalCollateralCredits += amount;
+        emit CollateralCreditedFromFiat(user, amount);
     }
 
     function _mintCompleteSets(address user, address market, uint256 amount) internal {
@@ -336,6 +356,9 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
             (address user, address market, uint256 shares, uint256 minYesOut, uint256 minNoOut) =
                 abi.decode(payload, (address, address, uint256, uint256, uint256));
             _removeLiquidity(user, market, shares, minYesOut, minNoOut);
+        } else if (actionTypeHash == HASHED_CREDIT_FROM_FIAT) {
+            (address user, uint256 amount) = abi.decode(payload, (address, uint256));
+            _creditCollateralFromFiat(user, amount);
         } else {
             revert Router__ActionNotRecognized();
         }
