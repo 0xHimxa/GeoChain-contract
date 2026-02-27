@@ -28,7 +28,7 @@
     ],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
-    "maxAmountUsdc": "1000000000",
+    "maxAmountUsdc": "10000000000",
     "maxSlippageBps": 300
   },
   "executePolicy": {

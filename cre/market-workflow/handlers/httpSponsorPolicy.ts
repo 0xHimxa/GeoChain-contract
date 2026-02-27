@@ -26,7 +26,7 @@ type SponsorDecision = {
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const PRICISION = 1000000n
-const DEFAULT_MAX_AMOUNT_USDC = 1000n;
+const DEFAULT_MAX_AMOUNT_USDC = 10000n  * PRICISION;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
 const DEFAULT_ALLOWED_ACTIONS = new Set([
   "addLiquidity",

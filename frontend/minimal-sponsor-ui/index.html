@@ -183,17 +183,17 @@
           <label>Action
             <input id="action" value="swapYesForNo" />
           </label>
-          <label>Amount (USDC 6dp as integer string)
-            <input id="amountUsdc" value="1000000" />
+          <label>Amount (USDC, auto x1e6)
+            <input id="amountUsdc" value="1" />
           </label>
           <label>Slippage (bps)
             <input id="slippageBps" type="number" value="150" />
           </label>
           <label>Collateral Token Address
-            <input id="collateralTokenAddress" value="0x0000000000000000000000000000000000000000" />
+            <input id="collateralTokenAddress" value="0x0000000000000000000000000000000000000000" readonly />
           </label>
           <label>Execute Receiver Address (used for approve/deposit only)
-            <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" />
+            <input id="executeReceiverAddress" value="" placeholder="0xRouterOrFactoryReceiver" readonly />
           </label>
           <label>Report ActionType (auto-derived from Action)
             <input id="reportActionType" value="routerSwapYesForNo" readonly />
@@ -235,6 +235,22 @@
         "function allowance(address owner, address spender) external view returns (uint256)",
       ];
       const ROUTER_ABI = ["function depositCollateral(uint256 amount) external"];
+      const CHAIN_PARAMS = {
+        84532: {
+          chainIdHex: "0x14a34",
+          chainName: "Base Sepolia",
+          nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://sepolia.base.org"],
+          blockExplorerUrls: ["https://sepolia.basescan.org"],
+        },
+        421614: {
+          chainIdHex: "0x66eee",
+          chainName: "Arbitrum Sepolia",
+          nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"],
+          blockExplorerUrls: ["https://sepolia.arbiscan.io"],
+        },
+      };
       const ACTION_TO_REPORT_ACTION_TYPE = {
         addLiquidity: "routerAddLiquidity",
         removeLiquidity: "routerRemoveLiquidity",
@@ -327,6 +343,9 @@
         const data = await parseJsonResponse(res);
         if (HEX_ADDRESS_REGEX.test(data.collateralTokenAddress || "")) {
           byId("collateralTokenAddress").value = data.collateralTokenAddress;
+        }
+        if (HEX_ADDRESS_REGEX.test(data.executeReceiverAddress || "")) {
+          byId("executeReceiverAddress").value = data.executeReceiverAddress;
         }
       };
 
@@ -456,12 +475,59 @@
         return account;
       };
 
+      const ensureWalletOnChain = async (chainId) => {
+        if (!window.ethereum) throw new Error("No injected wallet found (window.ethereum missing)");
+        const target = CHAIN_PARAMS[chainId];
+        if (!target) return;
+
+        const currentHex = await window.ethereum.request({ method: "eth_chainId" });
+        const current = Number.parseInt(currentHex, 16);
+        if (current === chainId) return;
+
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: target.chainIdHex }],
+          });
+        } catch (err) {
+          const code = err && typeof err === "object" ? err.code : undefined;
+          if (code === 4902) {
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [
+                {
+                  chainId: target.chainIdHex,
+                  chainName: target.chainName,
+                  nativeCurrency: target.nativeCurrency,
+                  rpcUrls: target.rpcUrls,
+                  blockExplorerUrls: target.blockExplorerUrls,
+                },
+              ],
+            });
+            await window.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: target.chainIdHex }],
+            });
+          } else {
+            throw err;
+          }
+        }
+      };
+
       const deriveReportActionType = (action) => {
         const mapped = ACTION_TO_REPORT_ACTION_TYPE[String(action || "").trim()];
         if (!mapped) {
           throw new Error(`Unsupported action for sponsorship: ${action}`);
         }
         return mapped;
+      };
+
+      const parseUsdcInputToE6 = (raw) => {
+        const value = String(raw || "").trim();
+        if (!/^\d+(\.\d{1,6})?$/.test(value)) {
+          throw new Error("amountUsdc must be a number with up to 6 decimals");
+        }
+        return ethers.parseUnits(value, 6).toString();
       };
 
       const syncReportActionTypeFromAction = () => {
@@ -471,13 +537,13 @@
 
       const buildRouterReportPayloadHex = (actionType, user, chainId) => {
         const abi = ethers.AbiCoder.defaultAbiCoder();
-        const amountUsdc = byId("amountUsdc").value.trim();
+        const amountUsdc = parseUsdcInputToE6(byId("amountUsdc").value);
         const slippageBps = Number(byId("slippageBps").value);
         const targetMarketAddress = byId("targetMarketAddress").value.trim();
         const routerOutcomeToken = byId("routerOutcomeToken").value.trim();
 
         if (!HEX_ADDRESS_REGEX.test(user)) throw new Error("Invalid user address for router payload");
-        if (!/^\d+$/.test(amountUsdc)) throw new Error("amountUsdc must be numeric for router payload");
+        if (BigInt(amountUsdc) <= 0n) throw new Error("amountUsdc must be greater than zero");
         if (!Number.isInteger(slippageBps) || slippageBps < 0) throw new Error("invalid slippageBps");
 
         if (actionType === "routerDepositFor") {
@@ -604,6 +670,7 @@
         const account = connectedAccount || (await connectWallet());
         const chainId = Number(byId("chainId").value);
         if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chainId");
+        await ensureWalletOnChain(chainId);
 
         const walletChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
         const walletChainId = Number.parseInt(walletChainIdHex, 16);
@@ -613,11 +680,11 @@
 
         const token = byId("collateralTokenAddress").value.trim();
         const spender = byId("executeReceiverAddress").value.trim();
-        const value = byId("amountUsdc").value.trim();
+        const value = parseUsdcInputToE6(byId("amountUsdc").value);
 
         if (!HEX_ADDRESS_REGEX.test(token)) throw new Error("Invalid collateral token address");
         if (!HEX_ADDRESS_REGEX.test(spender)) throw new Error("Invalid execute receiver address");
-        if (!/^\d+$/.test(value) || BigInt(value) <= 0n) throw new Error("amountUsdc must be a positive numeric string");
+        if (BigInt(value) <= 0n) throw new Error("amountUsdc must be greater than zero");
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
         const erc20 = new ethers.Contract(token, ERC20_ABI, signer);
@@ -629,8 +696,9 @@
       const depositCollateral = async () => {
         const chainId = Number(byId("chainId").value);
         if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chainId");
-        const amount = byId("amountUsdc").value.trim();
-        if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) throw new Error("amountUsdc must be a positive numeric string");
+        await ensureWalletOnChain(chainId);
+        const amount = parseUsdcInputToE6(byId("amountUsdc").value);
+        if (BigInt(amount) <= 0n) throw new Error("amountUsdc must be greater than zero");
 
         const walletChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
         const walletChainId = Number.parseInt(walletChainIdHex, 16);
@@ -788,6 +856,10 @@
           const action = byId("action").value.trim();
           const reportActionType = deriveReportActionType(action);
           byId("reportActionType").value = reportActionType;
+          const amountUsdc = parseUsdcInputToE6(byId("amountUsdc").value);
+          if (BigInt(amountUsdc) <= 0n) {
+            throw new Error("amountUsdc must be greater than zero");
+          }
 
           const encrypted = await idbGet(storageKey(session.sessionId));
           if (!encrypted) throw new Error("Session private key missing locally; create session again");
@@ -803,7 +875,7 @@
             requestNonce,
             chainId,
             action,
-            amountUsdc: byId("amountUsdc").value.trim(),
+            amountUsdc,
             slippageBps,
             sender,
           };
@@ -833,7 +905,7 @@
             requestId,
             chainId,
             action,
-            amountUsdc: byId("amountUsdc").value.trim(),
+            amountUsdc,
             slippageBps,
             reportActionType,
             reportPayloadHex,

@@ -33,6 +33,16 @@ type CreConfig = {
 
 const indexHtml = readFileSync(join(import.meta.dir, "index.html"), "utf-8");
 const creConfigPath = process.env.CRE_CONFIG_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "config.staging.json");
+const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
+  421614: {
+    executeReceiverAddress: "0xf2992507E9589307Ea5f02225C5439Ee451d13EC",
+    collateralTokenAddress: "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
+  },
+  84532: {
+    executeReceiverAddress: "0x65d7401B58C63841c72834D34141039ef41b52c8",
+    collateralTokenAddress: "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
+  },
+};
 
 const toChainId = (chainName: string): number | null => {
   if (chainName.includes("arbitrum")) return 421614;
@@ -131,10 +141,11 @@ const handleChainConfig = (req: Request): Response => {
 
   const cfg = readCreConfig();
   const evm = (cfg.evms || []).find((item) => item.chainName && toChainId(item.chainName) === chainId);
+  const fallback = FALLBACK_CHAIN_CONFIG[chainId];
   return json(200, {
     chainId,
-    executeReceiverAddress: evm?.routerReceiverAddress || "",
-    collateralTokenAddress: evm?.collateralTokenAddress || "",
+    executeReceiverAddress: evm?.routerReceiverAddress || fallback?.executeReceiverAddress || "",
+    collateralTokenAddress: evm?.collateralTokenAddress || fallback?.collateralTokenAddress || "",
     configPath: creConfigPath,
   });
 };
