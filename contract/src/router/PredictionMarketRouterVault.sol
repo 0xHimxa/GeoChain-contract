@@ -124,7 +124,14 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
      
 
     function depositCollateral(uint256 amount) external nonReentrant {
-        _depositCollateral(msg.sender, amount);
+        _depositCollateral(msg.sender, msg.sender, amount);
+    }
+
+    /// @notice Deposits caller collateral and credits another beneficiary inside router vault accounting.
+    /// @dev Pulls `amount` collateral from `msg.sender` via `transferFrom`, so caller must approve router first.
+    function depositFor(address beneficiary, uint256 amount) external nonReentrant {
+        if (beneficiary == address(0)) revert Router__ZeroAddress();
+        _depositCollateral(msg.sender, beneficiary, amount);
     }
 
     function withdrawCollateral(uint256 amount) external nonReentrant {
@@ -163,11 +170,11 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         _removeLiquidity(msg.sender, market, shares, minYesOut, minNoOut);
     }
 
-    function _depositCollateral(address user, uint256 amount) internal {
-        collateralToken.safeTransferFrom(user, address(this), amount);
-        collateralCredits[user] += amount;
+    function _depositCollateral(address payer, address beneficiary, uint256 amount) internal {
+        collateralToken.safeTransferFrom(payer, address(this), amount);
+        collateralCredits[beneficiary] += amount;
         totalCollateralCredits += amount;
-        emit Deposited(user, amount);
+        emit Deposited(beneficiary, amount);
     }
 
     function _withdrawCollateral(address user, uint256 amount) internal {
@@ -412,7 +419,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
 
         if (actionTypeHash == HASHED_DEPOSIT_FOR) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
-            _depositCollateral(user, amount);
+            _depositCollateral(user, user, amount);
         } else if (actionTypeHash == HASHED_WITHDRAW_COLLATERAL) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
             _withdrawCollateral(user, amount);
