@@ -1,14 +1,14 @@
 {
-    "requestId": "ui_1772241255597_65046a21",
+    "requestId": "ui_1772243853708_2dbe9a92",
     "chainId": 421614,
-    "action": "mintCompleteSets",
-    "amountUsdc": "2000000",
+    "action": "swapYesForNo",
+    "amountUsdc": "1000000",
     "sender": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
     "slippageBps": 150,
     "session": {
-        "sessionId": "sess_1772240913082_694aab54cd3138f0",
+        "sessionId": "sess_1772243421857_48bf364f5958b0ec",
         "owner": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
-        "sessionPublicKey": "0x0486ea634fe3635b5881afc3d82db77435fde620138062f7d5b14018c97667db449309c9d7ba77b56455422b3e88e0222b7a000f20a013e863db87eae55e98ed10",
+        "sessionPublicKey": "0x04c95f5045da8969280be4cc154a94ca7882726280c15e624755b2e0e1ffff5fe459c469d9fc04903028a110a04d768f2b4b827c9e022b031ea4817bc4637944ac",
         "chainId": 421614,
         "allowedActions": [
             "addLiquidity",
@@ -19,10 +19,10 @@
             "swapYesForNo"
         ],
         "maxAmountUsdc": "100000000",
-        "expiresAtUnix": 1772244513,
-        "grantSignature": "0x7bd39b05254b7d7ec7b46ec45def9908252b657b23544e69f334643524e5812743409a639a7d5f668f5280442c81e611bbc51f01860a809bec575ab155c94be01c",
-        "requestNonce": "nonce_3ae54f3f121c285c87bb3722",
-        "requestSignature": "0x259fd06192090b3ab2cbe9c8f0b03b68c456a388a480f526af596f5d9b4e0c153a4a3babf1c40f6a0cbd51454b73624e2ed72055a4621bf5680be8f142a1f9fb1c"
+        "expiresAtUnix": 1772247021,
+        "grantSignature": "0x729601902bb55abf3caf4bb90824328cadc5fa130c0a79487d335238cbcecea228bf8e5015fd36b9944fbe1e742867d715cebb51f2861f4dc3eaf9b6399acc921c",
+        "requestNonce": "nonce_157f647e0dcacc603ee7b816",
+        "requestSignature": "0xce8aa8a5ff75a36cd5d2a3a9e88dd89dfd7fe28791a5bd4f9b79fd32c81e712459b14559aadb522c1915479606b72a4fc83690dc2177889a835313c3254b4e791b"
     },
-    "actionType": "routerMintCompleteSets"
+    "actionType": "routerSwapYesForNo"
 }

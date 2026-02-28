@@ -24351,8 +24351,8 @@ var createPredictionMarketEvent = (runtime2) => {
 };
 var createEventHelper = (runtime2) => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";
-  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 5 * 60);
-  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 7 * 60);
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 40 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 50 * 60);
   runtime2.config.evms.map((evmConfig) => {
     const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventName, closeTime, resolutionTime]);
     sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
