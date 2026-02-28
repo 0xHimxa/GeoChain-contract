@@ -101,7 +101,10 @@ export const validateSessionAuthorization = async (
     return { ok: false, reason: "session.allowedActions cannot be empty" };
   }
   if (!allowedActions.includes(input.action)) {
-    return { ok: false, reason: "session does not allow this action" };
+    return {
+      ok: false,
+      reason: `session does not allow this action: requested=${input.action}; allowed=${allowedActions.join(",")}`,
+    };
   }
 
   const maxAmountUsdc = parseUintString(session.maxAmountUsdc);

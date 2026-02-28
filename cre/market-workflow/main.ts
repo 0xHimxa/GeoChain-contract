@@ -37,7 +37,7 @@ const initWorkflow = (config: Config) => {
 
   const cronWorkflows: Workflow<Config> = [
     handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
-   // handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
+    //handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     // handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
     // handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler),
    //  handler(cron.trigger({ schedule: config.schedule }), createEventHelper),

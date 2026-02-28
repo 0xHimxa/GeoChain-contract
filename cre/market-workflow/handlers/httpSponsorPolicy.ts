@@ -191,7 +191,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     return JSON.stringify(makeDecision(requestId, sessionValidation.reason || "invalid session authorization"));
   }
 
-  const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 120;
+  const approvalExpiresAtUnix = Math.floor(runtime.now().getTime() / 1000) + 360;
   const approvalId = `cre_approval_${runtime.now().getTime()}_${requestId.slice(-8)}_${sender.slice(2, 8)}`;
   createApprovalRecord(runtime, firestoreToken, {
     approvalId,

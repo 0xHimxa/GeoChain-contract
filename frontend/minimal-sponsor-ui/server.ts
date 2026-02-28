@@ -8,8 +8,9 @@ type SponsorApiRequest = {
   amountUsdc: string;
   sender: string;
   slippageBps: number;
-  reportActionType: string;
-  reportPayloadHex: string;
+  actionType?: string;
+  reportActionType?: string;
+  reportPayloadHex?: string;
   session?: Record<string, unknown>;
 };
 
@@ -54,11 +55,11 @@ const fiatPaymentHtml = readFileSync(join(import.meta.dir, "fiat-payment.html"),
 const creConfigPath = process.env.CRE_CONFIG_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "config.staging.json");
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
-    executeReceiverAddress: "0xf2992507E9589307Ea5f02225C5439Ee451d13EC",
+    executeReceiverAddress: "0xAD51b51Ea9347CBaB070311f07d2C7659d8D8c78",
     collateralTokenAddress: "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
   },
   84532: {
-    executeReceiverAddress: "0x65d7401B58C63841c72834D34141039ef41b52c8",
+    executeReceiverAddress: "0x075B30906d48f922A643bBa218724a84931DC1BA",
     collateralTokenAddress: "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
   },
 };
@@ -100,7 +101,16 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   } catch {
     return json(400, { error: "invalid JSON body" });
   }
-
+  const actionType = (body.actionType || body.reportActionType || "").trim();
+  console.log(
+    "[MOCK_CRE_POLICY] actionType_debug=",
+    JSON.stringify({
+      normalizedActionType: actionType || null,
+      actionType: body.actionType ?? null,
+      reportActionType: body.reportActionType ?? null,
+      keys: Object.keys(body),
+    })
+  );
   const crePayload = {
     requestId: body.requestId || `ui_${Date.now()}`,
     chainId: body.chainId,
@@ -109,6 +119,8 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     sender: body.sender,
     slippageBps: body.slippageBps,
     session: body.session,
+    actionType,
+  
   };
   console.log("[MOCK_CRE_POLICY] payload=", JSON.stringify(crePayload));
 
@@ -119,11 +131,16 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     requestId: crePayload.requestId,
   };
 
-  if (!body.reportActionType || !body.reportPayloadHex) {
+  if (!actionType || !body.reportPayloadHex) {
     return json(400, {
       approved: false,
       stage: "cre-execute",
-      error: "missing reportActionType/reportPayloadHex",
+      error: "missing actionType/reportPayloadHex",
+      received: {
+        actionType: body.actionType ?? null,
+        reportActionType: body.reportActionType ?? null,
+        reportPayloadHex: body.reportPayloadHex ?? null,
+      },
     });
   }
 
@@ -132,7 +149,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     approvalId: creDecision.approvalId,
     chainId: body.chainId,
     amountUsdc: body.amountUsdc,
-    actionType: body.reportActionType,
+    actionType,
     payloadHex: body.reportPayloadHex,
   };
   console.log("[MOCK_CRE_EXECUTE] payload=", JSON.stringify(executePayload));

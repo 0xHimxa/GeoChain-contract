@@ -967,6 +967,7 @@ var InvalidAbiEncodingTypeError;
 var InvalidAbiDecodingTypeError;
 var InvalidArrayError;
 var InvalidDefinitionTypeError;
+var UnsupportedPackedAbiType;
 var init_abi = __esm(() => {
   init_formatAbiItem2();
   init_size();
@@ -1115,6 +1116,13 @@ var init_abi = __esm(() => {
         'Valid types: "function", "event", "error"'
       ].join(`
 `), { name: "InvalidDefinitionTypeError" });
+    }
+  };
+  UnsupportedPackedAbiType = class UnsupportedPackedAbiType2 extends BaseError2 {
+    constructor(type) {
+      super(`Type "${type}" is not supported for packed encoding.`, {
+        name: "UnsupportedPackedAbiType"
+      });
     }
   };
 });
@@ -2022,9 +2030,11 @@ var init_slice = __esm(() => {
   init_data();
   init_size();
 });
+var arrayRegex;
 var bytesRegex2;
 var integerRegex2;
 var init_regex2 = __esm(() => {
+  arrayRegex = /^(.*)\[([0-9]*)\]$/;
   bytesRegex2 = /^bytes([1-9]|1[0-9]|2[0-9]|3[0-2])?$/;
   integerRegex2 = /^(u?int)(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/;
 });
@@ -19875,6 +19885,73 @@ function validateReference(type) {
   if (type === "address" || type === "bool" || type === "string" || type.startsWith("bytes") || type.startsWith("uint") || type.startsWith("int"))
     throw new InvalidStructTypeError({ type });
 }
+init_abi();
+init_address();
+init_isAddress();
+init_pad();
+init_toHex();
+init_regex2();
+function encodePacked(types4, values) {
+  if (types4.length !== values.length)
+    throw new AbiEncodingLengthMismatchError({
+      expectedLength: types4.length,
+      givenLength: values.length
+    });
+  const data = [];
+  for (let i2 = 0;i2 < types4.length; i2++) {
+    const type = types4[i2];
+    const value2 = values[i2];
+    data.push(encode(type, value2));
+  }
+  return concatHex(data);
+}
+function encode(type, value2, isArray = false) {
+  if (type === "address") {
+    const address = value2;
+    if (!isAddress(address))
+      throw new InvalidAddressError({ address });
+    return pad(address.toLowerCase(), {
+      size: isArray ? 32 : null
+    });
+  }
+  if (type === "string")
+    return stringToHex(value2);
+  if (type === "bytes")
+    return value2;
+  if (type === "bool")
+    return pad(boolToHex(value2), { size: isArray ? 32 : 1 });
+  const intMatch = type.match(integerRegex2);
+  if (intMatch) {
+    const [_type, baseType, bits = "256"] = intMatch;
+    const size2 = Number.parseInt(bits) / 8;
+    return numberToHex(value2, {
+      size: isArray ? 32 : size2,
+      signed: baseType === "int"
+    });
+  }
+  const bytesMatch = type.match(bytesRegex2);
+  if (bytesMatch) {
+    const [_type, size2] = bytesMatch;
+    if (Number.parseInt(size2) !== (value2.length - 2) / 2)
+      throw new BytesSizeMismatchError({
+        expectedSize: Number.parseInt(size2),
+        givenSize: (value2.length - 2) / 2
+      });
+    return pad(value2, { dir: "right", size: isArray ? 32 : null });
+  }
+  const arrayMatch = type.match(arrayRegex);
+  if (arrayMatch && Array.isArray(value2)) {
+    const [_type, childType] = arrayMatch;
+    const data = [];
+    for (let i2 = 0;i2 < value2.length; i2++) {
+      data.push(encode(childType, value2[i2], true));
+    }
+    if (data.length === 0)
+      return "0x";
+    return concatHex(data);
+  }
+  throw new UnsupportedPackedAbiType(type);
+}
 async function recoverTypedDataAddress(parameters) {
   const { domain, message, primaryType, signature, types: types4 } = parameters;
   return recoverAddress({
@@ -19899,6 +19976,7 @@ async function verifyTypedData(parameters) {
     types: types4
   }));
 }
+init_decodeAbiParameters();
 init_decodeFunctionResult();
 init_encodeAbiParameters();
 init_encodeFunctionData();
@@ -21431,10 +21509,13 @@ var WITHDRAW_BATCH_SIZE = 20n;
 var USDC_DECIMALS = 1000000n;
 var BRIDGE_BALANCE_THRESHOLD = 50000n * USDC_DECIMALS;
 var BRIDGE_TOP_UP_AMOUNT = 140000n * USDC_DECIMALS;
+var ROUTER_BALANCE_THRESHOLD = 50000n * USDC_DECIMALS;
+var ROUTER_TOP_UP_AMOUNT = 140000n * USDC_DECIMALS;
 var FACTORY_BALANCE_THRESHOLD = 210000n * USDC_DECIMALS;
 var FACTORY_TOP_UP_AMOUNT = 400000n * USDC_DECIMALS;
 var MINT_COLLATERAL_ACTION = "mintCollateralTo";
 var marketFactoryBridgeGetterAbi = parseAbi(["function predictionMarketBridge() view returns (address)"]);
+var marketFactoryRouterGetterAbi = parseAbi(["function predictionMarketRouter() view returns (address)"]);
 var erc20BalanceOfAbi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);
 var marketFactoryBalanceTopUp = (runtime2) => {
   const marketFactoryCollateralCallData = encodeFunctionData({
@@ -21444,6 +21525,10 @@ var marketFactoryBalanceTopUp = (runtime2) => {
   const marketFactoryBridgeCallData = encodeFunctionData({
     abi: marketFactoryBridgeGetterAbi,
     functionName: "predictionMarketBridge"
+  });
+  const marketFactoryRouterCallData = encodeFunctionData({
+    abi: marketFactoryRouterGetterAbi,
+    functionName: "predictionMarketRouter"
   });
   const marketFactoryCollateralTokenCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
@@ -21483,10 +21568,18 @@ var marketFactoryBalanceTopUp = (runtime2) => {
       functionName: "predictionMarketBridge",
       data: bytesToHex(bridgeResult.data)
     });
-    if (bridgeAddress === "0x0000000000000000000000000000000000000000") {
-      runtime2.log(`[${evmConfig.chainName}] predictionMarketBridge is not configured`);
-      return `${evmConfig.chainName}: bridge-not-configured factory=${factoryBalance.toString()}`;
-    }
+    const routerResult = evmClient.callContract(runtime2, {
+      call: encodeCallMsg({
+        from: sender,
+        to: evmConfig.marketFactoryAddress,
+        data: marketFactoryRouterCallData
+      })
+    }).result();
+    const routerAddress = decodeFunctionResult({
+      abi: marketFactoryRouterGetterAbi,
+      functionName: "predictionMarketRouter",
+      data: bytesToHex(routerResult.data)
+    });
     const collateralResult = evmClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: sender,
@@ -21499,23 +21592,50 @@ var marketFactoryBalanceTopUp = (runtime2) => {
       functionName: "collateral",
       data: bytesToHex(collateralResult.data)
     });
-    const bridgeCollateralBalanceCallData = encodeFunctionData({
-      abi: erc20BalanceOfAbi,
-      functionName: "balanceOf",
-      args: [bridgeAddress]
-    });
-    const bridgeBalanceResult = evmClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: collateralAddress,
-        data: bridgeCollateralBalanceCallData
-      })
-    }).result();
-    const bridgeCollateralBalance = decodeFunctionResult({
-      abi: erc20BalanceOfAbi,
-      functionName: "balanceOf",
-      data: bytesToHex(bridgeBalanceResult.data)
-    });
+    let bridgeCollateralBalance = 0n;
+    if (bridgeAddress !== "0x0000000000000000000000000000000000000000") {
+      const bridgeCollateralBalanceCallData = encodeFunctionData({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [bridgeAddress]
+      });
+      const bridgeBalanceResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: collateralAddress,
+          data: bridgeCollateralBalanceCallData
+        })
+      }).result();
+      bridgeCollateralBalance = decodeFunctionResult({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        data: bytesToHex(bridgeBalanceResult.data)
+      });
+    } else {
+      runtime2.log(`[${evmConfig.chainName}] predictionMarketBridge is not configured`);
+    }
+    let routerCollateralBalance = 0n;
+    if (routerAddress !== "0x0000000000000000000000000000000000000000") {
+      const routerCollateralBalanceCallData = encodeFunctionData({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [routerAddress]
+      });
+      const routerBalanceResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: collateralAddress,
+          data: routerCollateralBalanceCallData
+        })
+      }).result();
+      routerCollateralBalance = decodeFunctionResult({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        data: bytesToHex(routerBalanceResult.data)
+      });
+    } else {
+      runtime2.log(`[${evmConfig.chainName}] predictionMarketRouter is not configured`);
+    }
     const maybeTopUpByReport = (receiver, amount, reason) => {
       const mintPayload = encodeAbiParameters(parseAbiParameters("address receiver, uint256 amount"), [receiver, amount]);
       const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
@@ -21543,8 +21663,11 @@ var marketFactoryBalanceTopUp = (runtime2) => {
       return `${reason}=topped-up to=${receiver} amount=${amount.toString()} tx=${txHash}`;
     };
     const actions = [];
-    if (bridgeCollateralBalance < BRIDGE_BALANCE_THRESHOLD) {
+    if (bridgeAddress !== "0x0000000000000000000000000000000000000000" && bridgeCollateralBalance < BRIDGE_BALANCE_THRESHOLD) {
       actions.push(maybeTopUpByReport(bridgeAddress, BRIDGE_TOP_UP_AMOUNT, "bridge"));
+    }
+    if (routerAddress !== "0x0000000000000000000000000000000000000000" && routerCollateralBalance < ROUTER_BALANCE_THRESHOLD) {
+      actions.push(maybeTopUpByReport(routerAddress, ROUTER_TOP_UP_AMOUNT, "router"));
     }
     if (factoryBalance < FACTORY_BALANCE_THRESHOLD) {
       actions.push(maybeTopUpByReport(evmConfig.marketFactoryAddress, FACTORY_TOP_UP_AMOUNT, "factory"));
@@ -21552,7 +21675,9 @@ var marketFactoryBalanceTopUp = (runtime2) => {
     if (actions.length > 0) {
       return `${evmConfig.chainName}: ${actions.join(", ")}`;
     }
-    return `${evmConfig.chainName}: healthy bridgeBalance=${bridgeCollateralBalance.toString()} factory=${factoryBalance.toString()}`;
+    const bridgeStatus = bridgeAddress === "0x0000000000000000000000000000000000000000" ? "bridge=not-configured" : `bridgeBalance=${bridgeCollateralBalance.toString()}`;
+    const routerStatus = routerAddress === "0x0000000000000000000000000000000000000000" ? "router=not-configured" : `routerBalance=${routerCollateralBalance.toString()}`;
+    return `${evmConfig.chainName}: healthy ${bridgeStatus} ${routerStatus} factory=${factoryBalance.toString()}`;
   });
   return chainSummaries.join(" | ");
 };
@@ -24237,6 +24362,7 @@ var createEventHelper = (runtime2) => {
 };
 var SESSIONS_COLLECTION = "aa_sessions";
 var APPROVALS_COLLECTION = "aa_approvals";
+var FIAT_PAYMENTS_COLLECTION = "fiat_payments";
 var toBase64Body = (payload) => {
   const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
   return Buffer.from(bodyBytes).toString("base64");
@@ -24475,6 +24601,8 @@ var createApprovalRecord = (runtime2, idToken, approval) => {
         requestId: { stringValue: approval.requestId },
         sessionId: { stringValue: approval.sessionId },
         chainId: { integerValue: String(approval.chainId) },
+        action: { stringValue: approval.action },
+        actionType: { stringValue: approval.actionType },
         amountUsdc: { stringValue: approval.amountUsdc },
         expiresAtUnix: { integerValue: approval.expiresAtUnix.toString() },
         used: { booleanValue: false },
@@ -24506,15 +24634,19 @@ var parseApprovalDoc = (doc) => {
   const fields2 = doc.fields;
   const sessionId = asString(fields2.sessionId);
   const chainId = asInteger(fields2.chainId);
+  const action = asString(fields2.action);
+  const actionType = asString(fields2.actionType);
   const amountUsdc = asString(fields2.amountUsdc);
   const expiresAtUnix = asInteger(fields2.expiresAtUnix);
   const used = asBoolean(fields2.used);
-  if (!sessionId || chainId === null || !amountUsdc || expiresAtUnix === null || used === null) {
+  if (!sessionId || chainId === null || !action || !actionType || !amountUsdc || expiresAtUnix === null || used === null) {
     return null;
   }
   return {
     sessionId,
     chainId: Number(chainId),
+    action,
+    actionType,
     amountUsdc,
     expiresAtUnix,
     used,
@@ -24549,6 +24681,8 @@ var consumeApprovalRecord = (runtime2, idToken, expected) => {
     return { ok: false, reason: "approval already used" };
   if (stored.chainId !== expected.chainId)
     return { ok: false, reason: "approval chain mismatch" };
+  if (stored.actionType !== expected.actionType)
+    return { ok: false, reason: "approval actionType mismatch" };
   if (stored.amountUsdc !== expected.amountUsdc)
     return { ok: false, reason: "approval amount mismatch" };
   if (stored.expiresAtUnix < expected.nowUnix)
@@ -24567,6 +24701,31 @@ var consumeApprovalRecord = (runtime2, idToken, expected) => {
   if (!marked)
     return { ok: false, reason: "approval could not be consumed" };
   return { ok: true, sessionId: stored.sessionId };
+};
+var consumeFiatPaymentRecord = (runtime2, idToken, input) => {
+  const projectId = getProjectId(runtime2);
+  const url = `${baseUrl(projectId)}/${FIAT_PAYMENTS_COLLECTION}/${encodeURIComponent(input.paymentId)}?currentDocument.exists=false`;
+  const response = sendFirestoreRequest(runtime2, idToken, {
+    url,
+    method: "PATCH",
+    body: {
+      fields: {
+        paymentId: { stringValue: input.paymentId },
+        requestId: { stringValue: input.requestId },
+        chainId: { integerValue: String(input.chainId) },
+        user: { stringValue: input.user.toLowerCase() },
+        amountUsdc: { stringValue: input.amountUsdc },
+        provider: { stringValue: input.provider },
+        consumedAtUnix: { integerValue: input.nowUnix.toString() }
+      }
+    }
+  });
+  if (response.statusCode === 200)
+    return { ok: true };
+  if (response.statusCode === 409 || response.statusCode === 412) {
+    return { ok: false, reason: "payment already consumed" };
+  }
+  return { ok: false, reason: `failed to consume payment (${response.statusCode})` };
 };
 var SESSION_EIP712_NAME = "CRE Session Authorization";
 var SESSION_EIP712_VERSION = "1";
@@ -24664,7 +24823,10 @@ var validateSessionAuthorization = async (runtime2, input, existingFirestoreToke
     return { ok: false, reason: "session.allowedActions cannot be empty" };
   }
   if (!allowedActions.includes(input.action)) {
-    return { ok: false, reason: "session does not allow this action" };
+    return {
+      ok: false,
+      reason: `session does not allow this action: requested=${input.action}; allowed=${allowedActions.join(",")}`
+    };
   }
   const maxAmountUsdc = parseUintString(session.maxAmountUsdc);
   if (maxAmountUsdc === null)
@@ -24756,7 +24918,8 @@ var validateSessionAuthorization = async (runtime2, input, existingFirestoreToke
   return { ok: true, sessionId };
 };
 var HEX_ADDRESS_REGEX2 = /^0x[a-fA-F0-9]{40}$/;
-var DEFAULT_MAX_AMOUNT_USDC = 1000n;
+var PRICISION = 1000000n;
+var DEFAULT_MAX_AMOUNT_USDC = 10000n * PRICISION;
 var DEFAULT_MAX_SLIPPAGE_BPS = 300;
 var DEFAULT_ALLOWED_ACTIONS = new Set([
   "addLiquidity",
@@ -24766,6 +24929,14 @@ var DEFAULT_ALLOWED_ACTIONS = new Set([
   "mintCompleteSets",
   "redeemCompleteSets"
 ]);
+var ACTION_TO_ROUTER_ACTION_TYPE = {
+  addLiquidity: "routerAddLiquidity",
+  removeLiquidity: "routerRemoveLiquidity",
+  swapYesForNo: "routerSwapYesForNo",
+  swapNoForYes: "routerSwapNoForYes",
+  mintCompleteSets: "routerMintCompleteSets",
+  redeemCompleteSets: "routerRedeemCompleteSets"
+};
 var decodePayloadInput = (payload) => {
   return new TextDecoder().decode(payload.input);
 };
@@ -24791,6 +24962,7 @@ var makeDecision = (requestId, validationFailedReason) => {
 };
 var sponsorUserOpPolicyHandler = async (runtime2, payload) => {
   const policy = runtime2.config.sponsorPolicy;
+  const executePolicy = runtime2.config.executePolicy;
   const authKeys = runtime2.config.httpTriggerAuthorizedKeys || [];
   if (!policy?.enabled) {
     return JSON.stringify({
@@ -24825,6 +24997,23 @@ var sponsorUserOpPolicyHandler = async (runtime2, payload) => {
   }
   if (!request.action || !policy.allowedActions.includes(request.action)) {
     return JSON.stringify(makeDecision(requestId, "action is not sponsorable"));
+  }
+  const expectedActionType = ACTION_TO_ROUTER_ACTION_TYPE[request.action];
+  if (!expectedActionType) {
+    return JSON.stringify(makeDecision(requestId, "action is not mappable to execute actionType"));
+  }
+  const requestedActionType = (request.actionType || request.reportActionType || "").trim();
+  if (!requestedActionType) {
+    return JSON.stringify(makeDecision(requestId, "missing actionType"));
+  }
+  if (requestedActionType !== expectedActionType) {
+    return JSON.stringify(makeDecision(requestId, "actionType does not match sponsored action"));
+  }
+  if (!executePolicy?.enabled) {
+    return JSON.stringify(makeDecision(requestId, "execute policy disabled"));
+  }
+  if (!executePolicy.allowedActionTypes.includes(requestedActionType)) {
+    return JSON.stringify(makeDecision(requestId, "actionType not allowed by execute policy"));
   }
   const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;
   let amount;
@@ -24861,13 +25050,15 @@ var sponsorUserOpPolicyHandler = async (runtime2, payload) => {
   if (!sessionValidation.ok || !sessionValidation.sessionId) {
     return JSON.stringify(makeDecision(requestId, sessionValidation.reason || "invalid session authorization"));
   }
-  const approvalExpiresAtUnix = Math.floor(runtime2.now().getTime() / 1000) + 120;
+  const approvalExpiresAtUnix = Math.floor(runtime2.now().getTime() / 1000) + 360;
   const approvalId = `cre_approval_${runtime2.now().getTime()}_${requestId.slice(-8)}_${sender3.slice(2, 8)}`;
   createApprovalRecord(runtime2, firestoreToken, {
     approvalId,
     requestId,
     sessionId: sessionValidation.sessionId,
     chainId: request.chainId,
+    action: request.action,
+    actionType: requestedActionType,
     amountUsdc: amount.toString(),
     expiresAtUnix: BigInt(approvalExpiresAtUnix)
   });
@@ -24966,20 +25157,6 @@ var executeReportHttpHandler = async (runtime2, payload) => {
       reason: "amountUsdc must be greater than zero"
     });
   }
-  const firestoreToken = getFirestoreIdToken(runtime2);
-  const approvalConsumption = consumeApprovalRecord(runtime2, firestoreToken, {
-    approvalId: req.approvalId,
-    chainId: req.chainId,
-    amountUsdc: amount.toString(),
-    nowUnix: BigInt(Math.floor(runtime2.now().getTime() / 1000))
-  });
-  if (!approvalConsumption.ok) {
-    return JSON.stringify({
-      submitted: false,
-      requestId,
-      reason: approvalConsumption.reason || "invalid sponsorship approval"
-    });
-  }
   if (!req.actionType || !execPolicy.allowedActionTypes.includes(req.actionType)) {
     return JSON.stringify({
       submitted: false,
@@ -24992,6 +25169,21 @@ var executeReportHttpHandler = async (runtime2, payload) => {
       submitted: false,
       requestId,
       reason: "invalid payloadHex"
+    });
+  }
+  const firestoreToken = getFirestoreIdToken(runtime2);
+  const approvalConsumption = consumeApprovalRecord(runtime2, firestoreToken, {
+    approvalId: req.approvalId,
+    chainId: req.chainId,
+    actionType: req.actionType,
+    amountUsdc: amount.toString(),
+    nowUnix: BigInt(Math.floor(runtime2.now().getTime() / 1000))
+  });
+  if (!approvalConsumption.ok) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: approvalConsumption.reason || "invalid sponsorship approval"
     });
   }
   const evmConfig = runtime2.config.evms.find((evm) => toChainId(evm.chainName) === req.chainId);
@@ -25132,44 +25324,384 @@ var revokeSessionHttpHandler = async (runtime2, payload) => {
     requestId
   });
 };
+var HEX_ADDRESS_REGEX5 = /^0x[a-fA-F0-9]{40}$/;
+var USDC_INTEGER_REGEX = /^\d+$/;
+var ACTION_TYPE = "routerCreditFromFiat";
+var DEFAULT_MAX_AMOUNT_USDC2 = 10000n * 1000000n;
+var toBigIntAmount3 = (value2) => {
+  if (!value2 || !USDC_INTEGER_REGEX.test(value2)) {
+    throw new Error("amountUsdc must be a numeric string");
+  }
+  return BigInt(value2);
+};
+var toChainId2 = (chainName) => {
+  if (chainName.includes("arbitrum"))
+    return 421614;
+  if (chainName.includes("base"))
+    return 84532;
+  if (chainName === "ethereum-testnet-sepolia")
+    return 11155111;
+  return null;
+};
+var txExplorer3 = (chainName, txHash) => {
+  if (chainName.includes("arbitrum"))
+    return `https://sepolia.arbiscan.io/tx/${txHash}`;
+  if (chainName.includes("base"))
+    return `https://sepolia.basescan.org/tx/${txHash}`;
+  return `https://sepolia.etherscan.io/tx/${txHash}`;
+};
+var parseRequest4 = (payload) => {
+  const raw = new TextDecoder().decode(payload.input);
+  if (!raw.trim())
+    throw new Error("empty payload");
+  return JSON.parse(raw);
+};
+var fiatCreditHttpHandler = async (runtime2, payload) => {
+  const requestIdFallback = `fiat_${runtime2.now().toISOString()}`;
+  const policy = runtime2.config.fiatCreditPolicy;
+  if (!policy?.enabled) {
+    return JSON.stringify({
+      submitted: false,
+      requestId: requestIdFallback,
+      reason: "fiat credit policy disabled"
+    });
+  }
+  let req;
+  try {
+    req = parseRequest4(payload);
+  } catch (error) {
+    return JSON.stringify({
+      submitted: false,
+      requestId: requestIdFallback,
+      reason: error instanceof Error ? error.message : "invalid payload"
+    });
+  }
+  const requestId = req.requestId || requestIdFallback;
+  const paymentId = (req.paymentId || "").trim();
+  if (!paymentId || paymentId.length > 128) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "invalid paymentId"
+    });
+  }
+  if (typeof req.chainId !== "number" || !policy.supportedChainIds.includes(req.chainId)) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "chain is not supported for fiat credit"
+    });
+  }
+  const user = (req.user || "").trim();
+  if (!HEX_ADDRESS_REGEX5.test(user)) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "invalid user address"
+    });
+  }
+  const provider = (req.provider || "").trim().toLowerCase();
+  if (!provider || !policy.allowedProviders.includes(provider)) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "provider not allowed"
+    });
+  }
+  let amount;
+  try {
+    amount = toBigIntAmount3(req.amountUsdc);
+  } catch (error) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: error instanceof Error ? error.message : "invalid amountUsdc"
+    });
+  }
+  if (amount <= 0n) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "amountUsdc must be greater than zero"
+    });
+  }
+  const maxAmountUsdc = USDC_INTEGER_REGEX.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC2;
+  if (amount > maxAmountUsdc) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "amount exceeds fiat credit limit"
+    });
+  }
+  const evmConfig = runtime2.config.evms.find((evm) => toChainId2(evm.chainName) === req.chainId);
+  if (!evmConfig) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "chainId not mapped in config.evms"
+    });
+  }
+  const receiver = (evmConfig.routerReceiverAddress || "").trim();
+  if (!HEX_ADDRESS_REGEX5.test(receiver)) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: "invalid router receiver"
+    });
+  }
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: `unknown chain name: ${evmConfig.chainName}`
+    });
+  }
+  const firestoreToken = getFirestoreIdToken(runtime2);
+  const consumeResult = consumeFiatPaymentRecord(runtime2, firestoreToken, {
+    paymentId,
+    requestId,
+    chainId: req.chainId,
+    user,
+    amountUsdc: amount.toString(),
+    provider,
+    nowUnix: BigInt(Math.floor(runtime2.now().getTime() / 1000))
+  });
+  if (!consumeResult.ok) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: consumeResult.reason
+    });
+  }
+  const reportPayload = encodeAbiParameters(parseAbiParameters("address user, uint256 amount"), [user, amount]);
+  const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [ACTION_TYPE, reportPayload]);
+  const report2 = runtime2.report({
+    ...prepareReportRequest(encodedReport)
+  }).result();
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const writeReportResult = evmClient.writeReport(runtime2, {
+    receiver,
+    report: report2,
+    gasConfig: {
+      gasLimit: evmConfig.reportGasLimit
+    }
+  }).result();
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    return JSON.stringify({
+      submitted: false,
+      requestId,
+      reason: writeReportResult.errorMessage || "writeReport reverted",
+      chainName: evmConfig.chainName,
+      receiver
+    });
+  }
+  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+  const explorerUrl = txExplorer3(evmConfig.chainName, txHash);
+  runtime2.log(`[HTTP_FIAT_CREDIT] requestId=${requestId} paymentId=${paymentId} user=${user} amountUsdc=${amount.toString()} txHash=${txHash}`);
+  return JSON.stringify({
+    submitted: true,
+    requestId,
+    txHash,
+    chainName: evmConfig.chainName,
+    receiver,
+    explorerUrl
+  });
+};
+var HEX_ADDRESS_REGEX6 = /^0x[a-fA-F0-9]{40}$/;
+var DECIMAL_REGEX = /^\d+$/;
+var ETH_RECEIVED_EVENT_SIG = keccak256(encodePacked(["string"], ["EthReceived(address,uint256)"]));
+var ACTION_TYPE2 = "routerCreditFromEth";
+var DEFAULT_MAX_AMOUNT_USDC3 = 10000n * 1000000n;
+var toChainId3 = (chainName) => {
+  if (chainName.includes("arbitrum"))
+    return 421614;
+  if (chainName.includes("base"))
+    return 84532;
+  if (chainName === "ethereum-testnet-sepolia")
+    return 11155111;
+  return null;
+};
+var senderFromTopic = (topicHex) => {
+  if (!/^0x[a-fA-F0-9]{64}$/.test(topicHex)) {
+    throw new Error("invalid sender topic");
+  }
+  return `0x${topicHex.slice(26)}`;
+};
+var decodeAmountWei = (dataHex) => {
+  const [amountWei] = decodeAbiParameters(parseAbiParameters("uint256"), dataHex);
+  return amountWei;
+};
+var weiToUsdcE6 = (amountWei, ethToUsdcRateE6) => {
+  return amountWei * ethToUsdcRateE6 / 1000000000000000000n;
+};
+var resolveEvmConfigByRouter = (evms, routerAddress) => {
+  const normalized = routerAddress.toLowerCase();
+  for (const evm of evms) {
+    if ((evm.routerReceiverAddress || "").toLowerCase() === normalized) {
+      return evm;
+    }
+  }
+  return null;
+};
+var ethCreditFromLogsHandler = (runtime2, log) => {
+  const policy = runtime2.config.ethCreditPolicy;
+  if (!policy?.enabled) {
+    return "eth credit policy disabled";
+  }
+  if (log.removed) {
+    return "skipped removed log";
+  }
+  const eventSig = bytesToHex(log.eventSig);
+  if (eventSig.toLowerCase() !== ETH_RECEIVED_EVENT_SIG.toLowerCase()) {
+    return "skipped unrelated event";
+  }
+  const routerAddress = bytesToHex(log.address);
+  const evmConfig = resolveEvmConfigByRouter(runtime2.config.evms, routerAddress);
+  if (!evmConfig) {
+    return `router not mapped in config: ${routerAddress}`;
+  }
+  const chainId = toChainId3(evmConfig.chainName);
+  if (!chainId || !policy.supportedChainIds.includes(chainId)) {
+    return `chain not supported for eth credit: ${evmConfig.chainName}`;
+  }
+  const rateRaw = evmConfig.ethToUsdcRateE6 || "";
+  if (!DECIMAL_REGEX.test(rateRaw)) {
+    return `invalid ethToUsdcRateE6 for chain ${evmConfig.chainName}`;
+  }
+  const rateE6 = BigInt(rateRaw);
+  if (rateE6 <= 0n) {
+    return `ethToUsdcRateE6 must be > 0 for chain ${evmConfig.chainName}`;
+  }
+  if (log.topics.length < 2) {
+    return "missing sender topic";
+  }
+  const sender3 = senderFromTopic(bytesToHex(log.topics[1]));
+  if (!HEX_ADDRESS_REGEX6.test(sender3)) {
+    return "decoded sender is invalid";
+  }
+  const amountWei = decodeAmountWei(bytesToHex(log.data));
+  if (amountWei <= 0n) {
+    return "amountWei is zero";
+  }
+  const amountUsdcE6 = weiToUsdcE6(amountWei, rateE6);
+  if (amountUsdcE6 <= 0n) {
+    return "converted amountUsdcE6 is zero";
+  }
+  const maxAmountUsdc = DECIMAL_REGEX.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC3;
+  if (amountUsdcE6 > maxAmountUsdc) {
+    return `converted amount exceeds maxAmountUsdc: ${amountUsdcE6.toString()}`;
+  }
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`unknown chain name: ${evmConfig.chainName}`);
+  }
+  const txHashHex = bytesToHex(log.txHash);
+  const depositId = keccak256(encodePacked(["bytes32", "uint32"], [txHashHex, log.index]));
+  const reportPayload = encodeAbiParameters(parseAbiParameters("address user, uint256 amount, bytes32 depositId"), [
+    sender3,
+    amountUsdcE6,
+    depositId
+  ]);
+  const reportData = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+    ACTION_TYPE2,
+    reportPayload
+  ]);
+  const report2 = runtime2.report({
+    ...prepareReportRequest(reportData)
+  }).result();
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  evmClient.writeReport(runtime2, {
+    receiver: routerAddress,
+    report: report2,
+    gasConfig: {
+      gasLimit: evmConfig.reportGasLimit
+    }
+  }).result();
+  runtime2.log(`[ETH_CREDIT] sender=${sender3} amountWei=${amountWei.toString()} amountUsdcE6=${amountUsdcE6.toString()} txHash=${txHashHex} logIndex=${log.index}`);
+  return `processed eth deposit tx=${txHashHex}`;
+};
+var ETH_RECEIVED_EVENT_SIG2 = "0xe98f6e2bbf18d38ab3110207f18cc6cc79ca9fcd98fb75e8f5fdc7fc4f09d5e3";
+var toChainId4 = (chainName) => {
+  if (chainName.includes("arbitrum"))
+    return 421614;
+  if (chainName.includes("base"))
+    return 84532;
+  if (chainName === "ethereum-testnet-sepolia")
+    return 11155111;
+  return null;
+};
+var hexToBase642 = (hex) => Buffer.from(hex.replace(/^0x/, ""), "hex").toString("base64");
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   const http = new HTTPCapability;
   const httpAuthorizedKeys = config.httpTriggerAuthorizedKeys || [];
   const httpExecutionAuthorizedKeys = config.httpExecutionAuthorizedKeys || [];
+  const httpFiatCreditAuthorizedKeys = config.httpFiatCreditAuthorizedKeys || [];
   const hasHttpTriggerKeys = httpAuthorizedKeys.length > 0;
   const hasHttpExecutionTriggerKeys = httpExecutionAuthorizedKeys.length > 0;
+  const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
+  const ethCreditPolicy = config.ethCreditPolicy;
+  const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
     handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
   ];
-  if (hasHttpTriggerKeys) {
-    const httpWorkflows = [
-      handler(http.trigger({
-        authorizedKeys: httpAuthorizedKeys
-      }), sponsorUserOpPolicyHandler),
-      handler(http.trigger({
-        authorizedKeys: httpAuthorizedKeys
-      }), revokeSessionHttpHandler)
-    ];
-    if (hasHttpExecutionTriggerKeys) {
-      const httpExecutionWorkflows = [
-        handler(http.trigger({
-          authorizedKeys: httpExecutionAuthorizedKeys
-        }), executeReportHttpHandler)
-      ];
-      return [...cronWorkflows, ...httpWorkflows, ...httpExecutionWorkflows];
+  const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
+    handler(http.trigger({
+      authorizedKeys: httpAuthorizedKeys
+    }), sponsorUserOpPolicyHandler),
+    handler(http.trigger({
+      authorizedKeys: httpAuthorizedKeys
+    }), revokeSessionHttpHandler)
+  ] : [];
+  const executeHttpWorkflows = hasHttpExecutionTriggerKeys ? [
+    handler(http.trigger({
+      authorizedKeys: httpExecutionAuthorizedKeys
+    }), executeReportHttpHandler)
+  ] : [];
+  const fiatCreditHttpWorkflows = hasHttpFiatCreditKeys ? [
+    handler(http.trigger({
+      authorizedKeys: httpFiatCreditAuthorizedKeys
+    }), fiatCreditHttpHandler)
+  ] : [];
+  const ethCreditLogWorkflows = hasEthCredit ? config.evms.filter((evm) => {
+    const chainId = toChainId4(evm.chainName);
+    return chainId !== null && ethCreditPolicy?.supportedChainIds.includes(chainId) && Boolean(evm.routerReceiverAddress);
+  }).map((evm) => {
+    const network248 = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: evm.chainName,
+      isTestnet: true
+    });
+    if (!network248) {
+      throw new Error(`Unknown chain name for eth log trigger: ${evm.chainName}`);
     }
-    return [...cronWorkflows, ...httpWorkflows];
-  }
-  if (hasHttpExecutionTriggerKeys) {
-    const httpExecutionWorkflows = [
-      handler(http.trigger({
-        authorizedKeys: httpExecutionAuthorizedKeys
-      }), executeReportHttpHandler)
-    ];
-    return [...cronWorkflows, ...httpExecutionWorkflows];
-  }
-  return cronWorkflows;
+    const evmClient = new ClientCapability(network248.chainSelector.selector);
+    return handler(evmClient.logTrigger({
+      addresses: [hexToBase642(evm.routerReceiverAddress)],
+      topics: [
+        { values: [hexToBase642(ETH_RECEIVED_EVENT_SIG2)] },
+        { values: [] },
+        { values: [] },
+        { values: [] }
+      ]
+    }), ethCreditFromLogsHandler);
+  }) : [];
+  return [
+    ...cronWorkflows,
+    ...sponsorHttpWorkflows,
+    ...executeHttpWorkflows,
+    ...fiatCreditHttpWorkflows,
+    ...ethCreditLogWorkflows
+  ];
 };
 async function main() {
   const runner = await Runner.newRunner();
@@ -25183,7 +25715,9 @@ export {
   resoloveEvent,
   marketFactoryBalanceTopUp,
   main,
+  fiatCreditHttpHandler,
   executeReportHttpHandler,
+  ethCreditFromLogsHandler,
   createPredictionMarketEvent,
   createEventHelper,
   authWorkflow,

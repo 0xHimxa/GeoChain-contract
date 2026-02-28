@@ -146,7 +146,7 @@
             <input id="sessionPassword" type="password" value="" placeholder="at least 8 chars; never sent to server" />
           </label>
           <label>Session Allowed Actions (comma separated)
-            <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity" />
+            <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity,mintCompleteSets,redeemCompleteSets" />
           </label>
         </div>
         <div class="row actions">
@@ -905,6 +905,7 @@
             requestId,
             chainId,
             action,
+            actionType: reportActionType,
             amountUsdc,
             slippageBps,
             reportActionType,
