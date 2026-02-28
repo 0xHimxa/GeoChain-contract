@@ -1,14 +1,14 @@
 {
-    "requestId": "ui_1772243853708_2dbe9a92",
+    "requestId": "ui_1772276476018_4b9212a0",
     "chainId": 421614,
-    "action": "swapYesForNo",
+    "action": "redeemCompleteSets",
     "amountUsdc": "1000000",
     "sender": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
     "slippageBps": 150,
     "session": {
-        "sessionId": "sess_1772243421857_48bf364f5958b0ec",
+        "sessionId": "sess_1772276423006_c4dcfc901a5d611d",
         "owner": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
-        "sessionPublicKey": "0x04c95f5045da8969280be4cc154a94ca7882726280c15e624755b2e0e1ffff5fe459c469d9fc04903028a110a04d768f2b4b827c9e022b031ea4817bc4637944ac",
+        "sessionPublicKey": "0x041abb42dd3c218f8ec4b79498149aadb626ac1017a187027ed53ff460471344e751a7e40e95198aa15c0aefb8df15c787fe3ad2c7b8387f6fb7ec39b995731a02",
         "chainId": 421614,
         "allowedActions": [
             "addLiquidity",
@@ -18,11 +18,11 @@
             "swapNoForYes",
             "swapYesForNo"
         ],
-        "maxAmountUsdc": "100000000",
-        "expiresAtUnix": 1772247021,
-        "grantSignature": "0x729601902bb55abf3caf4bb90824328cadc5fa130c0a79487d335238cbcecea228bf8e5015fd36b9944fbe1e742867d715cebb51f2861f4dc3eaf9b6399acc921c",
-        "requestNonce": "nonce_157f647e0dcacc603ee7b816",
-        "requestSignature": "0xce8aa8a5ff75a36cd5d2a3a9e88dd89dfd7fe28791a5bd4f9b79fd32c81e712459b14559aadb522c1915479606b72a4fc83690dc2177889a835313c3254b4e791b"
+        "maxAmountUsdc": "1000000000",
+        "expiresAtUnix": 1772280023,
+        "grantSignature": "0xf14993eff09fe2298ad8ef6a47e716ff0e468a702681019c8ba3880578bad2ce7ddcbc3ecb2f99403be528c531088bf780d71d52d78d072fe5337bdb668a35b41b",
+        "requestNonce": "nonce_d2783b4df2d1a9168b88b307",
+        "requestSignature": "0xd933d7ec1eb291ba8820305a9522ba6a1b0cc6109f30d39e516753f04e16235f7da4958c4a249fa3ac0728386ea978729168790d3485fb0eb5d899df6833d0521c"
     },
-    "actionType": "routerSwapYesForNo"
+    "actionType": "routerRedeemCompleteSets"
 }

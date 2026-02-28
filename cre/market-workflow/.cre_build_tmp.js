@@ -25652,7 +25652,8 @@ var initWorkflow = (config) => {
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+    handler(cron.trigger({ schedule: config.schedule }), createEventHelper)
   ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({

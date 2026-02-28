@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ReceiverTemplate} from "../../script/interfaces/ReceiverTemplate.sol";
+import {MarketConstants} from "../libraries/MarketTypes.sol";
 
 interface IPredictionMarketLike {
     function i_collateral() external view returns (address);
@@ -37,6 +38,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     error Router__InvalidDepositId();
     error Router__EthDepositAlreadyProcessed();
     error Router__ActionNotRecognized();
+    error Router__RiskExposureExceeded();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
 
@@ -63,6 +65,8 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     mapping(address => uint256) public collateralCredits;
     mapping(address => mapping(address => uint256)) public tokenCredits; // user => token => amount
     mapping(address => mapping(address => uint256)) public lpShareCredits; // user => market => shares
+    mapping(address => uint256) public userRiskExposure;
+    mapping(address => bool) public isRiskExempt;
     mapping(bytes32 => bool) public processedEthDeposits;
 
 
@@ -79,6 +83,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     event CollateralCreditedFromFiat(address indexed user, uint256 amount);
     event EthReceived(address indexed sender, uint256 amountWei);
     event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
+    event RouterRiskExemptUpdated(address indexed account, bool exempt);
 
     receive() external payable {
         emit EthReceived(msg.sender, msg.value);
@@ -104,6 +109,12 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         if (market == address(0)) revert Router__ZeroAddress();
         allowedMarkets[market] = allowed;
         emit MarketAllowlistUpdated(market, allowed);
+    }
+
+    function setRiskExempt(address account, bool exempt) external onlyOwner {
+        if (account == address(0)) revert Router__ZeroAddress();
+        isRiskExempt[account] = exempt;
+        emit RouterRiskExemptUpdated(account, exempt);
     }
      
 
@@ -200,6 +211,11 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         _validateMarket(market);
         _ensureCollateralMatch(market);
 
+        uint256 exposure = userRiskExposure[user];
+        if (!isRiskExempt[user] && exposure + amount > MarketConstants.MAX_RISK_EXPOSURE) {
+            revert Router__RiskExposureExceeded();
+        }
+
         uint256 userCollateral = collateralCredits[user];
         if (userCollateral < amount) revert Router__InsufficientBalance();
         collateralCredits[user] = userCollateral - amount;
@@ -218,6 +234,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         uint256 yesDelta = yesAfter - yesBefore;
         uint256 noDelta = noAfter - noBefore;
 
+        userRiskExposure[user] = exposure + amount;
         tokenCredits[user][yes] += yesDelta;
         tokenCredits[user][no] += noDelta;
 
@@ -245,6 +262,8 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         uint256 collateralDelta = collateralAfter - collateralBefore;
         collateralCredits[user] += collateralDelta;
         totalCollateralCredits += collateralDelta;
+        uint256 exposure = userRiskExposure[user];
+        userRiskExposure[user] = exposure > amount ? exposure - amount : 0;
 
         emit CompleteSetsRedeemed(user, market, amount, collateralDelta);
     }
