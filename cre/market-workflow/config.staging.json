@@ -30,7 +30,8 @@
       "swapYesForNo",
       "swapNoForYes",
       "mintCompleteSets",
-      "redeemCompleteSets"
+      "redeemCompleteSets",
+      "redeem"
     ],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
@@ -54,6 +55,7 @@
       "routerWithdrawOutcomeFor",
       "routerMintCompleteSets",
       "routerRedeemCompleteSets",
+      "routerRedeem",
       "routerSwapYesForNo",
       "routerSwapNoForYes",
       "routerAddLiquidity",

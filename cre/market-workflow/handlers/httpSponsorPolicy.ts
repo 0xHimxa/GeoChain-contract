@@ -35,6 +35,7 @@ const DEFAULT_ALLOWED_ACTIONS = new Set([
   "swapNoForYes",
   "mintCompleteSets",
   "redeemCompleteSets",
+  "redeem",
 ]);
 const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -43,6 +44,7 @@ const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
   swapNoForYes: "routerSwapNoForYes",
   mintCompleteSets: "routerMintCompleteSets",
   redeemCompleteSets: "routerRedeemCompleteSets",
+  redeem: "routerRedeem",
 };
 
 /**

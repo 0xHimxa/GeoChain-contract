@@ -11,10 +11,12 @@ interface IPredictionMarketLike {
     function i_collateral() external view returns (address);
     function yesToken() external view returns (address);
     function noToken() external view returns (address);
+    function resolution() external view returns (uint8);
     function lpShares(address account) external view returns (uint256);
 
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;
+    function redeem(uint256 amount) external;
     function swapYesForNo(uint256 yesIn, uint256 minNoOut) external;
     function swapNoForYes(uint256 noIn, uint256 minYesOut) external;
     function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) external;
@@ -39,6 +41,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     error Router__EthDepositAlreadyProcessed();
     error Router__ActionNotRecognized();
     error Router__RiskExposureExceeded();
+    error Router__MarketNotResolved();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
 
@@ -53,6 +56,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     bytes32 private constant HASHED_REMOVE_LIQ = keccak256(abi.encode("routerRemoveLiquidity"));
     bytes32 private constant HASHED_CREDIT_FROM_FIAT = keccak256(abi.encode("routerCreditFromFiat"));
     bytes32 private constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
+    bytes32 private constant HASHED_REDEEM_WINNINGS = keccak256(abi.encode("routerRedeem"));
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
@@ -76,6 +80,7 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
     event OutcomeWithdrawn(address indexed user, address indexed token, uint256 amount);
     event CompleteSetsMinted(address indexed user, address indexed market, uint256 collateralIn, uint256 yesOut, uint256 noOut);
     event CompleteSetsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
+    event WinningsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
     event SwappedYesForNo(address indexed user, address indexed market, uint256 yesIn, uint256 noOut);
     event SwappedNoForYes(address indexed user, address indexed market, uint256 noIn, uint256 yesOut);
     event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
@@ -136,6 +141,10 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
 
     function redeemCompleteSets(address market, uint256 amount) external nonReentrant {
         _redeemCompleteSets(msg.sender, market, amount);
+    }
+
+    function redeem(address market, uint256 amount) external nonReentrant {
+        _redeem(msg.sender, market, amount);
     }
 
     function swapYesForNo(address market, uint256 yesIn, uint256 minNoOut) external nonReentrant {
@@ -266,6 +275,40 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         userRiskExposure[user] = exposure > amount ? exposure - amount : 0;
 
         emit CompleteSetsRedeemed(user, market, amount, collateralDelta);
+    }
+
+    function _redeem(address user, address market, uint256 amount) internal {
+        _validateMarket(market);
+        _ensureCollateralMatch(market);
+
+        uint8 marketResolution = IPredictionMarketLike(market).resolution();
+        address winningToken;
+
+        if (marketResolution == 1) {
+            winningToken = IPredictionMarketLike(market).yesToken();
+        } else if (marketResolution == 2) {
+            winningToken = IPredictionMarketLike(market).noToken();
+        } else {
+            revert Router__MarketNotResolved();
+        }
+
+        uint256 winningBal = tokenCredits[user][winningToken];
+        if (winningBal < amount) revert Router__InsufficientBalance();
+        tokenCredits[user][winningToken] = winningBal - amount;
+
+        uint256 collateralBefore = collateralToken.balanceOf(address(this));
+        _ensureAllowance(IERC20(winningToken), market, amount);
+        IPredictionMarketLike(market).redeem(amount);
+        uint256 collateralAfter = collateralToken.balanceOf(address(this));
+
+        if (collateralAfter < collateralBefore) revert Router__InvalidDelta();
+        uint256 collateralDelta = collateralAfter - collateralBefore;
+        collateralCredits[user] += collateralDelta;
+        totalCollateralCredits += collateralDelta;
+        uint256 exposure = userRiskExposure[user];
+        userRiskExposure[user] = exposure > amount ? exposure - amount : 0;
+
+        emit WinningsRedeemed(user, market, amount, collateralDelta);
     }
 
     function _swapYesForNo(address user, address market, uint256 yesIn, uint256 minNoOut) internal {
@@ -404,6 +447,9 @@ contract PredictionMarketRouterVault is ReceiverTemplate, ReentrancyGuard {
         } else if (actionTypeHash == HASHED_CREDIT_FROM_ETH) {
             (address user, uint256 amount, bytes32 depositId) = abi.decode(payload, (address, uint256, bytes32));
             _creditCollateralFromEth(user, amount, depositId);
+        } else if (actionTypeHash == HASHED_REDEEM_WINNINGS) {
+            (address user, address market, uint256 amount) = abi.decode(payload, (address, address, uint256));
+            _redeem(user, market, amount);
         } else {
             revert Router__ActionNotRecognized();
         }

@@ -6,7 +6,7 @@ import {PredictionMarketRouterVault} from "../../src/router/PredictionMarketRout
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
-import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {MarketConstants, Resolution} from "../../src/libraries/MarketTypes.sol";
 
 interface IMockMarket {
     function i_collateral() external view returns (address);
@@ -15,6 +15,8 @@ interface IMockMarket {
     function lpShares(address account) external view returns (uint256);
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;
+    function redeem(uint256 amount) external;
+    function resolution() external view returns (uint8);
     function swapYesForNo(uint256 yesIn, uint256 minNoOut) external;
     function swapNoForYes(uint256 noIn, uint256 minYesOut) external;
     function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) external;
@@ -370,6 +372,61 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
         router.redeemCompleteSets(address(market), 50e6);
+    }
+
+    function testRedeemWinningsSuccess() external {
+        uint256 depositAmount = 100e6;
+        uint256 mintAmount = 50e6;
+        uint256 redeemAmount = 20e6;
+
+        vm.prank(alice);
+        router.depositCollateral(depositAmount);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), mintAmount);
+
+        vm.warp(block.timestamp + 3 days);
+        market.resolve(Resolution.Yes, "ipfs://proof");
+
+        (address yesToken, address noToken) = _getMockMarketTokens(address(market));
+        uint256 collateralBefore = router.collateralCredits(alice);
+        uint256 winningBefore = router.tokenCredits(alice, yesToken);
+        uint256 losingBefore = router.tokenCredits(alice, noToken);
+
+        vm.prank(alice);
+        router.redeem(address(market), redeemAmount);
+
+        uint256 expectedRedeemOut = redeemAmount - ((redeemAmount * 200) / 10000);
+        assertEq(router.collateralCredits(alice), collateralBefore + expectedRedeemOut);
+        assertEq(router.tokenCredits(alice, yesToken), winningBefore - redeemAmount);
+        assertEq(router.tokenCredits(alice, noToken), losingBefore);
+    }
+
+    function testRedeemWinningsRevertNotResolved() external {
+        vm.prank(alice);
+        router.depositCollateral(100e6);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), 30e6);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotResolved()"));
+        router.redeem(address(market), 10e6);
+    }
+
+    function testRedeemWinningsRevertInsufficientWinningTokenBalance() external {
+        vm.prank(alice);
+        router.depositCollateral(100e6);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), 30e6);
+
+        vm.warp(block.timestamp + 3 days);
+        market.resolve(Resolution.Yes, "ipfs://proof");
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
+        router.redeem(address(market), 40e6);
     }
 
     function testSwapYesForNoSuccess() external {

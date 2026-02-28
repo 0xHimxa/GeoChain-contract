@@ -146,7 +146,7 @@
             <input id="sessionPassword" type="password" value="" placeholder="at least 8 chars; never sent to server" />
           </label>
           <label>Session Allowed Actions (comma separated)
-            <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity,mintCompleteSets,redeemCompleteSets" />
+            <input id="sessionAllowedActions" value="swapYesForNo,swapNoForYes,addLiquidity,removeLiquidity,mintCompleteSets,redeemCompleteSets,redeem" />
           </label>
         </div>
         <div class="row actions">
@@ -259,6 +259,7 @@
         swapNoForYes: "routerSwapNoForYes",
         mintCompleteSets: "routerMintCompleteSets",
         redeemCompleteSets: "routerRedeemCompleteSets",
+        redeem: "routerRedeem",
       };
       let connectedAccount = "";
 
@@ -564,6 +565,9 @@
           return abi.encode(["address", "address", "uint256"], [user, targetMarketAddress, amountUsdc]);
         }
         if (actionType === "routerRedeemCompleteSets") {
+          return abi.encode(["address", "address", "uint256"], [user, targetMarketAddress, amountUsdc]);
+        }
+        if (actionType === "routerRedeem") {
           return abi.encode(["address", "address", "uint256"], [user, targetMarketAddress, amountUsdc]);
         }
         if (actionType === "routerSwapYesForNo") {

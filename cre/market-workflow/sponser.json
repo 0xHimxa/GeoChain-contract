@@ -1,7 +1,7 @@
 {
     "requestId": "ui_1772276476018_4b9212a0",
     "chainId": 421614,
-    "action": "redeemCompleteSets",
+    "action": "redeem",
     "amountUsdc": "1000000",
     "sender": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec",
     "slippageBps": 150,
@@ -13,7 +13,7 @@
         "allowedActions": [
             "addLiquidity",
             "mintCompleteSets",
-            "redeemCompleteSets",
+            "redeem",
             "removeLiquidity",
             "swapNoForYes",
             "swapYesForNo"
@@ -24,5 +24,5 @@
         "requestNonce": "nonce_d2783b4df2d1a9168b88b307",
         "requestSignature": "0xd933d7ec1eb291ba8820305a9522ba6a1b0cc6109f30d39e516753f04e16235f7da4958c4a249fa3ac0728386ea978729168790d3485fb0eb5d899df6833d0521c"
     },
-    "actionType": "routerRedeemCompleteSets"
+    "actionType": "routerRedeem"
 }
