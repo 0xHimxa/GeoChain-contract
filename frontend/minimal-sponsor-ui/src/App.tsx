@@ -54,6 +54,7 @@ const encodeJsonHex = (payload: unknown): string => {
 };
 
 const effectiveMarketState = (event: MarketEvent, nowUnix: number): MarketEvent["state"] => {
+  if (event.state === "resolved") return "resolved";
   if (event.resolutionOutcome) return "resolved";
   if (nowUnix >= event.closeTimeUnix) return "closed";
   return event.state;
@@ -150,24 +151,25 @@ export function App() {
 
     let marketAddresses: string[] = [];
     try {
-      marketAddresses = ((await factory.getActiveEventList()) as string[]).map((value) => value.toLowerCase());
+      const marketCount = Number(await factory.marketCount());
+      const ids = Array.from({ length: marketCount }, (_, index) => index + 1);
+      const byId = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return String(await factory.marketById(id)).toLowerCase();
+          } catch {
+            return "";
+          }
+        })
+      );
+      marketAddresses = byId.filter(
+        (address): address is string =>
+          Boolean(address) && address !== "0x0000000000000000000000000000000000000000"
+      );
     } catch {
       try {
-        const marketCount = Number(await factory.marketCount());
-        const ids = Array.from({ length: marketCount }, (_, index) => index + 1);
-        const byId = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              return String(await factory.marketById(id)).toLowerCase();
-            } catch {
-              return "";
-            }
-          })
-        );
-        marketAddresses = byId.filter(
-          (address): address is string =>
-            Boolean(address) && address !== "0x0000000000000000000000000000000000000000"
-        );
+        // Fallback for older deployments where marketById/marketCount is unstable.
+        marketAddresses = ((await factory.getActiveEventList()) as string[]).map((value) => value.toLowerCase());
       } catch {
         const latest = await provider.getBlockNumber();
         const logs = await provider.getLogs({

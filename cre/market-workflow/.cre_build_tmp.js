@@ -23701,74 +23701,27 @@ var resoloveEvent = (runtime2) => {
   if (activeEventList.length === 0) {
     return "No Active Events";
   }
-  activeEventList.forEach((eventAddress) => {
-    const marketIdCallData = encodeFunctionData({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      args: [eventAddress]
-    });
-    const marketIdResult = evmClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: sepoConfig.marketFactoryAddress,
-        data: marketIdCallData
-      })
-    }).result();
-    const marketId = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      data: bytesToHex(marketIdResult.data)
-    });
-    if (marketId === 0n) {
-      runtime2.log(`Skipping ${eventAddress}: marketIdByAddress returned 0`);
-      return;
+  for (const eventAddress of activeEventList) {
+    let readyForResolve = false;
+    try {
+      const predictionStatusResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: eventAddress,
+          data: predictionCallData
+        })
+      }).result();
+      readyForResolve = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "checkResolutionTime",
+        data: bytesToHex(predictionStatusResult.data)
+      });
+    } catch (error) {
+      runtime2.log(`Skipping ${eventAddress}: checkResolutionTime failed (${error instanceof Error ? error.message : String(error)})`);
+      continue;
     }
-    const predictionStatusResult = evmClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: eventAddress,
-        data: predictionCallData
-      })
-    }).result();
-    const readyForResolve = decodeFunctionResult({
-      abi: PredictionMarketAbi,
-      functionName: "checkResolutionTime",
-      data: bytesToHex(predictionStatusResult.data)
-    });
     if (readyForResolve) {
-      const questionCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "s_question"
-      });
-      const questionResult = evmClient.callContract(runtime2, {
-        call: encodeCallMsg({
-          from: sender,
-          to: eventAddress,
-          data: questionCallData
-        })
-      }).result();
-      const marketQuestion = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "s_question",
-        data: bytesToHex(questionResult.data)
-      });
-      const rtCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime"
-      });
-      const rtResult = evmClient.callContract(runtime2, {
-        call: encodeCallMsg({
-          from: sender,
-          to: eventAddress,
-          data: rtCallData
-        })
-      }).result();
-      const resTime = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime",
-        data: bytesToHex(rtResult.data)
-      });
-      runtime2.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
+      runtime2.log(`Resolving eligible market: ${eventAddress}`);
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
         1,
         "https:working"
@@ -23797,7 +23750,7 @@ var resoloveEvent = (runtime2) => {
       runtime2.log(`View transaction at https://sepolia.arbiscan.io/tx/${txHash}`);
     }
     runtime2.log(`ready to be resolve ${readyForResolve}`);
-  });
+  }
   const queueSummary = processPendingWithdrawalsHandler(runtime2);
   return `active=${activeEventList.length}; ${queueSummary}`;
 };

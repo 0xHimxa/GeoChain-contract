@@ -79,90 +79,31 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
     return "No Active Events";
   }
 
-  activeEventList.forEach((eventAddress) => {
-    const marketIdCallData = encodeFunctionData({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      args: [eventAddress],
-    });
+  for (const eventAddress of activeEventList) {
+    let readyForResolve = false;
+    try {
+      const predictionStatusResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: sender,
+            to: eventAddress,
+            data: predictionCallData,
+          }),
+        })
+        .result();
 
-    const marketIdResult = evmClient
-      .callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: sepoConfig.marketFactoryAddress as `0x${string}`,
-          data: marketIdCallData,
-        }),
-      })
-      .result();
-
-    const marketId = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "marketIdByAddress",
-      data: bytesToHex(marketIdResult.data),
-    }) as bigint;
-
-    if (marketId === 0n) {
-      runtime.log(`Skipping ${eventAddress}: marketIdByAddress returned 0`);
-      return;
+      readyForResolve = decodeFunctionResult({
+        abi: PredictionMarketAbi,
+        functionName: "checkResolutionTime",
+        data: bytesToHex(predictionStatusResult.data),
+      }) as boolean;
+    } catch (error) {
+      runtime.log(`Skipping ${eventAddress}: checkResolutionTime failed (${error instanceof Error ? error.message : String(error)})`);
+      continue;
     }
 
-    const predictionStatusResult = evmClient
-      .callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: eventAddress,
-          data: predictionCallData,
-        }),
-      })
-      .result();
-
-    const readyForResolve = decodeFunctionResult({
-      abi: PredictionMarketAbi,
-      functionName: "checkResolutionTime",
-      data: bytesToHex(predictionStatusResult.data),
-    }) as boolean;
-
     if (readyForResolve) {
-      const questionCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "s_question",
-      });
-      const questionResult = evmClient
-        .callContract(runtime, {
-          call: encodeCallMsg({
-            from: sender,
-            to: eventAddress,
-            data: questionCallData,
-          }),
-        })
-        .result();
-      const marketQuestion = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "s_question",
-        data: bytesToHex(questionResult.data),
-      });
-
-      const rtCallData = encodeFunctionData({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime",
-      });
-      const rtResult = evmClient
-        .callContract(runtime, {
-          call: encodeCallMsg({
-            from: sender,
-            to: eventAddress,
-            data: rtCallData,
-          }),
-        })
-        .result();
-      const resTime = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "resolutionTime",
-        data: bytesToHex(rtResult.data),
-      });
-
-      runtime.log(`Market question: ${marketQuestion}, resolutionTime: ${resTime}`);
+      runtime.log(`Resolving eligible market: ${eventAddress}`);
 
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
         1,
@@ -202,7 +143,7 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
     }
 
     runtime.log(`ready to be resolve ${readyForResolve}`);
-  });
+  }
 
   const queueSummary = processPendingWithdrawalsHandler(runtime);
   return `active=${activeEventList.length}; ${queueSummary}`;
