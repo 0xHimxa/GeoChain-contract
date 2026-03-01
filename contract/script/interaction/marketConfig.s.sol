@@ -27,11 +27,11 @@ vm.stopBroadcast();
 
 contract SetRemoteChainSelector is Script {
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-address  marketFactory = 0xa11dE127E008aC5489D28C4130792981DB047654;
-address bridge = 0x1Ee45f7A1bF406AC5cE3A1577090230E5E41f32E;
+address  marketFactory = 0x54DDeC2F7420b3AF1BB53157f3c533F9Ad598651;
+address bridge = 0xf898E8b44513F261a13EfF8387eC7b58baB4846e;
 
-address arbMarketFactory =  0x50045D38580b7f0c326E371c45f9ca22a0768fa7;
-address arbBridge = 0x87441a6257b1d29d746a37cab028C94f33425e66;
+address arbMarketFactory = 0x145A8D0eD56fd02A8b29b2E81C09F5d66e1918Ec;
+address arbBridge = 0x0043866570462b0495eC23d780D873aF1afA1711;
 
 uint64 chainSelector = 10344971235874465080;
 uint64 arbChainSelector = 3478487238524512106;
@@ -41,8 +41,8 @@ function run() external{
 
 vm.startBroadcast(owner);
 
-MarketFactory(marketFactory).setTrustedRemote(arbChainSelector,arbMarketFactory);
-PredictionMarketBridge(bridge).setTrustedRemote(arbChainSelector,arbBridge);
+MarketFactory(arbMarketFactory).setTrustedRemote(chainSelector,marketFactory);
+PredictionMarketBridge(arbBridge).setTrustedRemote(chainSelector,bridge);
 vm.stopBroadcast();
 
 }

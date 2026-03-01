@@ -14,18 +14,18 @@ export const CHAIN_CONFIG: Record<SupportedChainId, { name: string; rpcUrl: stri
     name: "Base Sepolia",
     rpcUrl: "https://sepolia.base.org",
     addresses: {
-      router: "0x075B30906d48f922A643bBa218724a84931DC1BA",
-      marketFactory: "0xa11dE127E008aC5489D28C4130792981DB047654",
-      collateral: "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
+      router: "0x1381A3b6d81BA62bb256607Cc2BfBBd5271DD525",
+      marketFactory: "0x54DDeC2F7420b3AF1BB53157f3c533F9Ad598651",
+      collateral: "0x15a6D5380397644076f13D76B648A45B29e754bc",
     },
   },
   421614: {
     name: "Arbitrum Sepolia",
     rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
     addresses: {
-      router: "0xAD51b51Ea9347CBaB070311f07d2C7659d8D8c78",
-      marketFactory: "0x50045D38580b7f0c326E371c45f9ca22a0768fa7",
-      collateral: "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
+      router: "0x3E6206fa635C74288C807ee3ba90C603a82B94A8",
+      marketFactory: "0x145A8D0eD56fd02A8b29b2E81C09F5d66e1918Ec",
+      collateral: "0x28dF0b4CD6d0627134b708CCAfcF230bC272a663",
     },
   },
 };

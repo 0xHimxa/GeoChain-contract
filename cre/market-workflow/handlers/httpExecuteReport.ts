@@ -14,10 +14,19 @@ import { consumeApprovalRecord, getFirestoreIdToken } from "../firebase/sessionS
 type ExecuteRequest = {
   requestId?: string;
   approvalId?: string;
+  approvalID?: string;
+  approval_id?: string;
   chainId?: number;
   amountUsdc?: string;
   actionType?: string;
+  action_type?: string;
   payloadHex?: `0x${string}`;
+  payload_hex?: `0x${string}`;
+  creDecision?: {
+    approvalId?: string;
+    approvalID?: string;
+    approval_id?: string;
+  };
 };
 
 type ExecuteResponse = {
@@ -61,6 +70,30 @@ const parseRequest = (payload: HTTPPayload): ExecuteRequest => {
   return JSON.parse(raw) as ExecuteRequest;
 };
 
+const normalizeExecuteRequest = (req: ExecuteRequest): ExecuteRequest => {
+  const nested = req.creDecision || {};
+  const approvalId = String(
+    req.approvalId ||
+      req.approvalID ||
+      req.approval_id ||
+      nested.approvalId ||
+      nested.approvalID ||
+      nested.approval_id ||
+      ""
+  ).trim();
+  const actionType = String(req.actionType || req.action_type || "").trim();
+  const payloadHex = String(req.payloadHex || req.payload_hex || "").trim() as `0x${string}`;
+  const requestId = String(req.requestId || "").trim();
+
+  return {
+    ...req,
+    requestId,
+    approvalId,
+    actionType,
+    payloadHex,
+  };
+};
+
 export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `req_${runtime.now().toISOString()}`;
   const execPolicy = runtime.config.executePolicy;
@@ -75,7 +108,7 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
 
   let req: ExecuteRequest;
   try {
-    req = parseRequest(payload);
+    req = normalizeExecuteRequest(parseRequest(payload));
   } catch (error) {
     return JSON.stringify({
       submitted: false,
@@ -161,7 +194,7 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
   }
 
   const isRouterAction = req.actionType.startsWith(ROUTER_ACTION_PREFIX);
-  const configuredRouterReceiver = evmConfig.routerReceiverAddress || "";
+  const configuredRouterReceiver = (evmConfig.routerReceiverAddress || "").trim();
   const receiver = (
     (isRouterAction && HEX_ADDRESS_REGEX.test(configuredRouterReceiver)
       ? configuredRouterReceiver

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrowserProvider, Contract, Wallet, formatUnits, parseUnits, type Eip1193Provider } from "ethers";
+import { AbiCoder, BrowserProvider, Contract, Wallet, formatUnits, keccak256, parseUnits, toUtf8Bytes, type Eip1193Provider } from "ethers";
 import { signInWithGoogleAndSession, submitAction, submitExternalDepositFunding, submitFiatPayment } from "./api";
 import {
   CHAIN_CONFIG,
@@ -24,6 +24,9 @@ const ACTION_TYPE_MAP: Record<(typeof ACTIONS)[number], string> = {
   redeem: "routerRedeem",
 };
 
+const SESSION_DOMAIN_NAME = "CRE Session Authorization";
+const SESSION_DOMAIN_VERSION = "1";
+
 const CHAIN_HEX: Record<SupportedChainId, string> = {
   84532: "0x14a34",
   421614: "0x66eee",
@@ -45,12 +48,21 @@ const marketStateTone: Record<MarketEvent["state"], string> = {
   resolved: "text-rose-400",
 };
 
-const encodeJsonHex = (payload: unknown): string => {
-  const asBytes = new TextEncoder().encode(JSON.stringify(payload));
-  const hex = Array.from(asBytes)
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-  return `0x${hex}`;
+const encodeRouterPayloadHex = (
+  action: (typeof ACTIONS)[number],
+  user: string,
+  market: string,
+  amountUsdcRaw: bigint
+): string => {
+  const coder = AbiCoder.defaultAbiCoder();
+  if (action === "mintCompleteSets" || action === "redeemCompleteSets" || action === "redeem") {
+    return coder.encode(["address", "address", "uint256"], [user, market, amountUsdcRaw]);
+  }
+  if (action === "swapYesForNo" || action === "swapNoForYes") {
+    // Keep min out as 0 for now; slippage controls are currently enforced in sponsor policy layer.
+    return coder.encode(["address", "address", "uint256", "uint256"], [user, market, amountUsdcRaw, 0n]);
+  }
+  throw new Error(`unsupported action for router payload: ${action}`);
 };
 
 const effectiveMarketState = (event: MarketEvent, nowUnix: number): MarketEvent["state"] => {
@@ -96,6 +108,14 @@ export function App() {
     const timer = setInterval(() => setNowUnix(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    // Prevent stale market cards from previous chain/address config while reloading.
+    setEvents([]);
+    setSelectedEventId("");
+    lastSeenBlockRef.current = 0n;
+    seenMarketSetRef.current = new Set();
+  }, [selectedChain]);
 
   const walletAddress = sessionIdentity?.address || "";
 
@@ -465,69 +485,93 @@ export function App() {
     try {
       const amount = parseUnits(amountUsdc || "0", 6);
       const actionType = ACTION_TYPE_MAP[activeAction];
-      const operation = {
-        marketAddress: selectedEvent.marketAddress,
-        marketId: selectedEvent.marketId,
-        chainId: selectedChain,
-        action: activeAction,
-        amountUsdc: amount.toString(),
-        atUnix: nowUnix,
-      };
+      const requestId = `ui_${Date.now()}`;
+      const reportPayloadHex = encodeRouterPayloadHex(
+        activeAction,
+        sessionIdentity.address,
+        selectedEvent.marketAddress,
+        amount
+      );
 
       const signer = new Wallet(sessionIdentity.privateKey);
-      const nonce = `${nowUnix}_${Math.random().toString(16).slice(2, 10)}`;
-      const deadline = nowUnix + 360;
+      const sessionId = `session_${sessionIdentity.address.slice(2, 10)}_${Date.now()}`;
+      const requestNonce = `nonce_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const expiresAtUnix = nowUnix + 3600;
+      const maxAmountUsdc = "10000000000";
+      const allowedActions = [...ACTIONS];
+      const sortedActions = [...allowedActions].sort();
+      const allowedActionsHash = keccak256(toUtf8Bytes(sortedActions.join(",")));
+
       const typedDomain = {
-        name: "CRE Session Authorization",
-        version: "1",
+        name: SESSION_DOMAIN_NAME,
+        version: SESSION_DOMAIN_VERSION,
         chainId: selectedChain,
-        verifyingContract: CHAIN_CONFIG[selectedChain].addresses.router,
       };
-      const typedTypes = {
-        SessionRequest: [
+      const sessionGrantTypes = {
+        SessionGrant: [
           { name: "sessionId", type: "string" },
           { name: "owner", type: "address" },
-          { name: "action", type: "string" },
-          { name: "actionType", type: "string" },
-          { name: "market", type: "address" },
-          { name: "amountUsdc", type: "uint256" },
-          { name: "slippageBps", type: "uint256" },
-          { name: "nonce", type: "string" },
-          { name: "deadline", type: "uint256" },
+          { name: "sessionPublicKey", type: "bytes" },
+          { name: "chainId", type: "uint256" },
+          { name: "allowedActionsHash", type: "bytes32" },
+          { name: "maxAmountUsdc", type: "uint256" },
+          { name: "expiresAtUnix", type: "uint256" },
         ],
       };
-      const typedValue = {
-        sessionId: `sess_${sessionIdentity.address.slice(2, 10)}`,
+      const sessionGrantValue = {
+        sessionId,
         owner: sessionIdentity.address,
+        sessionPublicKey: sessionIdentity.publicKey,
+        chainId: selectedChain,
+        allowedActionsHash,
+        maxAmountUsdc,
+        expiresAtUnix,
+      };
+      const grantSignature = await signer.signTypedData(typedDomain, sessionGrantTypes, sessionGrantValue);
+
+      const sponsorIntentTypes = {
+        SponsorIntent: [
+          { name: "requestId", type: "string" },
+          { name: "sessionId", type: "string" },
+          { name: "requestNonce", type: "string" },
+          { name: "chainId", type: "uint256" },
+          { name: "action", type: "string" },
+          { name: "amountUsdc", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+          { name: "sender", type: "address" },
+        ],
+      };
+      const sponsorIntentValue = {
+        requestId,
+        sessionId,
+        requestNonce,
+        chainId: selectedChain,
         action: activeAction,
-        actionType,
-        market: selectedEvent.marketAddress,
         amountUsdc: amount.toString(),
         slippageBps: 120,
-        nonce,
-        deadline,
+        sender: sessionIdentity.address,
       };
-      const requestSignature = await signer.signTypedData(typedDomain, typedTypes, typedValue);
+      const requestSignature = await signer.signTypedData(typedDomain, sponsorIntentTypes, sponsorIntentValue);
 
       const res = await submitAction({
+        requestId,
         chainId: selectedChain,
         action: activeAction,
         actionType,
         amountUsdc: amount.toString(),
         sender: sessionIdentity.address,
         slippageBps: 120,
-        reportPayloadHex: encodeJsonHex(operation),
+        reportPayloadHex,
         session: {
-          sessionId: typedValue.sessionId,
+          sessionId,
           owner: sessionIdentity.address,
           sessionPublicKey: sessionIdentity.publicKey,
-          requestNonce: nonce,
-          deadline,
-          typedData: {
-            domain: typedDomain,
-            types: typedTypes,
-            value: typedValue,
-          },
+          chainId: selectedChain,
+          allowedActions,
+          maxAmountUsdc,
+          expiresAtUnix,
+          grantSignature,
+          requestNonce,
           requestSignature,
         },
       });

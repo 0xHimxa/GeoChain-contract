@@ -364,6 +364,7 @@ abstract contract MarketFactoryBase is
         }
         if (predictionMarketRouter != address(0)) {
             IPredictionMarketRouterMapper(predictionMarketRouter).setMarketAllowed(address(m), true);
+            m.setRiskExempt(predictionMarketRouter, true);
         }
 
 

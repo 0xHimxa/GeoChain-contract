@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize } from "node:path";
+import { AbiCoder } from "ethers";
 
 type WalletIdentity = {
   address: string;
@@ -99,12 +100,12 @@ type CreFiatCreditPayload = {
 
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
-    executeReceiverAddress: "0xAD51b51Ea9347CBaB070311f07d2C7659d8D8c78",
-    collateralTokenAddress: "0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB",
+    executeReceiverAddress: "0x3E6206fa635C74288C807ee3ba90C603a82B94A8",
+    collateralTokenAddress: "0x28dF0b4CD6d0627134b708CCAfcF230bC272a663",
   },
   84532: {
-    executeReceiverAddress: "0x075B30906d48f922A643bBa218724a84931DC1BA",
-    collateralTokenAddress: "0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8",
+    executeReceiverAddress: "0x1381A3b6d81BA62bb256607Cc2BfBBd5271DD525",
+    collateralTokenAddress: "0x15a6D5380397644076f13D76B648A45B29e754bc",
   },
 };
 
@@ -238,6 +239,47 @@ const writeCreSponsorRequestJson = (payload: Record<string, unknown>): void => {
 const writeCreExecuteRequestJson = (payload: Record<string, unknown>): void => {
   const jsonText = JSON.stringify(payload, null, 2);
   writeFileSync(CRE_EXECUTE_JSON_PATH, jsonText);
+};
+
+const decodeHexJson = (hex: string): Record<string, unknown> | null => {
+  try {
+    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+    if (!clean || clean.length % 2 !== 0) return null;
+    const raw = Buffer.from(clean, "hex").toString("utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeExecutePayloadHex = (
+  actionType: string,
+  payloadHex: string,
+  sender: string,
+  amountUsdc: string
+): string => {
+  const raw = String(payloadHex || "").trim();
+  if (!raw.startsWith("0x")) return raw;
+  if (!actionType.startsWith("router")) return raw;
+
+  const maybeJson = decodeHexJson(raw);
+  if (!maybeJson) return raw;
+
+  const marketAddress = String(maybeJson.marketAddress || "").trim();
+  if (!HEX_ADDRESS_REGEX.test(sender) || !HEX_ADDRESS_REGEX.test(marketAddress) || !/^\d+$/.test(amountUsdc)) {
+    return raw;
+  }
+
+  const amount = BigInt(amountUsdc);
+  const coder = AbiCoder.defaultAbiCoder();
+  if (actionType === "routerMintCompleteSets" || actionType === "routerRedeemCompleteSets" || actionType === "routerRedeem") {
+    return coder.encode(["address", "address", "uint256"], [sender, marketAddress, amount]);
+  }
+  if (actionType === "routerSwapYesForNo" || actionType === "routerSwapNoForYes") {
+    return coder.encode(["address", "address", "uint256", "uint256"], [sender, marketAddress, amount, 0n]);
+  }
+  return raw;
 };
 
 const createWallet = async (): Promise<WalletIdentity> => {
@@ -707,7 +749,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     chainId: body.chainId,
     amountUsdc: body.amountUsdc,
     actionType,
-    payloadHex: body.reportPayloadHex,
+    payloadHex: normalizeExecutePayloadHex(actionType, body.reportPayloadHex, body.sender, body.amountUsdc),
   };
   writeCreExecuteRequestJson(executePayload);
   console.log("[MOCK_CRE_EXECUTE] payload=", JSON.stringify(executePayload));

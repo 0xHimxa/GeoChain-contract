@@ -25060,6 +25060,20 @@ var parseRequest2 = (payload) => {
     throw new Error("empty payload");
   return JSON.parse(raw);
 };
+var normalizeExecuteRequest = (req) => {
+  const nested = req.creDecision || {};
+  const approvalId = String(req.approvalId || req.approvalID || req.approval_id || nested.approvalId || nested.approvalID || nested.approval_id || "").trim();
+  const actionType = String(req.actionType || req.action_type || "").trim();
+  const payloadHex = String(req.payloadHex || req.payload_hex || "").trim();
+  const requestId = String(req.requestId || "").trim();
+  return {
+    ...req,
+    requestId,
+    approvalId,
+    actionType,
+    payloadHex
+  };
+};
 var executeReportHttpHandler = async (runtime2, payload) => {
   const requestIdFallback = `req_${runtime2.now().toISOString()}`;
   const execPolicy = runtime2.config.executePolicy;
@@ -25072,7 +25086,7 @@ var executeReportHttpHandler = async (runtime2, payload) => {
   }
   let req;
   try {
-    req = parseRequest2(payload);
+    req = normalizeExecuteRequest(parseRequest2(payload));
   } catch (error) {
     return JSON.stringify({
       submitted: false,
@@ -25150,7 +25164,7 @@ var executeReportHttpHandler = async (runtime2, payload) => {
     });
   }
   const isRouterAction = req.actionType.startsWith(ROUTER_ACTION_PREFIX);
-  const configuredRouterReceiver = evmConfig.routerReceiverAddress || "";
+  const configuredRouterReceiver = (evmConfig.routerReceiverAddress || "").trim();
   const receiver = isRouterAction && HEX_ADDRESS_REGEX3.test(configuredRouterReceiver) ? configuredRouterReceiver : evmConfig.marketFactoryAddress;
   if (!HEX_ADDRESS_REGEX3.test(receiver)) {
     return JSON.stringify({

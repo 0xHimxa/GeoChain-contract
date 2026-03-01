@@ -192,10 +192,12 @@ console.log(address(routerVal));
 
 contract DeployRouter is Script {
 
-address arbMarketFactory = 0x50045D38580b7f0c326E371c45f9ca22a0768fa7;
- address baseMarketFactory = 0xa11dE127E008aC5489D28C4130792981DB047654;
-address arbCollateral =  0x8eaE35b8DC918BE54b2fAA57c9Bb0D4E13B9C9CB;
-address baseCollateral= 0xf3B85Ebc920e036c8Dc04179d35ac526a08EDAa8;
+address arbMarketFactory = 0x145A8D0eD56fd02A8b29b2E81C09F5d66e1918Ec
+;
+ address baseMarketFactory = 0x54DDeC2F7420b3AF1BB53157f3c533F9Ad598651;
+address arbCollateral =   0x28dF0b4CD6d0627134b708CCAfcF230bC272a663
+;
+address baseCollateral= 0x15a6D5380397644076f13D76B648A45B29e754bc;
         address initialOwner =  0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
         address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
         

@@ -76,6 +76,7 @@ export const submitFiatPayment = (
 
 export const submitAction = (
   body: {
+    requestId?: string;
     chainId: number;
     action: string;
     actionType: string;
