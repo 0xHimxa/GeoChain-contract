@@ -14,14 +14,14 @@ import {
   encodeFunctionData,
   parseAbiParameters,
 } from "viem";
-import { MarketFactoryAbi } from "../contractsAbi/marketFactory";
+import { MarketFactoryAbi } from "../../contractsAbi/marketFactory";
 
 import {
 
   sender,
   type Config,
  
-} from "../Constant-variable/config";
+} from "../../Constant-variable/config";
 
 const USDC_DECIMALS = 1_000_000n;
 const BRIDGE_BALANCE_THRESHOLD = 50_000n * USDC_DECIMALS;

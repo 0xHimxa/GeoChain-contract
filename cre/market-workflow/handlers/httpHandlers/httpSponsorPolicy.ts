@@ -1,7 +1,7 @@
 import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
-import { type Config } from "../Constant-variable/config";
-import { createApprovalRecord, getFirestoreIdToken } from "../firebase/sessionStore";
-import { validateSessionAuthorization, type SessionAuthorization } from "./sessionValidation";
+import { type Config } from "../../Constant-variable/config";
+import { createApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
+import { validateSessionAuthorization, type SessionAuthorization } from "../utils/sessionValidation";
 
 // Payload shape expected by CRE HTTP trigger callers (frontend/adapter).
 type SponsorRequest = {

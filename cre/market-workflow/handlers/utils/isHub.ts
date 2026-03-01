@@ -12,14 +12,14 @@ import {
   encodeFunctionData,
 
 } from "viem";
-import { MarketFactoryAbi } from "../contractsAbi/marketFactory";
+import { MarketFactoryAbi } from "../../contractsAbi/marketFactory";
 import {
 
   sender,
   type Config,
   type EvmConfig,
 
-} from "../Constant-variable/config";
+} from "../../Constant-variable/config";
 
 
 

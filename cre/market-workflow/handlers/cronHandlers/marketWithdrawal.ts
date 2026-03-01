@@ -21,7 +21,7 @@ import {
   type Config,
  
   WITHDRAW_BATCH_SIZE,
-} from "../Constant-variable/config";
+} from "../../Constant-variable/config";
 
 
 /**

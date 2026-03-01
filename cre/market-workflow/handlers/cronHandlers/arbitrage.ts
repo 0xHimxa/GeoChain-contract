@@ -14,8 +14,8 @@ import {
   encodeFunctionData,
   parseAbiParameters,
 } from "viem";
-import { MarketFactoryAbi } from "../contractsAbi/marketFactory";
-import { PredictionMarketAbi } from "../contractsAbi/predictionMarket";
+import { MarketFactoryAbi } from "../../contractsAbi/marketFactory";
+import { PredictionMarketAbi } from "../../contractsAbi/predictionMarket";
 import {
   ARB_MAX_SPEND_COLLATERAL,
   ARB_MIN_DEVIATION_IMPROVEMENT_BPS,
@@ -23,7 +23,7 @@ import {
   sender,
   type Config,
 
-} from "../Constant-variable/config";
+} from "../../Constant-variable/config";
 
 
 

@@ -1,7 +1,7 @@
 import { type Runtime } from "@chainlink/cre-sdk";
 import { hashTypedData, keccak256, stringToHex, verifyTypedData } from "viem";
-import { type Config } from "../Constant-variable/config";
-import { getFirestoreIdToken, reserveSessionNonce, upsertAndValidateSession, type SessionGrantRecord } from "../firebase/sessionStore";
+import { type Config } from "../../Constant-variable/config";
+import { getFirestoreIdToken, reserveSessionNonce, upsertAndValidateSession, type SessionGrantRecord } from "../../firebase/sessionStore";
 import {
   createSessionEip712Domain,
   serializeAllowedActions,

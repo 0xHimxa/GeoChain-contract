@@ -14,13 +14,13 @@ import {
   encodeFunctionData,
   parseAbiParameters,
 } from "viem";
-import { MarketFactoryAbi } from "../contractsAbi/marketFactory";
-import { PredictionMarketAbi } from "../contractsAbi/predictionMarket";
+import { MarketFactoryAbi } from "../../contractsAbi/marketFactory";
+import { PredictionMarketAbi } from "../../contractsAbi/predictionMarket";
 import {
  
   sender,
   type Config,
-} from "../Constant-variable/config";
+} from "../../Constant-variable/config";
 
 
 

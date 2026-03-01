@@ -1,8 +1,8 @@
 import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { verifyTypedData } from "viem";
-import { type Config } from "../Constant-variable/config";
-import { getFirestoreIdToken, revokeSessionRecord } from "../firebase/sessionStore";
-import { createSessionEip712Domain, SESSION_REVOKE_TYPES } from "./sessionMessage";
+import { type Config } from "../../Constant-variable/config";
+import { getFirestoreIdToken, revokeSessionRecord } from "../../firebase/sessionStore";
+import { createSessionEip712Domain, SESSION_REVOKE_TYPES } from "../utils/sessionMessage";
 
 type RevokeRequest = {
   requestId?: string;

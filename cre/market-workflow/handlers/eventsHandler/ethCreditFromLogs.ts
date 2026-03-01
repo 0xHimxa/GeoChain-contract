@@ -13,7 +13,7 @@ import {
   keccak256,
   parseAbiParameters,
 } from "viem";
-import { type Config, type EvmConfig } from "../Constant-variable/config";
+import { type Config, type EvmConfig } from "../../Constant-variable/config";
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const DECIMAL_REGEX = /^\d+$/;
