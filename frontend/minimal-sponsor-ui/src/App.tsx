@@ -4,10 +4,8 @@ import { signInWithGoogleAndSession, submitAction, submitExternalDepositFunding,
 import {
   CHAIN_CONFIG,
   ERC20_ABI,
-  MARKET_CREATED_TOPIC,
   MARKET_FACTORY_ABI,
   ROUTER_ABI,
-  decodeMarketCreatedLog,
   loadMarketSnapshot,
   providerForChain,
   type SupportedChainId,
@@ -94,9 +92,6 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [logLine, setLogLine] = useState("Waiting for action...");
 
-  const seenMarketSetRef = useRef<Set<string>>(new Set());
-  const lastSeenBlockRef = useRef<bigint>(0n);
-
   useEffect(() => {
     const meta = getStoredWalletMeta();
     if (meta) {
@@ -113,8 +108,6 @@ export function App() {
     // Prevent stale market cards from previous chain/address config while reloading.
     setEvents([]);
     setSelectedEventId("");
-    lastSeenBlockRef.current = 0n;
-    seenMarketSetRef.current = new Set();
   }, [selectedChain]);
 
   const walletAddress = sessionIdentity?.address || "";
@@ -124,11 +117,6 @@ export function App() {
     if (!ethereum) throw new Error("No external wallet found. Install MetaMask.");
     return new BrowserProvider(ethereum);
   }, []);
-
-  const selectedEvent = useMemo(
-    () => events.find((item) => item.id === selectedEventId) || events[0] || null,
-    [events, selectedEventId]
-  );
 
   const groupedEvents = useMemo(() => {
     const active: MarketEvent[] = [];
@@ -143,14 +131,24 @@ export function App() {
     return { active, closed, resolved };
   }, [events, nowUnix]);
 
+  const visibleMarkets = useMemo(
+    () => [...groupedEvents.active, ...groupedEvents.closed],
+    [groupedEvents.active, groupedEvents.closed]
+  );
+
+  const selectedEvent = useMemo(
+    () => visibleMarkets.find((item) => item.id === selectedEventId) || visibleMarkets[0] || null,
+    [visibleMarkets, selectedEventId]
+  );
+
   useEffect(() => {
-    if (!events.length) {
+    if (!visibleMarkets.length) {
       if (selectedEventId) setSelectedEventId("");
       return;
     }
-    const exists = events.some((item) => item.id === selectedEventId);
-    if (!exists) setSelectedEventId(events[0].id);
-  }, [events, selectedEventId]);
+    const exists = visibleMarkets.some((item) => item.id === selectedEventId);
+    if (!exists) setSelectedEventId(visibleMarkets[0].id);
+  }, [visibleMarkets, selectedEventId]);
 
   const refreshVaultBalance = useCallback(async () => {
     if (!walletAddress) {
@@ -165,47 +163,9 @@ export function App() {
   }, [selectedChain, walletAddress]);
 
   const loadMarkets = useCallback(async () => {
-    const cfg = CHAIN_CONFIG[selectedChain];
     const provider = providerForChain(selectedChain);
-    const factory = new Contract(cfg.addresses.marketFactory, MARKET_FACTORY_ABI, provider);
-
-    let marketAddresses: string[] = [];
-    try {
-      const marketCount = Number(await factory.marketCount());
-      const ids = Array.from({ length: marketCount }, (_, index) => index + 1);
-      const byId = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            return String(await factory.marketById(id)).toLowerCase();
-          } catch {
-            return "";
-          }
-        })
-      );
-      marketAddresses = byId.filter(
-        (address): address is string =>
-          Boolean(address) && address !== "0x0000000000000000000000000000000000000000"
-      );
-    } catch {
-      try {
-        // Fallback for older deployments where marketById/marketCount is unstable.
-        marketAddresses = ((await factory.getActiveEventList()) as string[]).map((value) => value.toLowerCase());
-      } catch {
-        const latest = await provider.getBlockNumber();
-        const logs = await provider.getLogs({
-          address: cfg.addresses.marketFactory,
-          topics: [MARKET_CREATED_TOPIC],
-          fromBlock: 0,
-          toBlock: latest,
-        });
-        marketAddresses = logs
-          .map((log) => decodeMarketCreatedLog(log)?.market.toLowerCase() || "")
-          .filter((address): address is string => Boolean(address));
-      }
-    }
-
-    marketAddresses = [...new Set(marketAddresses)];
-    seenMarketSetRef.current = new Set(marketAddresses);
+    const factory = new Contract(CHAIN_CONFIG[selectedChain].addresses.marketFactory, MARKET_FACTORY_ABI, provider);
+    const marketAddresses = [...new Set((((await factory.getActiveEventList()) as string[]) || []).map((value) => value.toLowerCase()))];
     const snapshots = await Promise.all(
       marketAddresses.map(async (address) => ({
         address,
@@ -218,25 +178,17 @@ export function App() {
         .map((item) => [item.address, item.snapshot])
     );
 
-    setEvents((current) => {
-      const currentByAddress = new Map(current.map((item) => [item.marketAddress.toLowerCase(), item]));
-      const merged: MarketEvent[] = [];
-
-      for (const address of marketAddresses) {
-        const next = snapshotByAddress.get(address) || currentByAddress.get(address);
-        if (next) merged.push(next);
-      }
-
-      merged.sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
-      return merged;
-    });
+    const nextEvents = marketAddresses
+      .map((address) => snapshotByAddress.get(address) || null)
+      .filter((item): item is MarketEvent => item !== null)
+      .sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
+    setEvents(nextEvents);
 
     setSelectedEventId((currentSelected) => {
       if (currentSelected) return currentSelected;
       const first = snapshots.find((item) => item.snapshot !== null)?.snapshot;
       return first?.id || "";
     });
-    lastSeenBlockRef.current = BigInt(await provider.getBlockNumber());
   }, [selectedChain]);
 
   const refreshPositions = useCallback(async () => {
@@ -300,45 +252,6 @@ export function App() {
 
     return () => clearInterval(timer);
   }, [loadMarkets, refreshPositions, refreshVaultBalance]);
-
-  useEffect(() => {
-    const timer = setInterval(async () => {
-      try {
-        const cfg = CHAIN_CONFIG[selectedChain];
-        const provider = providerForChain(selectedChain);
-        const latest = BigInt(await provider.getBlockNumber());
-        const fromBlock = lastSeenBlockRef.current + 1n;
-        if (latest < fromBlock) return;
-
-        const logs = await provider.getLogs({
-          address: cfg.addresses.marketFactory,
-          topics: [MARKET_CREATED_TOPIC],
-          fromBlock,
-          toBlock: latest,
-        });
-
-        lastSeenBlockRef.current = latest;
-        if (!logs.length) return;
-
-        for (const log of logs) {
-          const decoded = decodeMarketCreatedLog(log);
-          if (!decoded) continue;
-          const marketLower = decoded.market.toLowerCase();
-          if (seenMarketSetRef.current.has(marketLower)) continue;
-          seenMarketSetRef.current.add(marketLower);
-
-          const snapshot = await loadMarketSnapshot(selectedChain, decoded.market);
-          setEvents((current) => [snapshot, ...current]);
-          setSelectedEventId((current) => current || snapshot.id);
-          setLogLine(`New market detected onchain: ${snapshot.question}`);
-        }
-      } catch {
-        // retry on next poll
-      }
-    }, 8000);
-
-    return () => clearInterval(timer);
-  }, [selectedChain]);
 
   const onSignIn = async () => {
     setBusy(true);
@@ -722,7 +635,6 @@ export function App() {
               {([
                 ["Active", groupedEvents.active, "open"],
                 ["Closed", groupedEvents.closed, "closed"],
-                ["Resolved", groupedEvents.resolved, "resolved"],
               ] as const).map(([label, list, state]) => (
                 <div key={label}>
                   <div className="mb-2 flex items-center justify-between">
