@@ -109,6 +109,28 @@ export function App() {
     [events, selectedEventId]
   );
 
+  const groupedEvents = useMemo(() => {
+    const active: MarketEvent[] = [];
+    const closed: MarketEvent[] = [];
+    const resolved: MarketEvent[] = [];
+    for (const item of events) {
+      const state = effectiveMarketState(item, nowUnix);
+      if (state === "open") active.push(item);
+      else if (state === "closed") closed.push(item);
+      else resolved.push(item);
+    }
+    return { active, closed, resolved };
+  }, [events, nowUnix]);
+
+  useEffect(() => {
+    if (!events.length) {
+      if (selectedEventId) setSelectedEventId("");
+      return;
+    }
+    const exists = events.some((item) => item.id === selectedEventId);
+    if (!exists) setSelectedEventId(events[0].id);
+  }, [events, selectedEventId]);
+
   const refreshVaultBalance = useCallback(async () => {
     if (!walletAddress) {
       setVaultBalanceUsdc("0");
@@ -126,19 +148,74 @@ export function App() {
     const provider = providerForChain(selectedChain);
     const factory = new Contract(cfg.addresses.marketFactory, MARKET_FACTORY_ABI, provider);
 
-    const marketAddresses = ((await factory.getActiveEventList()) as string[]).map((value) => value.toLowerCase());
+    let marketAddresses: string[] = [];
+    try {
+      marketAddresses = ((await factory.getActiveEventList()) as string[]).map((value) => value.toLowerCase());
+    } catch {
+      try {
+        const marketCount = Number(await factory.marketCount());
+        const ids = Array.from({ length: marketCount }, (_, index) => index + 1);
+        const byId = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return String(await factory.marketById(id)).toLowerCase();
+            } catch {
+              return "";
+            }
+          })
+        );
+        marketAddresses = byId.filter(
+          (address): address is string =>
+            Boolean(address) && address !== "0x0000000000000000000000000000000000000000"
+        );
+      } catch {
+        const latest = await provider.getBlockNumber();
+        const logs = await provider.getLogs({
+          address: cfg.addresses.marketFactory,
+          topics: [MARKET_CREATED_TOPIC],
+          fromBlock: 0,
+          toBlock: latest,
+        });
+        marketAddresses = logs
+          .map((log) => decodeMarketCreatedLog(log)?.market.toLowerCase() || "")
+          .filter((address): address is string => Boolean(address));
+      }
+    }
+
+    marketAddresses = [...new Set(marketAddresses)];
     seenMarketSetRef.current = new Set(marketAddresses);
     const snapshots = await Promise.all(
-      marketAddresses.map((address) => loadMarketSnapshot(selectedChain, address).catch(() => null))
+      marketAddresses.map(async (address) => ({
+        address,
+        snapshot: await loadMarketSnapshot(selectedChain, address).catch(() => null),
+      }))
     );
-    const nextMarkets = snapshots.filter((value): value is MarketEvent => value !== null);
-    nextMarkets.sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
-    setEvents(nextMarkets);
-    if (!selectedEventId && nextMarkets[0]) {
-      setSelectedEventId(nextMarkets[0].id);
-    }
+    const snapshotByAddress = new Map(
+      snapshots
+        .filter((item): item is { address: string; snapshot: MarketEvent } => item.snapshot !== null)
+        .map((item) => [item.address, item.snapshot])
+    );
+
+    setEvents((current) => {
+      const currentByAddress = new Map(current.map((item) => [item.marketAddress.toLowerCase(), item]));
+      const merged: MarketEvent[] = [];
+
+      for (const address of marketAddresses) {
+        const next = snapshotByAddress.get(address) || currentByAddress.get(address);
+        if (next) merged.push(next);
+      }
+
+      merged.sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
+      return merged;
+    });
+
+    setSelectedEventId((currentSelected) => {
+      if (currentSelected) return currentSelected;
+      const first = snapshots.find((item) => item.snapshot !== null)?.snapshot;
+      return first?.id || "";
+    });
     lastSeenBlockRef.current = BigInt(await provider.getBlockNumber());
-  }, [selectedChain, selectedEventId]);
+  }, [selectedChain]);
 
   const refreshPositions = useCallback(async () => {
     if (!walletAddress || !events.length) {
@@ -568,27 +645,44 @@ export function App() {
           <div className="glass rounded-2xl border border-white/10 p-4">
             <h2 className="font-heading text-lg">Onchain Markets</h2>
             <p className="mb-3 text-xs text-slate-300">Live from MarketFactory logs + periodic snapshot refresh.</p>
-            <div className="space-y-2">
-              {events.map((item) => {
-                const state = effectiveMarketState(item, nowUnix);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSelectedEventId(item.id)}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
-                      item.id === selectedEvent?.id
-                        ? "border-mint-400 bg-mint-500/10"
-                        : "border-white/10 bg-ink-900/70 hover:border-sky-300/60"
-                    }`}
-                  >
-                    <p className="line-clamp-2 text-sm font-medium">{item.question}</p>
-                    <p className={`mt-2 text-xs uppercase ${marketStateTone[state]}`}>{state}</p>
-                    <p className="mt-1 text-xs text-slate-300">Close: {formatDateTime(item.closeTimeUnix)}</p>
-                    <p className="text-xs text-slate-400">Resolve: {formatDateTime(item.resolutionTimeUnix)}</p>
-                  </button>
-                );
-              })}
+            <div className="space-y-4">
+              {([
+                ["Active", groupedEvents.active, "open"],
+                ["Closed", groupedEvents.closed, "closed"],
+                ["Resolved", groupedEvents.resolved, "resolved"],
+              ] as const).map(([label, list, state]) => (
+                <div key={label}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className={`text-xs font-semibold uppercase tracking-wide ${marketStateTone[state]}`}>{label}</p>
+                    <span className="text-xs text-slate-400">{list.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {list.length === 0 ? (
+                      <p className="rounded-lg border border-white/5 bg-ink-900/40 px-3 py-2 text-xs text-slate-500">No {label.toLowerCase()} markets.</p>
+                    ) : null}
+                    {list.map((item) => {
+                      const itemState = effectiveMarketState(item, nowUnix);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelectedEventId(item.id)}
+                          className={`w-full rounded-xl border p-3 text-left transition ${
+                            item.id === selectedEvent?.id
+                              ? "border-mint-400 bg-mint-500/10"
+                              : "border-white/10 bg-ink-900/70 hover:border-sky-300/60"
+                          }`}
+                        >
+                          <p className="line-clamp-2 text-sm font-medium">{item.question}</p>
+                          <p className={`mt-2 text-xs uppercase ${marketStateTone[itemState]}`}>{itemState}</p>
+                          <p className="mt-1 text-xs text-slate-300">Close: {formatDateTime(item.closeTimeUnix)}</p>
+                          <p className="text-xs text-slate-400">Resolve: {formatDateTime(item.resolutionTimeUnix)}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize } from "node:path";
 
 type WalletIdentity = {
@@ -108,6 +108,10 @@ const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; co
   },
 };
 
+const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponsor.json");
+const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponser.json");
+const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "execute.json");
+
 const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
   removeLiquidity: "routerRemoveLiquidity",
@@ -186,6 +190,54 @@ const sanitizeId = (value: string, fallbackPrefix: string): string => {
     throw new Error(`invalid ${fallbackPrefix}`);
   }
   return raw;
+};
+
+const normalizeSponsorSession = (session: unknown): Record<string, unknown> | undefined => {
+  if (!session || typeof session !== "object") return undefined;
+  const obj = session as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  const keys = [
+    "sessionId",
+    "owner",
+    "sessionPublicKey",
+    "chainId",
+    "allowedActions",
+    "maxAmountUsdc",
+    "expiresAtUnix",
+    "grantSignature",
+    "requestNonce",
+    "requestSignature",
+  ];
+  for (const key of keys) {
+    if (typeof obj[key] !== "undefined") normalized[key] = obj[key];
+  }
+  if (Object.keys(normalized).length === 0) return undefined;
+  return normalized;
+};
+
+const buildCreSponsorRequestPayload = (body: SponsorApiRequest, actionType: string) => {
+  return {
+    requestId: body.requestId || `ui_${Date.now()}`,
+    chainId: body.chainId,
+    action: body.action,
+    actionType,
+    amountUsdc: body.amountUsdc,
+    sender: body.sender,
+    slippageBps: body.slippageBps,
+    ...(normalizeSponsorSession(body.session) ? { session: normalizeSponsorSession(body.session) } : {}),
+  };
+};
+
+const writeCreSponsorRequestJson = (payload: Record<string, unknown>): void => {
+  const jsonText = JSON.stringify(payload, null, 2);
+  writeFileSync(CRE_SPONSOR_JSON_PATH, jsonText);
+  // Keep backward compatibility with the old misspelled filename already present in this repo.
+  writeFileSync(CRE_SPONSER_JSON_COMPAT_PATH, jsonText);
+};
+
+const writeCreExecuteRequestJson = (payload: Record<string, unknown>): void => {
+  const jsonText = JSON.stringify(payload, null, 2);
+  writeFileSync(CRE_EXECUTE_JSON_PATH, jsonText);
 };
 
 const createWallet = async (): Promise<WalletIdentity> => {
@@ -637,17 +689,10 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     });
   }
 
-  const policyPayload = {
-    requestId: body.requestId || `ui_${Date.now()}`,
-    chainId: body.chainId,
-    action: body.action,
-    amountUsdc: body.amountUsdc,
-    sender: body.sender,
-    slippageBps: body.slippageBps,
-    session: body.session,
-    actionType,
-  };
+  const policyPayload = buildCreSponsorRequestPayload(body, actionType);
+  writeCreSponsorRequestJson(policyPayload);
   console.log("[MOCK_CRE_POLICY] payload=", JSON.stringify(policyPayload));
+  console.log("[MOCK_CRE_POLICY] wrote sponsor request json:", CRE_SPONSOR_JSON_PATH);
 
   const creDecision = {
     approved: true,
@@ -664,12 +709,16 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     actionType,
     payloadHex: body.reportPayloadHex,
   };
+  writeCreExecuteRequestJson(executePayload);
   console.log("[MOCK_CRE_EXECUTE] payload=", JSON.stringify(executePayload));
+  console.log("[MOCK_CRE_EXECUTE] wrote execute request json:", CRE_EXECUTE_JSON_PATH);
 
   return json(200, {
     approved: true,
     stage: "cre-execute",
     creDecision,
+    sponsorJsonPath: CRE_SPONSOR_JSON_PATH,
+    executeJsonPath: CRE_EXECUTE_JSON_PATH,
     execute: {
       submitted: true,
       requestId: executePayload.requestId,

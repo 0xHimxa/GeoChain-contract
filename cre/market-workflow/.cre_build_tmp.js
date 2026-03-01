@@ -24927,7 +24927,8 @@ var DEFAULT_ALLOWED_ACTIONS = new Set([
   "swapYesForNo",
   "swapNoForYes",
   "mintCompleteSets",
-  "redeemCompleteSets"
+  "redeemCompleteSets",
+  "redeem"
 ]);
 var ACTION_TO_ROUTER_ACTION_TYPE = {
   addLiquidity: "routerAddLiquidity",
@@ -24935,7 +24936,8 @@ var ACTION_TO_ROUTER_ACTION_TYPE = {
   swapYesForNo: "routerSwapYesForNo",
   swapNoForYes: "routerSwapNoForYes",
   mintCompleteSets: "routerMintCompleteSets",
-  redeemCompleteSets: "routerRedeemCompleteSets"
+  redeemCompleteSets: "routerRedeemCompleteSets",
+  redeem: "routerRedeem"
 };
 var decodePayloadInput = (payload) => {
   return new TextDecoder().decode(payload.input);
@@ -25652,7 +25654,6 @@ var initWorkflow = (config) => {
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
     handler(cron.trigger({ schedule: config.schedule }), createEventHelper)
   ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [

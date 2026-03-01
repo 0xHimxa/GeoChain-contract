@@ -32,6 +32,8 @@ export const CHAIN_CONFIG: Record<SupportedChainId, { name: string; rpcUrl: stri
 
 export const MARKET_FACTORY_ABI = [
   "function getActiveEventList() view returns (address[])",
+  "function marketCount() view returns (uint256)",
+  "function marketById(uint256) view returns (address)",
   "event MarketCreated(uint256 indexed marketId, address indexed market, uint256 indexed initialLiquidity)",
 ] as const;
 
