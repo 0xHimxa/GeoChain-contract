@@ -31,6 +31,7 @@ export type MarketEvent = {
   chainId?: number;
   marketId?: string;
   marketAddress: string;
+  questionProofUrl?: string;
   yesToken?: string;
   noToken?: string;
   question: string;

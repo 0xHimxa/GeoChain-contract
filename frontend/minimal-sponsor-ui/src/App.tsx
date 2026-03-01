@@ -466,6 +466,28 @@ export function App() {
     }
   };
 
+  const onPrepareRedeemFromPosition = (position: Position) => {
+    const market = events.find((item) => item.id === position.eventId);
+    if (!market) {
+      setLogLine("Cannot prepare redeem: market snapshot is missing.");
+      return;
+    }
+
+    const redeemable = BigInt(position.redeemableUsdc || "0");
+    if (redeemable <= 0n) {
+      setLogLine("No redeemable collateral for this position.");
+      return;
+    }
+
+    setSelectedEventId(market.id);
+    setActiveAction("redeem");
+    setAmountUsdc(formatUsdc(position.redeemableUsdc));
+    setPage("markets");
+    setLogLine(
+      `Redeem prepared for "${market.question}". Click "Sign + Submit Action" to redeem ${formatUsdc(position.redeemableUsdc)} USDC.`
+    );
+  };
+
   const onAction = async () => {
     if (!selectedEvent || !sessionIdentity?.privateKey) {
       setLogLine("Select event and sign in first.");
@@ -598,8 +620,12 @@ export function App() {
     if (!selectedEvent) return true;
     if (selectedEventState === "closed") return true;
     if (selectedEventState === "resolved" && activeAction !== "redeem") return true;
+    if (activeAction === "redeem") {
+      const redeemable = BigInt(eventPosition?.redeemableUsdc || "0");
+      if (redeemable <= 0n) return true;
+    }
     return false;
-  }, [selectedEvent, selectedEventState, activeAction]);
+  }, [selectedEvent, selectedEventState, activeAction, eventPosition]);
 
   return (
     <div className="mx-auto min-h-screen w-full max-w-7xl px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
@@ -754,6 +780,19 @@ export function App() {
                   <p>Resolution Time: {formatDateTime(selectedEvent.resolutionTimeUnix)}</p>
                   <p className={marketStateTone[selectedEventState]}>State: {selectedEventState}</p>
                   {selectedEvent.resolutionOutcome ? <p>Outcome: {selectedEvent.resolutionOutcome}</p> : null}
+                  {selectedEvent.questionProofUrl ? (
+                    <p>
+                      Proof URL:{" "}
+                      <a
+                        className="text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                        href={selectedEvent.questionProofUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {selectedEvent.questionProofUrl}
+                      </a>
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mt-4 grid gap-2 md:grid-cols-3">
@@ -791,6 +830,9 @@ export function App() {
                 ) : null}
                 {selectedEventState === "resolved" && activeAction !== "redeem" ? (
                   <p className="mt-2 text-xs text-rose-400">Market resolved. Select redeem to claim winnings.</p>
+                ) : null}
+                {selectedEventState === "resolved" && activeAction === "redeem" && BigInt(eventPosition?.redeemableUsdc || "0") <= 0n ? (
+                  <p className="mt-2 text-xs text-rose-400">No redeemable collateral for this position.</p>
                 ) : null}
 
                 <div className="mt-4 rounded-xl border border-white/10 bg-ink-900/70 p-3 text-xs text-slate-200">
@@ -887,12 +929,60 @@ export function App() {
           <p className="mt-1 text-sm text-slate-300">Read from router tokenCredits using your local wallet address.</p>
           <div className="mt-4 space-y-2">
             {positions.map((item) => (
-              <div key={item.eventId} className="rounded-xl border border-white/10 bg-ink-900/70 p-3 text-sm">
-                <p className="font-medium">{item.question}</p>
-                <p className="text-xs text-slate-300">Yes: {formatUsdc(item.yesShares)} / No: {formatUsdc(item.noShares)}</p>
-                <p className="text-xs text-slate-300">Complete set estimate: {formatUsdc(item.completeSetsMinted)}</p>
-                <p className="text-xs text-slate-300">Redeemable: {formatUsdc(item.redeemableUsdc)} USDC</p>
-              </div>
+              (() => {
+                const market = events.find((entry) => entry.id === item.eventId) || null;
+                const resolved = market ? effectiveMarketState(market, nowUnix) === "resolved" : false;
+                const outcome = market?.resolutionOutcome || null;
+                const yesShares = BigInt(item.yesShares || "0");
+                const noShares = BigInt(item.noShares || "0");
+                const redeemable = BigInt(item.redeemableUsdc || "0");
+                const isWinner =
+                  outcome === "yes" ? yesShares > 0n : outcome === "no" ? noShares > 0n : false;
+                const tokenWorth = resolved ? (isWinner ? redeemable : 0n) : redeemable;
+
+                return (
+                  <div key={item.eventId} className="rounded-xl border border-white/10 bg-ink-900/70 p-3 text-sm">
+                    <p className="font-medium">{item.question}</p>
+                    <p className="text-xs text-slate-300">Yes: {formatUsdc(item.yesShares)} / No: {formatUsdc(item.noShares)}</p>
+                    <p className="text-xs text-slate-300">Complete set estimate: {formatUsdc(item.completeSetsMinted)}</p>
+                    {resolved ? (
+                      <>
+                        <p className="text-xs text-slate-300">Resolution: {outcome || "unknown"}</p>
+                        <p className={isWinner ? "text-xs text-mint-300" : "text-xs text-rose-300"}>
+                          Result: {isWinner ? "correct (winning side)" : "wrong (losing side)"}
+                        </p>
+                        <p className="text-xs text-slate-300">Token Worth: {formatUsdc(tokenWorth.toString())} USDC</p>
+                        <p className="text-xs text-slate-300">Redeemable Collateral: {formatUsdc(tokenWorth.toString())} USDC</p>
+                        {market?.questionProofUrl ? (
+                          <p className="text-xs text-slate-300">
+                            Proof URL:{" "}
+                            <a
+                              className="text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                              href={market.questionProofUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {market.questionProofUrl}
+                            </a>
+                          </p>
+                        ) : (
+                          <p className="text-xs text-slate-500">Proof URL: not provided</p>
+                        )}
+                        <button
+                          type="button"
+                          disabled={busy || tokenWorth <= 0n}
+                          onClick={() => onPrepareRedeemFromPosition(item)}
+                          className="mt-2 rounded-xl bg-mint-500 px-3 py-1.5 text-xs font-semibold text-ink-950 hover:bg-mint-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Prepare Redeem
+                        </button>
+                      </>
+                    ) : (
+                      <p className="text-xs text-slate-300">Redeemable: {formatUsdc(item.redeemableUsdc)} USDC</p>
+                    )}
+                  </div>
+                );
+              })()
             ))}
             {!positions.length ? <p className="text-sm text-slate-300">No router positions yet.</p> : null}
           </div>

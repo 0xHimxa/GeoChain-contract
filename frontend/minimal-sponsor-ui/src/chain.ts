@@ -39,6 +39,7 @@ export const MARKET_FACTORY_ABI = [
 
 export const MARKET_ABI = [
   "function s_question() view returns (string)",
+  "function s_Proof_Url() view returns (string)",
   "function closeTime() view returns (uint256)",
   "function resolutionTime() view returns (uint256)",
   "function state() view returns (uint8)",
@@ -103,6 +104,7 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
 
   const [
     question,
+    questionProofUrl,
     closeTime,
     resolutionTime,
     state,
@@ -114,6 +116,7 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     noToken,
   ] = await Promise.all([
     market.s_question(),
+    market.s_Proof_Url().catch(() => ""),
     market.closeTime(),
     market.resolutionTime(),
     market.state(),
@@ -143,6 +146,7 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     marketAddress,
     marketId: BigInt(marketId).toString(),
     question: String(question),
+    questionProofUrl: String(questionProofUrl || ""),
     closeTimeUnix,
     resolutionTimeUnix,
     state: effectiveState,

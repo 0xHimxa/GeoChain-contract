@@ -1,13 +1,13 @@
 {
-  "requestId": "ui_1772336970921",
+  "requestId": "ui_1772345000290",
   "chainId": 421614,
-  "action": "redeemCompleteSets",
-  "actionType": "routerRedeemCompleteSets",
-  "amountUsdc": "5000000",
+  "action": "redeem",
+  "actionType": "routerRedeem",
+  "amountUsdc": "567676242",
   "sender": "0x11010388F3aE0F46A1Fa9500F98461a0a6036617",
   "slippageBps": 120,
   "session": {
-    "sessionId": "session_11010388_1772336970926",
+    "sessionId": "session_11010388_1772345000295",
     "owner": "0x11010388F3aE0F46A1Fa9500F98461a0a6036617",
     "sessionPublicKey": "0x0443e5473ae7eb5faf7775d2a5ac37857b6cf63a6640534a0d63a1ac069ac6204438932b3979df1bcc17ce02efe3686f6ebf21309dd53b527713354ed0c61aed78",
     "chainId": 421614,
@@ -19,9 +19,9 @@
       "redeem"
     ],
     "maxAmountUsdc": "10000000000",
-    "expiresAtUnix": 1772340569,
-    "grantSignature": "0x1c3ffcf60098d5835666640b64652f182f655e0ad36b5151e21f99da6dfba16a7a214611dcfe18d7de48e0af49ed1ebdb1bbce8a3d3ae87430697f855eb6a2f21b",
-    "requestNonce": "nonce_1772336970926_oy6d91r1",
-    "requestSignature": "0x3970ac9f7bce9b415dcff23efdc7c55129a831634ee3ff692ca475c1533e2c7b6dc5eebf8679aa626bc944a19b1bce5cdc77596bc6107234ec07c2855f44bbe01b"
+    "expiresAtUnix": 1772348599,
+    "grantSignature": "0xdfc9cd26e6b680cba40967f2de8d0d38a3d209864aeaac7855d2bdc7f367df41474f6f465cedc71d81b8f8ab95b3ddb4fb2782b64b38388b6cd1baf2a59515101b",
+    "requestNonce": "nonce_1772345000295_65r6vdt1",
+    "requestSignature": "0x27a6f81ea01b05f44e824be3d8ae9ab7e35da46ccbc1245cbf5e003177208882159b857dbb3c06cff66999a130e00fd0acefbdf689fbbe0ef79d6fd75fca67c61b"
   }
 }
