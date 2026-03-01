@@ -1,0 +1,8 @@
+{
+  "requestId": "fiat_req_1772340162308",
+  "paymentId": "pay_1772340162308",
+  "chainId": 84532,
+  "user": "0x11010388F3aE0F46A1Fa9500F98461a0a6036617",
+  "amountUsdc": "150000000",
+  "provider": "stripe"
+}

@@ -112,6 +112,7 @@ const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; co
 const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponsor.json");
 const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponser.json");
 const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "execute.json");
+const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "fiat.json");
 
 const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -239,6 +240,11 @@ const writeCreSponsorRequestJson = (payload: Record<string, unknown>): void => {
 const writeCreExecuteRequestJson = (payload: Record<string, unknown>): void => {
   const jsonText = JSON.stringify(payload, null, 2);
   writeFileSync(CRE_EXECUTE_JSON_PATH, jsonText);
+};
+
+const writeCreFiatRequestJson = (payload: Record<string, unknown>): void => {
+  const jsonText = JSON.stringify(payload, null, 2);
+  writeFileSync(CRE_FIAT_JSON_PATH, jsonText);
 };
 
 const decodeHexJson = (hex: string): Record<string, unknown> | null => {
@@ -663,7 +669,7 @@ const handleFiatPaymentSuccess = async (req: Request): Promise<Response> => {
   if (!session) return json(401, { error: "missing or invalid session" });
 
   const body = (await req.json().catch(() => ({}))) as FiatPaymentSuccessApiRequest;
-  const chainId = Number(body.chainId ?? 84532);
+  const chainId = Number(body.chainId);
   if (!Number.isInteger(chainId) || chainId <= 0) {
     return json(400, { error: "invalid chainId" });
   }
@@ -704,16 +710,19 @@ const handleFiatPaymentSuccess = async (req: Request): Promise<Response> => {
   };
 
   session.vaultBalanceUsdc += BigInt(amountUsdc);
+  writeCreFiatRequestJson(crePayload);
 
   console.log("[MOCK_PROVIDER_SUCCESS] payload=", JSON.stringify(providerSuccess));
   console.log("[MOCK_CRE_FIAT_CREDIT] payload=", JSON.stringify(crePayload));
+  console.log("[MOCK_CRE_FIAT_CREDIT] wrote fiat request json:", CRE_FIAT_JSON_PATH);
 
   return json(200, {
     ok: true,
     sentToCre: false,
-    reason: "payload structured and logged only",
+    reason: "payload structured and written for CRE fiat HTTP handler",
     providerSuccess,
     crePayload,
+    fiatJsonPath: CRE_FIAT_JSON_PATH,
     vaultBalanceUsdc: session.vaultBalanceUsdc.toString(),
   });
 };

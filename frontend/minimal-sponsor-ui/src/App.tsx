@@ -456,6 +456,7 @@ export function App() {
       const res = await submitFiatPayment(user.sessionToken, {
         amountUsd: fiatUsd,
         provider,
+        chainId: selectedChain,
       });
       setLogLine(JSON.stringify(res, null, 2));
     } catch (error) {

@@ -64,7 +64,7 @@ export const depositToVault = (sessionToken: string, amountUsdc: string): Promis
 
 export const submitFiatPayment = (
   sessionToken: string,
-  body: { amountUsd: string; provider: string; paymentId?: string; requestId?: string }
+  body: { amountUsd: string; provider: string; chainId: number; paymentId?: string; requestId?: string }
 ): Promise<FiatResponse> =>
   request("/api/fiat-payment-success", {
     method: "POST",
