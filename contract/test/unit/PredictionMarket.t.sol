@@ -626,7 +626,7 @@ contract PredictionMarketTest is Test {
         market.resolve(Resolution.Yes, "ipfs://proof");
 
         vm.prank(alice);
-        market.disputeProposedResolution();
+        market.disputeProposedResolution(Resolution.No);
 
         assertEq(market.resolutionDisputed(), true);
 

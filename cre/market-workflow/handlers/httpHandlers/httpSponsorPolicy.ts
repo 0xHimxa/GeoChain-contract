@@ -35,6 +35,7 @@ const DEFAULT_ALLOWED_ACTIONS = new Set([
   "mintCompleteSets",
   "redeemCompleteSets",
   "redeem",
+  "disputeProposedResolution",
 ]);
 const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -44,7 +45,12 @@ const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
   mintCompleteSets: "routerMintCompleteSets",
   redeemCompleteSets: "routerRedeemCompleteSets",
   redeem: "routerRedeem",
+  disputeProposedResolution: "routerDisputeProposedResolution",
 };
+
+const ZERO_AMOUNT_ALLOWED_ACTIONS = new Set([
+  "disputeProposedResolution",
+]);
 
 const decodePayloadInput = (payload: HTTPPayload): string => {
   return new TextDecoder().decode(payload.input);
@@ -152,7 +158,8 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   } catch (error) {
     return JSON.stringify(makeDecision(requestId, error instanceof Error ? error.message : "invalid amountUsdc"));
   }
-  if (amount <= 0n) {
+  const allowZeroAmount = ZERO_AMOUNT_ALLOWED_ACTIONS.has(request.action);
+  if (!allowZeroAmount && amount <= 0n) {
     return JSON.stringify(makeDecision(requestId, "amountUsdc must be greater than zero"));
   }
   if (amount > maxAmount) {

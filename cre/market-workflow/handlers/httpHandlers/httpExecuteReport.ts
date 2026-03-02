@@ -42,6 +42,9 @@ type ExecuteResponse = {
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 const ROUTER_ACTION_PREFIX = "router";
+const ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
+  "routerDisputeProposedResolution",
+]);
 
 const toBigIntAmount = (value?: string): bigint => {
   if (!value) return 0n;
@@ -149,7 +152,8 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
       reason: error instanceof Error ? error.message : "invalid amountUsdc",
     } satisfies ExecuteResponse);
   }
-  if (amount <= 0n) {
+  const allowZeroAmount = !!req.actionType && ZERO_AMOUNT_ALLOWED_ACTION_TYPES.has(req.actionType);
+  if (!allowZeroAmount && amount <= 0n) {
     return JSON.stringify({
       submitted: false,
       requestId,

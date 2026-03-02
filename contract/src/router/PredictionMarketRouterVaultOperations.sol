@@ -85,6 +85,11 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         _removeLiquidity(msg.sender, market, shares, minYesOut, minNoOut);
     }
 
+    /// @notice Submits a dispute against proposed market resolution.
+    function disputeProposedResolution(address market, uint8 proposedOutcome) external nonReentrant {
+        _disputeProposedResolution(msg.sender, market, proposedOutcome);
+    }
+
     /// @dev Pulls collateral from payer and credits beneficiary in router accounting.
     function _depositCollateral(address payer, address beneficiary, uint256 amount) internal {
         collateralToken.safeTransferFrom(payer, address(this), amount);
@@ -339,6 +344,13 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         emit LiquidityRemoved(user, market, shares, yesOut, noOut);
     }
 
+    /// @dev Forwards user dispute intent to market contract.
+    function _disputeProposedResolution(address user, address market, uint8 proposedOutcome) internal {
+        _validateMarket(market);
+        IPredictionMarketLike(market).disputeProposedResolution(proposedOutcome);
+        emit DisputeSubmitted(user, market, proposedOutcome);
+    }
+
     /// @dev Dispatches receiver reports by action hash into router operations.
     /// Report shape is `(string actionType, bytes payload)`.
     function _processReport(bytes calldata report) internal override nonReentrant {
@@ -385,6 +397,9 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         } else if (actionTypeHash == HASHED_REDEEM_WINNINGS) {
             (address user, address market, uint256 amount) = abi.decode(payload, (address, address, uint256));
             _redeem(user, market, amount);
+        } else if (actionTypeHash == HASHED_DISPUTE) {
+            (address user, address market, uint8 proposedOutcome) = abi.decode(payload, (address, address, uint8));
+            _disputeProposedResolution(user, market, proposedOutcome);
         } else {
             revert Router__ActionNotRecognized();
         }

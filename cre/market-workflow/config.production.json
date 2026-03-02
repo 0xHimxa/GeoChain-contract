@@ -25,6 +25,7 @@
       "routerSwapNoForYes",
       "routerAddLiquidity",
       "routerRemoveLiquidity",
+      "routerDisputeProposedResolution",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]

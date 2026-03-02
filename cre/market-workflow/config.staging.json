@@ -31,7 +31,8 @@
       "swapNoForYes",
       "mintCompleteSets",
       "redeemCompleteSets",
-      "redeem"
+      "redeem",
+      "disputeProposedResolution"
     ],
     "requireSessionAuthorization": true,
     "sessionMaxDurationSec": 86400,
@@ -60,6 +61,7 @@
       "routerSwapNoForYes",
       "routerAddLiquidity",
       "routerRemoveLiquidity",
+      "routerDisputeProposedResolution",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]

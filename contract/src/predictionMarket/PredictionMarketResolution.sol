@@ -91,12 +91,16 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             DisputeSubmission({disputer: msg.sender, proposedOutcome: proposedOutcome, submittedAt: block.timestamp})
         );
         resolutionDisputed = true;
-        manualReviewNeeded = true;
         emit MarketEvents.ResolutionDisputed(msg.sender, proposedOutcome);
     }
 
     /// @notice Finalizes a provisional resolution after dispute window if no dispute was raised.
-    function finalizeResolutionAfterDisputeWindow() external {
+    /// @dev Direct call is owner-only. CRE handler path is allowed through `_processReport`.
+    function finalizeResolutionAfterDisputeWindow() external onlyOwner {
+        _finalizeResolutionAfterDisputeWindow();
+    }
+
+    function _finalizeResolutionAfterDisputeWindow() internal {
         if (state != State.Review || proposedResolution == Resolution.Unset) {
             revert MarketErrors.PredictionMarket__NoPendingResolution();
         }
@@ -108,6 +112,38 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
 
         _finalizeResolution(proposedResolution, proposedProofUrl, true, true);
+    }
+
+    /// @notice Owner adjudicates disputed provisional resolution.
+    /// @dev If adjudicated outcome is Yes/No, market finalizes immediately.
+    /// If adjudicated outcome is Inconclusive, market remains in review with manual review enabled.
+    function adjudicateDisputedResolution(Resolution adjudicatedOutcome, string calldata proofUrl) external onlyOwner {
+        _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
+    }
+
+    function _adjudicateDisputedResolution(Resolution adjudicatedOutcome, string memory proofUrl) internal {
+        _revertIfLocalResolutionDisabled();
+
+        if (state != State.Review || proposedResolution == Resolution.Unset || !resolutionDisputed) {
+            revert MarketErrors.PredictionMarket__NoPendingResolution();
+        }
+
+        if (adjudicatedOutcome == Resolution.Unset) {
+            revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
+        }
+
+        if (adjudicatedOutcome == Resolution.Inconclusive) {
+            manualReviewNeeded = true;
+            resolution = Resolution.Inconclusive;
+            emit MarketEvents.IsUnderManualReview(adjudicatedOutcome);
+            return;
+        }
+
+        if (bytes(proofUrl).length == 0) {
+            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+        }
+
+        _finalizeResolution(adjudicatedOutcome, proofUrl, true, true);
     }
 
     /// @notice Redeems winning outcome token after market resolution.
@@ -226,10 +262,24 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
         bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
 
-        if (actionTypeHash != HASHED_RESOLVE_MARKET) revert MarketErrors.PredictionMarket__InvalidReport();
-        (Resolution _outcome, string memory _proofUrl) = abi.decode(payload, (Resolution, string));
+        if (actionTypeHash == HASHED_RESOLVE_MARKET) {
+            (Resolution _outcome, string memory _proofUrl) = abi.decode(payload, (Resolution, string));
+            _resolve(_outcome, _proofUrl);
+            return;
+        }
 
-        _resolve(_outcome, _proofUrl);
+        if (actionTypeHash == HASHED_FINALIZE_RESOLUTION_AFTER_DISPUTE_WINDOW) {
+            _finalizeResolutionAfterDisputeWindow();
+            return;
+        }
+
+        if (actionTypeHash == HASHED_ADJUDICATE_DISPUTED_RESOLUTION) {
+            (Resolution adjudicatedOutcome, string memory proofUrl) = abi.decode(payload, (Resolution, string));
+            _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
+            return;
+        }
+
+        revert MarketErrors.PredictionMarket__InvalidReport();
     }
 
     /// @notice Convenience helper indicating whether this market is time-eligible for resolution.
@@ -241,5 +291,11 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Returns total number of stored dispute submissions.
     function getDisputeSubmissionsCount() external view returns (uint256) {
         return disputeSubmissions.length;
+    }
+
+
+
+    function getDisputeSubmissions() external view returns (DisputeSubmission[] memory) {
+        return disputeSubmissions;
     }
 }

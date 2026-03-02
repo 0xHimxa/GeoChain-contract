@@ -23,6 +23,7 @@ interface IPredictionMarketLike {
     function swapNoForYes(uint256 noIn, uint256 minYesOut) external;
     function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) external;
     function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut) external;
+    function disputeProposedResolution(uint8 proposedOutcome) external;
 }
 
 /// @title PredictionMarketRouterVaultBase
@@ -57,6 +58,7 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     bytes32 internal constant HASHED_CREDIT_FROM_FIAT = keccak256(abi.encode("routerCreditFromFiat"));
     bytes32 internal constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
     bytes32 internal constant HASHED_REDEEM_WINNINGS = keccak256(abi.encode("routerRedeem"));
+    bytes32 internal constant HASHED_DISPUTE = keccak256(abi.encode("routerDisputeProposedResolution"));
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
@@ -86,6 +88,7 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     event EthReceived(address indexed sender, uint256 amountWei);
     event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
     event RouterRiskExemptUpdated(address indexed account, bool exempt);
+    event DisputeSubmitted(address indexed user, address indexed market, uint8 proposedOutcome);
 
     /// @notice Creates a router vault bound to one collateral token and market factory.
     /// @param collateral Collateral token accepted by all markets reachable via this router.

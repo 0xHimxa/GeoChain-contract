@@ -109,6 +109,10 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     uint16 public unsafeMaxOutBps;
 
     bytes32 internal constant HASHED_RESOLVE_MARKET = keccak256(abi.encodePacked("ResolveMarket"));
+    bytes32 internal constant HASHED_FINALIZE_RESOLUTION_AFTER_DISPUTE_WINDOW =
+        keccak256(abi.encodePacked("FinalizeResolutionAfterDisputeWindow"));
+    bytes32 internal constant HASHED_ADJUDICATE_DISPUTED_RESOLUTION =
+        keccak256(abi.encodePacked("AdjudicateDisputedResolution"));
 
     error PredictionMarket__OnlyCrossChainController();
     error PredictionMarket__InvalidCanonicalPrice();
