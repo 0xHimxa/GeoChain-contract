@@ -41,8 +41,9 @@ import {
 
 
 /**
- * Scans all active markets for unsafe deviation and triggers corrective arbitrage
- * via market-factory report actions when policy conditions are satisfied.
+ * Scans every active market, checks deviation status, and detects markets in unsafe
+ * pricing bands. For eligible markets, it submits `priceCorrection` reports with
+ * configured spending and improvement limits to push prices back toward canonical values.
  */
 export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string => {
   if (runtime.config.evms.length === 0) {
@@ -116,7 +117,6 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
         data: bytesToHex(deviationResult.data),
       }) as readonly [number, bigint, bigint, bigint, boolean, boolean];
 
-      // DeviationBand.Unsafe = 2
       if (Number(band) !== 2) {
         continue;
       }

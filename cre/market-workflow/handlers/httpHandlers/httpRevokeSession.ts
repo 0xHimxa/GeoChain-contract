@@ -38,6 +38,11 @@ const makeResponse = (requestId: string, reason: string): string => {
   } satisfies RevokeResponse);
 };
 
+/**
+ * Accepts a signed session-revoke request, verifies the EIP-712 signature against
+ * the session owner and chain domain, then marks the stored session as revoked so
+ * future sponsorship requests using that session are rejected.
+ */
 export const revokeSessionHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `revoke_${runtime.now().toISOString()}`;
   const authKeys = runtime.config.httpTriggerAuthorizedKeys || [];

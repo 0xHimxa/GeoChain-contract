@@ -94,6 +94,11 @@ const normalizeExecuteRequest = (req: ExecuteRequest): ExecuteRequest => {
   };
 };
 
+/**
+ * Executes an approved sponsored action by validating the incoming execute payload,
+ * consuming the corresponding Firestore approval exactly once, selecting router or
+ * factory receiver based on action type, and submitting the final on-chain report.
+ */
 export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `req_${runtime.now().toISOString()}`;
   const execPolicy = runtime.config.executePolicy;

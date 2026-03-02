@@ -29,8 +29,9 @@ import {
 
 
 /**
- * Pulls canonical prices from hub markets and propagates them to all configured spoke factories.
- * Each sync is submitted as a CRE report with a short validity window.
+ * Reads live yes/no probabilities from hub-chain markets and publishes those values to
+ * each spoke factory using `syncSpokeCanonicalPrice` reports. Every report includes a
+ * short expiry so spokes reject stale price updates.
  */
 export const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
   if (runtime.config.evms.length < 2) {

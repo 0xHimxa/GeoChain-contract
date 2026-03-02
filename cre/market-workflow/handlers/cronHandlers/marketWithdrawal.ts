@@ -25,8 +25,9 @@ import {
 
 
 /**
- * Processes queued post-resolution withdrawals on each configured market factory.
- * Sends a bounded batch request so the queue can be drained incrementally without exceeding gas limits.
+ * Iterates over all configured market factories and submits the
+ * `processPendingWithdrawals` report action with a fixed batch size. It is designed
+ * to gradually drain queued post-resolution withdrawals while tracking success/failure per chain.
  */
 export const processPendingWithdrawalsHandler = (runtime: Runtime<Config>): string => {
   let attemptedWrites = 0;

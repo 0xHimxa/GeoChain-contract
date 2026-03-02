@@ -54,6 +54,11 @@ const resolveEvmConfigByRouter = (evms: EvmConfig[], routerAddress: string): Evm
   return null;
 };
 
+/**
+ * Processes router ETH deposit logs by validating event shape, mapping the emitting
+ * router to configured chain policy, converting deposit wei to USDC units, deriving
+ * a deterministic deposit ID, and submitting a `routerCreditFromEth` report.
+ */
 export const ethCreditFromLogsHandler = (runtime: Runtime<Config>, log: EVMLog): string => {
   const policy = runtime.config.ethCreditPolicy;
   if (!policy?.enabled) {

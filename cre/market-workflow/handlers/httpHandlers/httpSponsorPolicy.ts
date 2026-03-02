@@ -3,7 +3,6 @@ import { type Config } from "../../Constant-variable/config";
 import { createApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
 import { validateSessionAuthorization, type SessionAuthorization } from "../utils/sessionValidation";
 
-// Payload shape expected by CRE HTTP trigger callers (frontend/adapter).
 type SponsorRequest = {
   requestId?: string;
   chainId?: number;
@@ -47,17 +46,10 @@ const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
   redeem: "routerRedeem",
 };
 
-/**
- * CRE gives HTTP trigger input as bytes.
- * We decode those bytes into a UTF-8 JSON string.
- */
 const decodePayloadInput = (payload: HTTPPayload): string => {
   return new TextDecoder().decode(payload.input);
 };
 
-/**
- * Parse raw request JSON sent to the HTTP trigger.
- */
 const parseRequest = (raw: string): SponsorRequest => {
   if (!raw.trim()) {
     throw new Error("empty payload");
@@ -65,9 +57,6 @@ const parseRequest = (raw: string): SponsorRequest => {
   return JSON.parse(raw) as SponsorRequest;
 };
 
-/**
- * Amount is represented as string to avoid JS number precision issues.
- */
 const toBigIntAmount = (value?: string): bigint => {
   if (!value) return 0n;
   if (!/^\d+$/.test(value)) {
@@ -86,12 +75,16 @@ const makeDecision = (
   return { approved: false, reason: "invalid request", requestId };
 };
 
+/**
+ * Validates a sponsor request end-to-end: HTTP auth-key gate, supported chain, allowed
+ * action/actionType mapping, amount/slippage limits, sender format, and session signatures.
+ * If valid, it writes a short-lived approval record to Firestore for one-time consumption by execute.
+ */
 export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const policy = runtime.config.sponsorPolicy;
   const executePolicy = runtime.config.executePolicy;
   const authKeys = runtime.config.httpTriggerAuthorizedKeys || [];
 
-  // Fast fail when sponsorship is globally disabled.
   if (!policy?.enabled) {
     return JSON.stringify({
       approved: false,
@@ -100,7 +93,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     } satisfies SponsorDecision);
   }
 
-  // HTTP trigger should be key-gated in CRE config.
   if (authKeys.length === 0) {
     return JSON.stringify({
       approved: false,
@@ -119,7 +111,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
 
   const requestId = request.requestId || `req_${runtime.now().toString()}`;
 
-  // Extra hardcoded allowlist to avoid accidental broad policy config.
   if (request.action && !DEFAULT_ALLOWED_ACTIONS.has(request.action)) {
     return JSON.stringify(makeDecision(requestId, "unknown action"));
   }
@@ -206,7 +197,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     expiresAtUnix: BigInt(approvalExpiresAtUnix),
   });
 
-  // Short-lived approval window so execute flow cannot replay old sponsor decisions forever.
   const decision: SponsorDecision = {
     approved: true,
     reason: "approved by CRE sponsor policy",

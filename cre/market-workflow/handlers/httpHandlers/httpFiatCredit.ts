@@ -61,6 +61,11 @@ const parseRequest = (payload: HTTPPayload): FiatCreditRequest => {
   return JSON.parse(raw) as FiatCreditRequest;
 };
 
+/**
+ * Credits users from off-chain fiat payments by validating provider/chain/user/amount,
+ * consuming a payment record in Firestore to prevent replay, and submitting a
+ * `routerCreditFromFiat` report to the mapped router receiver on the target chain.
+ */
 export const fiatCreditHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `fiat_${runtime.now().toISOString()}`;
   const policy = runtime.config.fiatCreditPolicy;

@@ -28,8 +28,9 @@ import {
 
 
 /**
- * Resolves eligible active markets on the hub chain and then processes
- * pending withdrawal batches on all configured factories.
+ * Loads active markets from the configured hub factory, checks each market for
+ * resolution eligibility, and sends `ResolveMarket` reports for ready markets.
+ * After attempting resolutions, it triggers withdrawal queue processing across factories.
  */
 export const resoloveEvent = (runtime: Runtime<Config>): string => {
   const marketFactoryCallData = encodeFunctionData({

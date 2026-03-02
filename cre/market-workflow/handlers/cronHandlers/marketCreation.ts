@@ -15,7 +15,9 @@ import { type GeminiResponse, type SignupNewUserResponse } from "../../type";
 import { type Config } from "../../Constant-variable/config";
 
 /**
- * Authenticates against Firebase and returns basic account metadata for workflow diagnostics.
+ * Verifies that Firebase authentication is working for this workflow run by requesting
+ * an ID token and logging the returned account identifier. This is a health-check handler
+ * used to confirm credentials and auth connectivity before data and report operations.
  */
 export const authWorkflow = (runtime: Runtime<Config>): string => {
   const response: SignupNewUserResponse = signUpWorkFlow(runtime);
@@ -23,9 +25,6 @@ export const authWorkflow = (runtime: Runtime<Config>): string => {
   return `returned data:  ${response.expiresIn}`;
 };
 
-/**
- * Resolves a chain-specific transaction explorer URL for reporting submitted workflow transactions.
- */
 const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) {
     return `https://sepolia.arbiscan.io/tx/${txHash}`;
@@ -33,10 +32,6 @@ const txExplorer = (chainName: string, txHash: string): string => {
   return `https://sepolia.basescan.org//tx/${txHash}`;
 };
 
-/**
- * Builds, signs, and submits a CRE report to a market factory action endpoint.
- * Throws on revert so callers fail fast when an action cannot be executed.
- */
 const sendActionReport = (
   runtime: Runtime<Config>,
   evmConfig: Config["evms"][number],
@@ -85,8 +80,9 @@ const sendActionReport = (
 };
 
 /**
- * Generates a candidate market from Firestore + Gemini data and submits `createMarket`
- * action reports to all configured market factories.
+ * Pulls recent events from Firestore, asks Gemini for a new candidate market question,
+ * persists that generated event back to Firestore, then submits a `createMarket` report
+ * to every configured market factory so the same market is created across chains.
  */
 export const createPredictionMarketEvent = (runtime: Runtime<Config>): string => {
   const authInfo: SignupNewUserResponse = signUpWorkFlow(runtime);
@@ -123,8 +119,9 @@ export const createPredictionMarketEvent = (runtime: Runtime<Config>): string =>
 }
 
 /**
- * Creates a fixed demo event and submits `createMarket` action reports to all configured factories.
- * Intended for smoke testing workflow-to-contract integration.
+ * Creates a deterministic demo market with short close and resolution times, then sends
+ * `createMarket` reports to all configured market factories. This handler is meant for
+ * smoke testing end-to-end report submission without Firestore or Gemini dependencies.
  */
 export const createEventHelper = (runtime: Runtime<Config>): string => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";

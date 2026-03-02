@@ -38,8 +38,9 @@ const erc20BalanceOfAbi = parseAbi(["function balanceOf(address account) view re
 
 
 /**
- * Monitors bridge and factory collateral balances on each configured chain and submits
- * mint top-up reports when balances fall below configured thresholds.
+ * Reads collateral balances for each market factory, its bridge, and its router, then
+ * submits `mintCollateralTo` reports when any balance drops below configured thresholds.
+ * This keeps operational liquidity available for factory actions and cross-chain routing.
  */
 export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
   const marketFactoryCollateralCallData = encodeFunctionData({
