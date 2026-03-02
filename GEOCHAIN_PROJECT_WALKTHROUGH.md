@@ -12,9 +12,10 @@ Prediction markets are one of the most powerful tools for real-time information 
 
 | Pain Point | What Happens Today |
 |---|---|
-| **Wallet fatigue** | Every trade requires 2–3 separate wallet signatures (approve → deposit → swap). Users abandon markets because interacting is exhausting. |
+| **Crypto-native gatekeeping** | Users need a browser extension wallet, a seed phrase, and existing crypto just to get started. This eliminates 99% of potential participants. |
+| **Bundler dependency** | Platforms that offer gasless trading rely on Account Abstraction (ERC-4337) bundlers (Pimlico, Stackup, etc.) — adding infrastructure, latency, extra cost, and another service that can fail. |
 | **Chain lock-in** | Your funds are stuck on one chain. If a market lives on Arbitrum and your money is on Base, you're out of luck. |
-| **No fiat onramp** | Most platforms require users to already hold crypto. This excludes 99% of potential participants. |
+| **No fiat onramp** | Most platforms require users to already hold crypto. Fiat payment rails are treated as afterthoughts. |
 | **Opaque resolution** | Markets resolve through centralized admin actions with no transparency about *why* an outcome was chosen. |
 
 ### For Operators
@@ -30,9 +31,9 @@ Prediction markets are one of the most powerful tools for real-time information 
 
 ## Our Solution: GeoChain
 
-**GeoChain is a cross-chain prediction market protocol where Chainlink CRE replaces five backend services with one orchestrated workflow runtime.**
+**GeoChain is a cross-chain prediction market protocol where Chainlink CRE replaces five backend services — and the entire AA/bundler stack — with one orchestrated workflow runtime.**
 
-Users trade with zero gas signatures. Markets create themselves. Prices stay synchronized. Liquidity never runs dry. And every action is policy-enforced and replay-protected.
+Users sign in with email and password (Web2 onboarding), trade with zero gas, and never install a wallet extension. Markets create themselves. Prices stay synchronized. Liquidity never runs dry. And every action is policy-enforced and replay-protected — with no bundler, no Paymaster contract, and no UserOp mempool.
 
 ### Three Layers, One System
 
@@ -107,7 +108,7 @@ User clicks "Buy YES"
    └───────────────────┘
 ```
 
-**Why this matters:** The user signed once. CRE handled policy, approval, consumption, and on-chain execution. No MetaMask popups. No gas fee. No replay possible.
+**Why this matters:** There is no AA bundler in this pipeline. No UserOp, no Paymaster, no bundler queue. CRE IS the execution infrastructure — it validates, approves, and writes the on-chain report directly. The user signed in with Web2 credentials and traded with one click.
 
 ### Flow 2 — Automated Market Lifecycle
 

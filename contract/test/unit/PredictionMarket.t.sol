@@ -116,6 +116,12 @@ contract PredictionMarketTest is Test {
         vm.warp(market.resolutionTime() + 1);
     }
 
+    function _resolveAndFinalize(Resolution outcome, string memory proofUrl) internal {
+        market.resolve(outcome, proofUrl);
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
+    }
+
     function _newUnseededMarket() internal returns (PredictionMarket m) {
         m = PredictionMarket(
             mockFactory.deployMarket(
@@ -563,7 +569,7 @@ contract PredictionMarketTest is Test {
 
     function testMintRevertWhenResolved() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         _fundAndApproveCollateral(alice, 2e6);
         vm.prank(alice);
@@ -592,8 +598,45 @@ contract PredictionMarketTest is Test {
         vm.prank(FORWARDER);
         market.onReport("", report);
 
+        assertEq(uint256(market.state()), uint256(State.Review));
+        assertEq(uint256(market.proposedResolution()), uint256(Resolution.Yes));
+    }
+
+    function testFinalizeResolutionAfterDisputeWindowSuccess() external {
+        _warpAfterResolution();
+        market.resolve(Resolution.Yes, "ipfs://proof");
+
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
+
         assertEq(uint256(market.state()), uint256(State.Resolved));
         assertEq(uint256(market.resolution()), uint256(Resolution.Yes));
+    }
+
+    function testFinalizeResolutionAfterDisputeWindowRevertsWhenTooEarly() external {
+        _warpAfterResolution();
+        market.resolve(Resolution.Yes, "ipfs://proof");
+
+        vm.expectRevert(MarketErrors.PredictionMarket__DisputeWindowNotPassed.selector);
+        market.finalizeResolutionAfterDisputeWindow();
+    }
+
+    function testDisputeProposedResolutionRequiresManualFinalizePath() external {
+        _warpAfterResolution();
+        market.resolve(Resolution.Yes, "ipfs://proof");
+
+        vm.prank(alice);
+        market.disputeProposedResolution();
+
+        assertEq(market.resolutionDisputed(), true);
+
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        vm.expectRevert(MarketErrors.PredictionMarket__ManualReviewNeeded.selector);
+        market.finalizeResolutionAfterDisputeWindow();
+
+        market.manualResolveMarket(Resolution.No, "ipfs://manual-proof");
+        assertEq(uint256(market.state()), uint256(State.Resolved));
+        assertEq(uint256(market.resolution()), uint256(Resolution.No));
     }
 
     function testResolveRevertsWhenLocalResolutionDisabledOnSpoke() external {
@@ -608,6 +651,14 @@ contract PredictionMarketTest is Test {
         _warpAfterResolution();
 
         market.resolve(Resolution.Yes, "ipfs://proof");
+
+        assertEq(uint256(market.state()), uint256(State.Review));
+        assertEq(uint256(market.proposedResolution()), uint256(Resolution.Yes));
+        assertEq(uint256(market.resolution()), uint256(Resolution.Unset));
+        assertEq(mockFactory.removeCount(), 0);
+
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
 
         assertEq(uint256(market.state()), uint256(State.Resolved));
         assertEq(uint256(market.resolution()), uint256(Resolution.Yes));
@@ -645,6 +696,8 @@ contract PredictionMarketTest is Test {
         _warpAfterResolution();
 
         market.resolve(Resolution.Yes, "ipfs://hub-proof");
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
 
         assertEq(uint256(mockFactory.lastHubOutcome()), uint256(Resolution.Yes));
         assertEq(mockFactory.lastHubProofUrl(), "ipfs://hub-proof");
@@ -683,7 +736,7 @@ contract PredictionMarketTest is Test {
     function testRedeemAfterResolutionYes() external {
         _mintCompleteSets(alice, 10e6);
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         uint256 redeemAmount = 1e6;
         uint256 beforeCollateral = collateral.balanceOf(alice);
@@ -698,7 +751,7 @@ contract PredictionMarketTest is Test {
     function testRedeemAfterResolutionNo() external {
         _mintCompleteSets(alice, 10e6);
         _warpAfterResolution();
-        market.resolve(Resolution.No, "ipfs://proof");
+        _resolveAndFinalize(Resolution.No, "ipfs://proof");
 
         uint256 beforeCollateral = collateral.balanceOf(alice);
         vm.prank(alice);
@@ -714,7 +767,7 @@ contract PredictionMarketTest is Test {
 
     function testRedeemRevertWhenAmountZero() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         vm.prank(alice);
         vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
         market.redeem(0);
@@ -722,7 +775,7 @@ contract PredictionMarketTest is Test {
 
     function testWithdrawLiquidityCollateralAfterResolveYes() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         uint256 sharesToWithdraw = 100e6;
         uint256 beforeCollateral = collateral.balanceOf(address(this));
@@ -735,7 +788,7 @@ contract PredictionMarketTest is Test {
 
     function testWithdrawLiquidityCollateralAfterResolveNo() external {
         _warpAfterResolution();
-        market.resolve(Resolution.No, "ipfs://proof");
+        _resolveAndFinalize(Resolution.No, "ipfs://proof");
         uint256 beforeCollateral = collateral.balanceOf(address(this));
         market.withdrawLiquidityCollateral(100e6);
         assertEq(collateral.balanceOf(address(this)), beforeCollateral + 100e6);
@@ -748,14 +801,14 @@ contract PredictionMarketTest is Test {
 
     function testWithdrawLiquidityCollateralRevertWhenZeroShares() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn.selector);
         market.withdrawLiquidityCollateral(0);
     }
 
     function testWithdrawLiquidityCollateralRevertWhenInsufficientShares() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance.selector);
         vm.prank(alice);
         market.withdrawLiquidityCollateral(1);
@@ -775,7 +828,7 @@ contract PredictionMarketTest is Test {
         uint256 expectedFee = (amount * 300) / 10_000;
 
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         market.setCrossChainController(address(this));
 
         uint256 beforeOwnerBalance = collateral.balanceOf(address(this));
@@ -787,7 +840,7 @@ contract PredictionMarketTest is Test {
 
     function testWithdrawProtocolFeesNoOpWhenNoFees() external {
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         market.setCrossChainController(address(this));
         uint256 beforeOwnerBalance = collateral.balanceOf(address(this));
         market.withdrawProtocolFees();
@@ -804,7 +857,7 @@ contract PredictionMarketTest is Test {
     function testWithdrawProtocolFeesRevertInsufficientFeeBalance() external {
         _mintCompleteSets(alice, 2e6);
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         market.setCrossChainController(address(this));
         uint256 burnAmount = collateral.balanceOf(address(market)) - (market.protocolCollateralFees() - 1);
         collateral.burn(address(market), burnAmount);
@@ -817,7 +870,7 @@ contract PredictionMarketTest is Test {
         uint256 fee = market.protocolCollateralFees();
 
         _warpAfterResolution();
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
         market.setCrossChainController(address(this));
 
         uint256 keep = fee - 1;

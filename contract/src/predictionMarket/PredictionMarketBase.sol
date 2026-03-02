@@ -19,6 +19,12 @@ import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTempl
 abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, PausableUpgradeable, ReceiverTemplateUpgradeable {
     using SafeERC20 for IERC20;
 
+    struct DisputeSubmission {
+        address disputer;
+        Resolution proposedOutcome;
+        uint256 submittedAt;
+    }
+
     /// @notice Human-readable market question.
     string public s_question;
     /// @notice Resolution proof URI stored when market is finalized.
@@ -33,6 +39,10 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     uint256 public closeTime;
     /// @notice Earliest timestamp the market can be resolved.
     uint256 public resolutionTime;
+    /// @notice Duration for disputing an initially proposed resolution.
+    uint256 public disputeWindow;
+    /// @notice End timestamp of the active dispute period for a proposed outcome.
+    uint256 public disputeDeadline;
     /// @notice Factory-assigned identifier, set once.
     uint256 public marketId;
 
@@ -59,6 +69,16 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     State public state;
     /// @notice Final or interim resolution value.
     Resolution public resolution;
+    /// @notice Provisional outcome awaiting dispute-window finalization.
+    Resolution public proposedResolution;
+    /// @notice Proof URL submitted with the provisional outcome.
+    string public proposedProofUrl;
+    /// @notice True once a provisional resolution has been disputed.
+    bool public resolutionDisputed;
+    /// @notice True when an account already submitted one dispute for this market.
+    mapping(address => bool) public hasSubmittedDispute;
+    /// @notice Ordered list of all dispute submissions for the active proposal.
+    DisputeSubmission[] public disputeSubmissions;
     /// @notice True when inconclusive result requires manual finalize call.
     bool internal manualReviewNeeded;
     /// @notice Parent factory reference for cross-contract coordination.
@@ -164,6 +184,7 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         i_collateral = IERC20(_collateral);
         closeTime = _closeTime;
         resolutionTime = _resolutionTime;
+        disputeWindow = MarketConstants.DEFAULT_DISPUTE_WINDOW;
 
         state = State.Open;
         softDeviationBps = 150;
@@ -442,6 +463,10 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         resolution = _outcome;
         s_Proof_Url = proofUrl;
         manualReviewNeeded = false;
+        proposedResolution = Resolution.Unset;
+        proposedProofUrl = "";
+        disputeDeadline = 0;
+        resolutionDisputed = false;
         state = State.Resolved;
 
         if (removeFromFactory) {

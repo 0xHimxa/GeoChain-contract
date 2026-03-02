@@ -23,7 +23,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// - rejects local resolution on spoke markets controlled by hub,
     /// - requires `resolutionTime` reached and state already `Closed`,
     /// - if outcome is `Inconclusive`, moves market to manual `Review` state,
-    /// - otherwise requires non-empty proof URL and finalizes immediately.
+    /// - otherwise stores a provisional outcome and opens the dispute window.
     function _resolve(Resolution _outcome, string memory proofUrl) internal {
         _revertIfLocalResolutionDisabled();
         _updateState();
@@ -45,12 +45,69 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             emit MarketEvents.IsUnderManualReview(_outcome);
             return;
         }
+        if (_outcome == Resolution.Unset) {
+            revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
+        }
 
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
         }
 
-        _finalizeResolution(_outcome, proofUrl, true, true);
+        proposedResolution = _outcome;
+        proposedProofUrl = proofUrl;
+        disputeDeadline = block.timestamp + disputeWindow;
+        resolutionDisputed = false;
+        state = State.Review;
+
+        emit MarketEvents.ResolutionProposed(_outcome, disputeDeadline, proofUrl);
+    }
+
+    /// @notice Updates dispute-window duration used for new resolution proposals.
+    function setDisputeWindow(uint256 newDisputeWindow) external onlyOwner {
+        if (newDisputeWindow == 0) {
+            revert MarketErrors.PredictionMarket__DisputeWindowMustBeGreaterThanZero();
+        }
+        disputeWindow = newDisputeWindow;
+    }
+
+    /// @notice Disputes an active provisional resolution while challenge period is open.
+    /// @dev Each account can submit at most one dispute for the market.
+    function disputeProposedResolution(Resolution proposedOutcome) external {
+        if (state != State.Review || proposedResolution == Resolution.Unset) {
+            revert MarketErrors.PredictionMarket__NoPendingResolution();
+        }
+        if (hasSubmittedDispute[msg.sender]) {
+            revert MarketErrors.PredictionMarket__DisputeAlreadySubmittedByUser();
+        }
+        if (block.timestamp > disputeDeadline) {
+            revert MarketErrors.PredictionMarket__DisputeWindowClosed();
+        }
+        if (proposedOutcome == Resolution.Unset) {
+            revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
+        }
+
+        hasSubmittedDispute[msg.sender] = true;
+        disputeSubmissions.push(
+            DisputeSubmission({disputer: msg.sender, proposedOutcome: proposedOutcome, submittedAt: block.timestamp})
+        );
+        resolutionDisputed = true;
+        manualReviewNeeded = true;
+        emit MarketEvents.ResolutionDisputed(msg.sender, proposedOutcome);
+    }
+
+    /// @notice Finalizes a provisional resolution after dispute window if no dispute was raised.
+    function finalizeResolutionAfterDisputeWindow() external {
+        if (state != State.Review || proposedResolution == Resolution.Unset) {
+            revert MarketErrors.PredictionMarket__NoPendingResolution();
+        }
+        if (manualReviewNeeded || resolutionDisputed) {
+            revert MarketErrors.PredictionMarket__ManualReviewNeeded();
+        }
+        if (block.timestamp <= disputeDeadline) {
+            revert MarketErrors.PredictionMarket__DisputeWindowNotPassed();
+        }
+
+        _finalizeResolution(proposedResolution, proposedProofUrl, true, true);
     }
 
     /// @notice Redeems winning outcome token after market resolution.
@@ -98,7 +155,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
 
-        _finalizeResolution(_outcome, proofUrl, false, true);
+        bool removeFromFactory = proposedResolution != Resolution.Unset;
+        _finalizeResolution(_outcome, proofUrl, removeFromFactory, true);
     }
 
     /// @notice Sets cross-chain controller authorized for hub sync actions.
@@ -133,7 +191,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         if (_outcome == Resolution.Unset || _outcome == Resolution.Inconclusive) {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
-        if (state == State.Resolved) {
+        if (state == State.Resolved || (state == State.Review && proposedResolution != Resolution.Unset)) {
             revert MarketErrors.PredictionMarket__AlreadyResolved();
         }
 
@@ -178,5 +236,10 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @dev Returns true only when close-time and resolution-time windows have both passed.
     function checkResolutionTime() external view returns (bool resolveReady) {
         resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
+    }
+
+    /// @notice Returns total number of stored dispute submissions.
+    function getDisputeSubmissionsCount() external view returns (uint256) {
+        return disputeSubmissions.length;
     }
 }

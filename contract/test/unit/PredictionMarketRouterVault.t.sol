@@ -113,6 +113,12 @@ contract PredictionMarketRouterVaultTest is Test {
         noToken = IMockMarket(marketAddress).noToken();
     }
 
+    function _resolveAndFinalize(Resolution outcome, string memory proofUrl) internal {
+        market.resolve(outcome, proofUrl);
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
+    }
+
     function testConstructorRevertZeroCollateral() external {
         vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
         new PredictionMarketRouterVault(address(0), forwarder, owner, marketFactory);
@@ -386,7 +392,7 @@ contract PredictionMarketRouterVaultTest is Test {
         router.mintCompleteSets(address(market), mintAmount);
 
         vm.warp(block.timestamp + 3 days);
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         (address yesToken, address noToken) = _getMockMarketTokens(address(market));
         uint256 collateralBefore = router.collateralCredits(alice);
@@ -422,7 +428,7 @@ contract PredictionMarketRouterVaultTest is Test {
         router.mintCompleteSets(address(market), 30e6);
 
         vm.warp(block.timestamp + 3 days);
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));

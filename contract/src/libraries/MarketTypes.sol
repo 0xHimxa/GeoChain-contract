@@ -38,6 +38,8 @@ library MarketConstants {
     uint256 internal constant PRICE_PRECISION = 1e6;
     /// @dev Per-user exposure cap for non-exempt mintCompleteSets callers.
     uint256 internal constant MAX_RISK_EXPOSURE = 10000e6;
+    /// @dev Default duration for market resolution disputes.
+    uint256 internal constant DEFAULT_DISPUTE_WINDOW = 1 hours;
 }
 
 /// @title MarketEvents
@@ -47,6 +49,10 @@ library MarketEvents {
     event Trade(address indexed user, bool yesForNo, uint256 amountIn, uint256 amountOut);
     /// @dev Market reached final resolved state.
     event Resolved(Resolution outcome);
+    /// @dev Initial market outcome proposed and pending dispute window expiry.
+    event ResolutionProposed(Resolution indexed outcome, uint256 indexed disputeDeadline, string proofUrl);
+    /// @dev Proposed resolution was disputed by a participant.
+    event ResolutionDisputed(address indexed disputer, Resolution indexed proposedOutcome);
     /// @dev User redeemed winning token for collateral.
     event Redeemed(address indexed user, uint256 amount);
     /// @dev User minted YES+NO pair from collateral.
@@ -122,4 +128,10 @@ library MarketErrors {
     error PredictionMarket__InvalidReport();
     error PredictionMarket__MarketFactoryAddressCantBeZero();
     error PredictionMarket__CrossChainControllerCantBeZero();
+    error PredictionMarket__DisputeWindowMustBeGreaterThanZero();
+    error PredictionMarket__NoPendingResolution();
+    error PredictionMarket__DisputeWindowNotPassed();
+    error PredictionMarket__DisputeWindowClosed();
+    error PredictionMarket__ResolutionAlreadyDisputed();
+    error PredictionMarket__DisputeAlreadySubmittedByUser();
 }

@@ -83,6 +83,12 @@ contract PredictionMarketStatelessFuzzTest is Test {
         netAmount = amount - ((amount * MarketConstants.MINT_COMPLETE_SETS_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS);
     }
 
+    function _resolveAndFinalize(Resolution outcome, string memory proofUrl) internal {
+        market.resolve(outcome, proofUrl);
+        vm.warp(block.timestamp + market.disputeWindow() + 1);
+        market.finalizeResolutionAfterDisputeWindow();
+    }
+
     function testFuzz_MintCompleteSets_MintsEqualOutcomeTokens(uint96 amountRaw) external {
         uint256 amount = bound(uint256(amountRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
 
@@ -197,7 +203,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
         uint256 redeemAmount = bound(uint256(redeemRaw), MarketConstants.MINIMUM_AMOUNT, mintedNet);
 
         vm.warp(market.resolutionTime() + 1);
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         uint256 beforeCollateral = collateral.balanceOf(alice);
 
@@ -215,7 +221,7 @@ contract PredictionMarketStatelessFuzzTest is Test {
         _mintAndApprove(alice, mintAmount);
 
         vm.warp(market.resolutionTime() + 1);
-        market.resolve(Resolution.Yes, "ipfs://proof");
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
         uint256 feeBalance = market.protocolCollateralFees();
         vm.assume(feeBalance > 0);
