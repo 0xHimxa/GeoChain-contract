@@ -2,6 +2,13 @@
 
 This template provides a simple Typescript workflow example. It shows how to create a simple "Hello World" workflow using Typescript.
 
+## Agentic mode documentation
+
+For the full explanation of the agent trading integration (router delegation, CRE handlers, config, and security model), see:
+
+- `README-agentic-mode.md`
+- `README-agentic-setup.md`
+
 Steps to run the example
 
 ## 1. Update .env file

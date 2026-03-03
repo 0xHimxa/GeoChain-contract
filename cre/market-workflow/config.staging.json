@@ -18,6 +18,12 @@
       "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
     }
   ],
+  "httpAgentAuthorizedKeys": [
+    {
+      "type": "KEY_TYPE_ECDSA_EVM",
+      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
+    }
+  ],
   "sponsorPolicy": {
     "enabled": true,
     "supportedChainIds": [
@@ -62,9 +68,37 @@
       "routerAddLiquidity",
       "routerRemoveLiquidity",
       "routerDisputeProposedResolution",
+      "routerAgentMintCompleteSets",
+      "routerAgentRedeemCompleteSets",
+      "routerAgentRedeem",
+      "routerAgentSwapYesForNo",
+      "routerAgentSwapNoForYes",
+      "routerAgentAddLiquidity",
+      "routerAgentRemoveLiquidity",
+      "routerAgentDisputeProposedResolution",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]
+  },
+  "agentPolicy": {
+    "enabled": true,
+    "supportedChainIds": [
+      421614,
+      84532
+    ],
+    "allowedActions": [
+      "addLiquidity",
+      "removeLiquidity",
+      "swapYesForNo",
+      "swapNoForYes",
+      "mintCompleteSets",
+      "redeemCompleteSets",
+      "redeem",
+      "disputeProposedResolution"
+    ],
+    "maxAmountUsdc": "10000000000",
+    "maxSlippageBps": 300,
+    "defaultSlippageBps": 100
   },
   "ethCreditPolicy": {
     "enabled": true,

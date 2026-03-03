@@ -44,6 +44,7 @@ const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 const ROUTER_ACTION_PREFIX = "router";
 const ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
   "routerDisputeProposedResolution",
+  "routerAgentDisputeProposedResolution",
 ]);
 
 const toBigIntAmount = (value?: string): bigint => {

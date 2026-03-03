@@ -44,6 +44,10 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     error Router__ActionNotRecognized();
     error Router__RiskExposureExceeded();
     error Router__MarketNotResolved();
+    error Router__AgentNotAuthorized();
+    error Router__AgentPermissionExpired();
+    error Router__AgentActionNotAllowed();
+    error Router__AgentAmountExceeded();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
     bytes32 internal constant HASHED_DEPOSIT_FOR = keccak256(abi.encode("routerDepositFor"));
@@ -59,6 +63,32 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     bytes32 internal constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
     bytes32 internal constant HASHED_REDEEM_WINNINGS = keccak256(abi.encode("routerRedeem"));
     bytes32 internal constant HASHED_DISPUTE = keccak256(abi.encode("routerDisputeProposedResolution"));
+  
+  //Agents
+    bytes32 internal constant HASHED_AGENT_MINT = keccak256(abi.encode("routerAgentMintCompleteSets"));
+    bytes32 internal constant HASHED_AGENT_REDEEM = keccak256(abi.encode("routerAgentRedeemCompleteSets"));
+    bytes32 internal constant HASHED_AGENT_SWAP_YES_FOR_NO = keccak256(abi.encode("routerAgentSwapYesForNo"));
+    bytes32 internal constant HASHED_AGENT_SWAP_NO_FOR_YES = keccak256(abi.encode("routerAgentSwapNoForYes"));
+    bytes32 internal constant HASHED_AGENT_ADD_LIQ = keccak256(abi.encode("routerAgentAddLiquidity"));
+    bytes32 internal constant HASHED_AGENT_REMOVE_LIQ = keccak256(abi.encode("routerAgentRemoveLiquidity"));
+    bytes32 internal constant HASHED_AGENT_REDEEM_WINNINGS = keccak256(abi.encode("routerAgentRedeem"));
+    bytes32 internal constant HASHED_AGENT_DISPUTE = keccak256(abi.encode("routerAgentDisputeProposedResolution"));
+
+    uint32 internal constant AGENT_ACTION_MINT = 1 << 0;
+    uint32 internal constant AGENT_ACTION_REDEEM_COMPLETE_SETS = 1 << 1;
+    uint32 internal constant AGENT_ACTION_SWAP_YES_FOR_NO = 1 << 2;
+    uint32 internal constant AGENT_ACTION_SWAP_NO_FOR_YES = 1 << 3;
+    uint32 internal constant AGENT_ACTION_ADD_LIQUIDITY = 1 << 4;
+    uint32 internal constant AGENT_ACTION_REMOVE_LIQUIDITY = 1 << 5;
+    uint32 internal constant AGENT_ACTION_REDEEM_WINNINGS = 1 << 6;
+    uint32 internal constant AGENT_ACTION_DISPUTE = 1 << 7;
+
+    struct AgentPermission {
+        bool enabled;
+        uint64 expiresAt;
+        uint128 maxAmountPerAction;
+        uint32 actionMask;
+    }
 
     IERC20 public immutable collateralToken;
     uint256 public totalCollateralCredits;
@@ -71,6 +101,8 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     mapping(address => mapping(address => uint256)) public lpShareCredits;
     mapping(address => uint256) public userRiskExposure;
     mapping(address => bool) public isRiskExempt;
+    //agent Permision
+    mapping(address => mapping(address => AgentPermission)) public agentPermissions;
     mapping(bytes32 => bool) public processedEthDeposits;
 
     event MarketAllowlistUpdated(address indexed market, bool allowed);
@@ -89,6 +121,16 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
     event RouterRiskExemptUpdated(address indexed account, bool exempt);
     event DisputeSubmitted(address indexed user, address indexed market, uint8 proposedOutcome);
+    event AgentPermissionUpdated(
+        address indexed user,
+        address indexed agent,
+        bool enabled,
+        uint32 actionMask,
+        uint128 maxAmountPerAction,
+        uint64 expiresAt
+    );
+    event AgentPermissionRevoked(address indexed user, address indexed agent);
+    event AgentActionExecuted(address indexed user, address indexed agent, string actionType, uint256 boundedAmount);
 
     /// @notice Creates a router vault bound to one collateral token and market factory.
     /// @param collateral Collateral token accepted by all markets reachable via this router.
