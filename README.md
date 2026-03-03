@@ -1,84 +1,203 @@
-# GeoChain — Cross-Chain Prediction Markets Powered by Chainlink CRE
+<p align="center">
+  <h1 align="center">🌐 GeoChain</h1>
+  <p align="center"><strong>Cross-Chain Prediction Markets Powered by Chainlink CRE</strong></p>
+  <p align="center">
+    <a href="https://chain.link/hackathon"><img src="https://img.shields.io/badge/Chainlink-Convergence%20Hackathon%202026-375BD2?style=for-the-badge&logo=chainlink&logoColor=white" alt="Chainlink Convergence Hackathon 2026" /></a>
+    <img src="https://img.shields.io/badge/Track-Prediction%20Markets-FF6B35?style=for-the-badge" alt="Prediction Markets Track" />
+    <img src="https://img.shields.io/badge/Solidity-0.8.33-363636?style=for-the-badge&logo=solidity" alt="Solidity 0.8.33" />
+    <img src="https://img.shields.io/badge/Foundry-Latest-DEA584?style=for-the-badge" alt="Foundry" />
+  </p>
+</p>
 
-> **Chainlink Convergence Hackathon 2026**
+---
 
-A self-operating, cross-chain prediction market protocol where one Chainlink CRE workflow replaces five backend services — enabling Web2 onboarding, gasless trading without AA/bundlers, AI-assisted market creation, and automated cross-chain operations.
+> A self-operating, cross-chain prediction market protocol where **one Chainlink CRE workflow replaces five backend services** — enabling Web2 onboarding, gasless trading without Account Abstraction, AI-assisted market creation, and fully automated cross-chain operations.
 
 ---
 
 ## Table of Contents
 
-- [What Is GeoChain?](#what-is-geochain)
-- [Why It Matters](#why-it-matters)
-- [Architecture](#architecture)
+- [The Problem](#the-problem)
+  - [For Users](#for-users)
+  - [For Operators](#for-operators)
+- [How It's Done Today (And Why It Falls Short)](#how-its-done-today-and-why-it-falls-short)
+- [Our Approach: One CRE Workflow, Zero Backend](#our-approach-one-cre-workflow-zero-backend)
+- [Architecture Overview](#architecture-overview)
 - [Chainlink Integration](#chainlink-integration)
   - [Chainlink CRE (Runtime Environment)](#1-chainlink-cre-runtime-environment)
   - [Chainlink CCIP (Cross-Chain Interoperability)](#2-chainlink-ccip-cross-chain-interoperability)
 - [Smart Contracts](#smart-contracts)
+- [End-to-End Flows](#end-to-end-flows)
 - [Installation & Setup](#installation--setup)
-  - [Prerequisites](#prerequisites)
-  - [1. Clone the Repository](#1-clone-the-repository)
-  - [2. Smart Contracts (Foundry)](#2-smart-contracts-foundry)
-  - [3. CRE Workflow](#3-cre-workflow)
-  - [4. Frontend](#4-frontend)
 - [Deployed Contracts (Testnet)](#deployed-contracts-testnet)
 - [Repository Structure](#repository-structure)
-- [End-to-End Flows](#end-to-end-flows)
 - [Security](#security)
 - [License](#license)
 
 ---
 
-## What Is GeoChain?
+## The Problem
 
-GeoChain is a binary prediction market protocol deployed across multiple EVM chains. Users sign in with email and password, trade YES/NO outcomes with zero gas, fund their vault from crypto or fiat, and never install a wallet extension.
+### For Users
 
-Behind the scenes, a single Chainlink CRE workflow handles:
-- **Sponsored execution** — policy-enforced gasless trading, no AA/bundler needed
-- **Market creation** — AI-generated questions via Gemini, deployed to all chains
-- **Price synchronization** — hub→spoke canonical price propagation
-- **Arbitrage correction** — automated price deviation repair
-- **Auto-resolution** — markets resolve when their time arrives
-- **Liquidity management** — collateral top-ups and withdrawal queue processing
-- **Multi-source funding** — USDC deposits, fiat payments, and ETH transfers
-
----
-
-## Why It Matters
-
-**The user problem:** Prediction markets still gate users behind crypto wallets and seed phrases. Even gasless platforms depend on Account Abstraction bundlers (Pimlico, Stackup) plus Paymaster contracts — adding infrastructure, latency, and cost.
-
-**The operator problem:** Running a prediction market in production requires 5–6 separate backend services (relayer, cron jobs, event listener, cross-chain sync, database locks). Each one is a deployment, a monitoring dashboard, and a failure point.
-
-**GeoChain's approach:** CRE replaces the entire backend stack. One workflow, one config file, one runtime. Users get Web2 onboarding with non-custodial security. Operators get self-operating markets.
-
----
-
-## Architecture
+Prediction markets have grown into a $3.5B+ industry (Polymarket alone processed $9B in 2024). Yet the vast majority of people **never place a single trade** — not because they're uninterested, but because the onboarding flow still looks like this:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                     FRONTEND (React + Vite)                  │
-│   Web2 sign-in · Session wallet · Multi-chain · Fiat/ETH     │
-└───────────────────────┬──────────────────────────────────────┘
-                        │ HTTP triggers
-┌───────────────────────▼──────────────────────────────────────┐
-│               CHAINLINK CRE WORKFLOW (TypeScript)            │
-│   13 handlers · 3 trigger types · 1 unified runtime          │
-│                                                              │
-│   Cron ──► Market creation · Price sync · Arbitrage          │
-│            Resolution · Liquidity top-up · Withdrawals       │
-│   HTTP ──► Sponsor policy · Execute report · Fiat credit     │
-│            Session revocation                                │
-│   Log  ──► ETH deposit credit                                │
-└───────────────────────┬──────────────────────────────────────┘
-                        │ On-chain reports (writeReport)
-┌───────────────────────▼──────────────────────────────────────┐
-│            SMART CONTRACTS (Solidity 0.8.33, Foundry)         │
-│                                                              │
-│   Arbitrum Sepolia (HUB) ◄── CCIP ──► Base Sepolia (SPOKE)  │
-│   MarketFactory · PredictionMarket · RouterVault · Bridge    │
-└──────────────────────────────────────────────────────────────┘
+Install MetaMask → Write down 12 words → Buy ETH on Coinbase →
+Transfer to wallet → Bridge to L2 → Approve USDC → Finally trade
+```
+
+That's **7 steps** before a single "Yes" or "No" bet. Polymarket simplified this with custodial accounts, but at the cost of centralization — a fact underscored when their third-party auth provider was breached in December 2025. Account Abstraction (ERC-4337) promises gasless UX, but requires bundlers (Pimlico, Stackup, Alchemy), Paymaster contracts, and EntryPoint coordination — adding 3–4 infrastructure dependencies to the stack.
+
+**The result:** either you sacrifice decentralization for UX, or you sacrifice UX for decentralization.
+
+### For Operators
+
+Running a production prediction market today isn't just deploying a smart contract — it's operating a distributed system:
+
+| Service | Responsibility | Failure Mode |
+|---|---|---|
+| **Relayer / Bundler** | Submit gasless transactions | Drops trades if mempool is full |
+| **Cron Service** | Create markets, trigger resolution | Silent failure = markets never resolve |
+| **Event Listener** | Detect deposits, track on-chain events | Missed events = lost user funds |
+| **Cross-Chain Sync** | Keep prices consistent across chains | Stale prices = arbitrage attacks |
+| **Database + Auth** | Track user sessions, payment state | Single point of failure |
+| **AI / Oracle Adapter** | Generate market questions, fetch outcomes | API key expiry = halted market creation |
+
+That's **6 separate services**, each requiring its own deployment pipeline, monitoring dashboard, error recovery strategy, and on-call rotation. Operators must maintain uptime across all of them simultaneously — one service going down can cascade into user-facing failures.
+
+---
+
+## How It's Done Today (And Why It Falls Short)
+
+| Dimension | Polymarket | Kalshi | AA-Based Prediction Markets | **GeoChain** |
+|---|---|---|---|---|
+| **User Onboarding** | Email sign-up (custodial) | KYC + bank account | Wallet required + bundler overhead | Email + password → session wallet |
+| **Gasless Trading** | Paid by Polymarket (centralized relay) | N/A (centralized exchange) | ERC-4337 bundler + Paymaster | CRE-sponsored execution (no bundler) |
+| **Trade Execution** | Off-chain CLOB + on-chain settlement | Fully off-chain | On-chain via smart accounts | On-chain via CRE `writeReport()` |
+| **Cross-Chain** | Single chain (Polygon) | No blockchain | Not typically cross-chain | Hub + spoke via CCIP |
+| **Market Creation** | Admin/governance | Regulatory + human curated | Manual | AI-generated (Gemini) via CRE cron |
+| **Resolution** | UMA Optimistic Oracle (24h+ delay) | Human adjudication | Varies | Automated CRE cron + optional dispute window |
+| **Backend Services** | 5–6 (relayer, event listener, CLOB engine, DB, oracle adapter, cron) | Traditional exchange stack | Bundler, Paymaster, EntryPoint, relayer, cron | **1** (single CRE workflow) |
+| **Custody Model** | Hybrid (custodial hot wallets) | Fully custodial | Non-custodial (smart accounts) | Non-custodial (browser-local encrypted wallet) |
+| **Price Consistency** | Single chain, N/A | N/A | N/A | Canonical pricing + deviation bands + auto-arbitrage |
+| **Funding Options** | Crypto (USDC on Polygon) | Fiat (bank transfer) | Crypto only | USDC + fiat + ETH (all via CRE) |
+
+### What Each Approach Gets Wrong
+
+**Polymarket** solved UX but introduced centralization risk — both through its custodial model and its reliance on off-chain infrastructure that has been exploited. Its hybrid CLOB + on-chain architecture creates a timing gap between off-chain matching and on-chain settlement that sophisticated actors can exploit.
+
+**Kalshi** proves the demand for prediction markets is real but operates as a traditional exchange — no blockchain settlement, no composability, no cross-chain. Every market requires regulatory approval, creating a bottleneck.
+
+**AA-based platforms** tackle gasless UX correctly in principle, but in practice add 3–4 infrastructure dependencies (bundler, Paymaster, EntryPoint, factory). Native Ethereum Account Abstraction (EIP-8141) isn't expected until the second half of 2026.
+
+---
+
+## Our Approach: One CRE Workflow, Zero Backend
+
+GeoChain replaces the entire backend stack with a single Chainlink CRE workflow:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│          TRADITIONAL PREDICTION MARKET BACKEND                       │
+│                                                                      │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐       │
+│  │ Relayer │ │  Cron   │ │ Events  │ │ X-Chain │ │ DB/Auth │       │
+│  │ Service │ │ Service │ │ Listener│ │  Sync   │ │ Service │       │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘       │
+│       │           │           │           │           │              │
+│       ▼           ▼           ▼           ▼           ▼              │
+│  5 deployments · 5 dashboards · 5 failure modes · 5 on-call pages   │
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                    REPLACED BY
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│              GEOCHAIN: ONE CRE WORKFLOW                              │
+│                                                                      │
+│  13 handlers · 3 trigger types · BFT consensus · 1 config file      │
+│                                                                      │
+│  Cron ──► Market creation · Price sync · Arbitrage · Resolution     │
+│           Liquidity top-up · Withdrawal processing                   │
+│  HTTP ──► Sponsor policy · Execute report · Fiat credit             │
+│           Session revocation                                         │
+│  Log  ──► ETH deposit credit                                        │
+│                                                                      │
+│  0 servers · 0 databases · 0 dashboards · 0 monitoring              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Key innovations:**
+
+1. **Gasless without AA:** CRE's two-step sponsor→execute flow replaces the entire ERC-4337 stack (bundler, Paymaster, EntryPoint). A policy handler validates the action, writes a one-time approval to Firestore, and a second handler consumes it and submits the on-chain report — all with BFT consensus, no external bundler needed.
+
+2. **Session wallets, not smart accounts:** Users sign in with email/password. A cryptographic key is derived and stored encrypted (AES-GCM) in the browser. This session wallet signs EIP-712 intents that CRE executes on-chain. Non-custodial security, Web2 onboarding.
+
+3. **AI market creation:** A CRE cron handler queries Firestore for pending market requests, calls Gemini AI to generate well-formed questions with resolution criteria, then deploys markets to all configured chains in a single handler execution.
+
+4. **Self-correcting cross-chain markets:** Hub prices are pushed to spokes via CCIP. If spoke AMM prices deviate beyond threshold, CRE's arbitrage handler automatically submits bounded correction trades — no manual intervention, no MEV bots needed.
+
+5. **Multi-source funding in one vault:** The RouterVault accepts USDC deposits, fiat payments (via CRE HTTP handler), and ETH transfers (via CRE log trigger with price conversion). Users see one unified collateral balance regardless of how they funded.
+
+---
+
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                      FRONTEND (React + Vite)                         │
+│   Web2 sign-in · Session wallet · Multi-chain · Fiat/ETH funding     │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │ HTTP triggers
+┌───────────────────────────▼──────────────────────────────────────────┐
+│                CHAINLINK CRE WORKFLOW (TypeScript)                    │
+│   13 handlers · 3 trigger types · 1 unified runtime                  │
+│                                                                      │
+│   Cron ──► Market creation · Price sync · Arbitrage                  │
+│            Resolution · Liquidity top-up · Withdrawals               │
+│   HTTP ──► Sponsor policy · Execute report · Fiat credit             │
+│            Session revocation                                        │
+│   Log  ──► ETH deposit credit                                        │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │ on-chain reports (writeReport)
+┌───────────────────────────▼──────────────────────────────────────────┐
+│             SMART CONTRACTS (Solidity 0.8.33, Foundry)                │
+│                                                                      │
+│   Arbitrum Sepolia (HUB) ◄───── CCIP ─────► Base Sepolia (SPOKE)    │
+│   MarketFactory · PredictionMarket · RouterVault · Bridge            │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+```mermaid
+graph TB
+    subgraph Frontend
+        A[User] -->|email + password| B[Session Wallet]
+        B -->|EIP-712 intent| C[API Server]
+    end
+
+    subgraph CRE["Chainlink CRE (DON)"]
+        C -->|HTTP trigger| D[Sponsor Policy]
+        D -->|Firestore approval| E[Execute Report]
+        F[Cron Trigger] --> G[Market Creation]
+        F --> H[Price Sync]
+        F --> I[Arbitrage]
+        F --> J[Resolution]
+        F --> K[Withdrawals]
+        F --> L[Liquidity Top-Up]
+        M[Log Trigger] --> N[ETH Credit]
+    end
+
+    subgraph Contracts["Smart Contracts"]
+        E -->|writeReport| O[RouterVault]
+        G -->|writeReport| P[MarketFactory]
+        H -->|writeReport| P
+        I -->|writeReport| P
+        J -->|writeReport| Q[PredictionMarket]
+        P -->|CCIP| R[Bridge → Spoke Factory]
+    end
 ```
 
 ---
@@ -87,7 +206,7 @@ Behind the scenes, a single Chainlink CRE workflow handles:
 
 ### 1. Chainlink CRE (Runtime Environment)
 
-CRE is the operational backbone of GeoChain. Every automated action — market creation, price sync, sponsored execution, funding — runs as a CRE handler with BFT consensus.
+CRE is the **operational backbone** of GeoChain. Every automated action — market creation, price sync, sponsored execution, funding — runs as a CRE handler with BFT consensus.
 
 #### CRE Workflow Entry Point
 
@@ -187,6 +306,79 @@ Same flow applies for `broadCastResolution` → `resolveFromHub()`.
 | **OutcomeToken** | Mintable/burnable ERC20 for YES/NO outcomes | [`contract/src/token/`](https://github.com/0xHimxa/GeoChain-contrat/tree/main/contract/src/token) |
 | **Libraries** | `AMMLib` (CPMM math), `FeeLib` (fee handling), `MarketTypes` (enums/constants) | [`contract/src/libraries/`](https://github.com/0xHimxa/GeoChain-contrat/tree/main/contract/src/libraries) |
 | **CanonicalPricingModule** | Deviation band computation (Normal/Stress/Unsafe/CircuitBreaker) | [`contract/src/modules/`](https://github.com/0xHimxa/GeoChain-contrat/tree/main/contract/src/modules) |
+
+---
+
+## End-to-End Flows
+
+### Sponsored Trade (Zero-Gas, No Account Abstraction)
+
+This is **the core innovation** — gasless trading without ERC-4337:
+
+```
+┌─────────┐     ┌──────────┐     ┌──────────────┐     ┌───────────────┐     ┌─────────────┐
+│  User   │     │   API    │     │ CRE: Sponsor │     │ CRE: Execute  │     │ RouterVault │
+│ Browser │     │  Server  │     │   Policy     │     │   Report      │     │  Contract   │
+└────┬────┘     └────┬─────┘     └──────┬───────┘     └──────┬────────┘     └──────┬──────┘
+     │               │                  │                    │                     │
+     │ 1. Sign intent │                  │                    │                     │
+     │──────────────►│                  │                    │                     │
+     │               │ 2. HTTP trigger   │                    │                     │
+     │               │─────────────────►│                    │                     │
+     │               │                  │ 3. Validate:       │                     │
+     │               │                  │    - action allowed │                     │
+     │               │                  │    - chain valid    │                     │
+     │               │                  │    - amount < cap   │                     │
+     │               │                  │    - session active  │                     │
+     │               │                  │ 4. Write approval   │                     │
+     │               │                  │    to Firestore     │                     │
+     │               │ 5. HTTP trigger   │                    │                     │
+     │               │──────────────────┼───────────────────►│                     │
+     │               │                  │                    │ 6. Consume approval  │
+     │               │                  │                    │    (exactly once)    │
+     │               │                  │                    │ 7. writeReport()    │
+     │               │                  │                    │────────────────────►│
+     │               │                  │                    │                     │ 8. _processReport()
+     │               │                  │                    │                     │    dispatches action
+     │ 9. Position updated (zero gas)   │                    │                     │
+     │◄──────────────┼──────────────────┼────────────────────┼─────────────────────│
+```
+
+**Why this is better than ERC-4337:**
+- No bundler service to operate or pay for
+- No Paymaster contract to deploy and fund
+- No EntryPoint dependency
+- BFT consensus provides security guarantees that a single bundler cannot
+- Policy enforcement happens in the CRE handler, not in a separate Paymaster contract
+
+### Fiat Funding
+
+```
+User pays with Google Pay → payment callback hits API → API writes fiat.json
+→ CRE Fiat Credit handler validates provider/amount/chain
+→ Firestore payment record consumed (anti-replay)
+→ writeReport() routerCreditFromFiat → RouterVault credits user
+```
+
+### Cross-Chain Price Sync
+
+```
+CRE syncPrice.ts reads hub AMM prices via callContract()
+→ Submits broadCastPrice report to hub MarketFactory
+→ Hub factory calls ccipSend() with canonical price
+→ CCIP delivers to spoke bridge → spoke factory → market.syncCanonicalPriceFromHub()
+```
+
+### Full Market Lifecycle
+
+```
+1. CRE marketCreation.ts → Gemini AI question → Firestore → createMarket report → all chains
+2. CRE syncPrice.ts → hub prices → spoke sync (every 30s)
+3. CRE arbitrage.ts → unsafe deviation → bounded priceCorrection
+4. CRE resolve.ts → checkResolutionTime() → ResolveMarket report
+5. CRE marketWithdrawal.ts → drain withdrawal queue in batches
+6. CRE topUpMarket.ts → balance check → mintCollateralTo when low
+```
 
 ---
 
@@ -396,49 +588,6 @@ GeoChain-contrat/
         │   └── types.ts                   # TypeScript interfaces
         ├── server.ts                      # Backend API bridge (Bun)
         └── .env.example                   # Environment config template
-```
-
----
-
-## End-to-End Flows
-
-### Sponsored Trade (Zero-Gas)
-
-```
-User clicks "Buy YES" → local wallet signs intent → API sends to CRE
-→ CRE Sponsor Policy validates session/action/amount → writes approval
-→ CRE Execute Report consumes approval → writeReport() to RouterVault
-→ RouterVault._processReport() dispatches routerSwapYesForNo
-→ User position updated (zero gas, one click)
-```
-
-### Fiat Funding
-
-```
-User pays with Google Pay → payment callback hits API → API writes fiat.json
-→ CRE Fiat Credit handler validates provider/amount/chain
-→ Firestore payment record consumed (anti-replay)
-→ writeReport() routerCreditFromFiat → RouterVault credits user
-```
-
-### Cross-Chain Price Sync
-
-```
-CRE syncPrice.ts reads hub AMM prices via callContract()
-→ Submits broadCastPrice report to hub MarketFactory
-→ Hub factory calls ccipSend() with canonical price
-→ CRE delivers to spoke bridge → spoke factory → market.syncCanonicalPriceFromHub()
-```
-
-### Market Lifecycle
-
-```
-CRE marketCreation.ts → Gemini AI question → Firestore → createMarket report → all chains
-CRE syncPrice.ts → hub prices → spoke sync (every 30s)
-CRE arbitrage.ts → unsafe deviation → bounded priceCorrection
-CRE resolve.ts → checkResolutionTime() → ResolveMarket report
-CRE marketWithdrawal.ts → drain withdrawal queue in batches
-CRE topUpMarket.ts → balance check → mintCollateralTo when low
 ```
 
 ---
