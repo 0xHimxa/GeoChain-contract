@@ -41,6 +41,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             state = State.Review;
             resolution = Resolution.Inconclusive;
             marketFactory.removeResolvedMarket(address(this));
+            marketFactory.markMarketForManualReview(address(this));
 
             emit MarketEvents.IsUnderManualReview(_outcome);
             return;
@@ -82,7 +83,11 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         if (block.timestamp > disputeDeadline) {
             revert MarketErrors.PredictionMarket__DisputeWindowClosed();
         }
-        if (proposedOutcome == Resolution.Unset) {
+        uint256 outcomeValue = uint256(proposedOutcome);
+        if (
+            outcomeValue == uint256(Resolution.Unset)
+                || outcomeValue > uint256(Resolution.Inconclusive)
+        ) {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
 
@@ -90,6 +95,11 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         disputeSubmissions.push(
             DisputeSubmission({disputer: msg.sender, proposedOutcome: proposedOutcome, submittedAt: block.timestamp})
         );
+        if (!uniqueDisputedOutcomeSeen[uint8(proposedOutcome)]) {
+            uniqueDisputedOutcomeSeen[uint8(proposedOutcome)] = true;
+            uniqueDisputedOutcomes[uniqueDisputedOutcomesCount] = proposedOutcome;
+            uniqueDisputedOutcomesCount++;
+        }
         resolutionDisputed = true;
         emit MarketEvents.ResolutionDisputed(msg.sender, proposedOutcome);
     }
@@ -135,6 +145,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         if (adjudicatedOutcome == Resolution.Inconclusive) {
             manualReviewNeeded = true;
             resolution = Resolution.Inconclusive;
+               marketFactory.removeResolvedMarket(address(this));
+            marketFactory.markMarketForManualReview(address(this));
+
             emit MarketEvents.IsUnderManualReview(adjudicatedOutcome);
             return;
         }
@@ -295,7 +308,32 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
 
 
 
-    function getDisputeSubmissions() external view returns (DisputeSubmission[] memory) {
-        return disputeSubmissions;
+
+    /// @notice Returns dispute-resolution snapshot used by automation in one call.
+    function getDisputeResolutionSnapshot()
+        external
+        view
+        returns (
+            State marketState,
+            Resolution currentProposedResolution,
+            bool isResolutionDisputed,
+            uint256 currentDisputeDeadline,
+            uint256 currentResolutionTime,
+            string memory question,
+            Resolution[] memory disputedUniqueOutcomes
+        )
+    {
+        Resolution[] memory outcomes = new Resolution[](uniqueDisputedOutcomesCount);
+        for (uint256 i = 0; i < uniqueDisputedOutcomesCount; i++) {
+            outcomes[i] = uniqueDisputedOutcomes[i];
+        }
+
+        marketState = state;
+        currentProposedResolution = proposedResolution;
+        isResolutionDisputed = resolutionDisputed;
+        currentDisputeDeadline = disputeDeadline;
+        currentResolutionTime = resolutionTime;
+        question = s_question;
+        disputedUniqueOutcomes = outcomes;
     }
 }

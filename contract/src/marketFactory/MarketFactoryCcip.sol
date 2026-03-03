@@ -207,6 +207,7 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
 
         if (marketAddress == address(0)) revert MarketFactory__MarketNotFound();
         if (marketId == 0) revert MarketFactory__MarketNotFound();
+        if (!isActiveMarket[market]) return;
 
         if (msg.sender != marketAddress && msg.sender != owner()) {
             revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
@@ -220,7 +221,48 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
         activeMarkets.pop();
 
         delete marketToIndex[market];
+        isActiveMarket[market] = false;
         emit MarkertFactor_ReslovedEventReomved(marketId);
+    }
+
+    /// @notice Marks a market as awaiting manual review.
+    /// @dev Callable by registered market contract or owner. Duplicate marks are ignored.
+    function markMarketForManualReview(address market) external {
+        uint256 marketId = marketIdByAddress[market];
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0) || marketId == 0) revert MarketFactory__MarketNotFound();
+        if (msg.sender != marketAddress && msg.sender != owner()) {
+            revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+        }
+        if (isManualReviewMarket[market]) return;
+
+        isManualReviewMarket[market] = true;
+        manualReviewMarketToIndex[market] = manualReviewMarkets.length;
+        manualReviewMarkets.push(market);
+        emit MarketMarkedForManualReview(marketId, market);
+    }
+
+    /// @notice Removes a market from manual-review tracking.
+    /// @dev Callable by registered market contract or owner. Missing entry is a no-op.
+    function removeManualReviewMarket(address market) external {
+        uint256 marketId = marketIdByAddress[market];
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0) || marketId == 0) revert MarketFactory__MarketNotFound();
+        if (msg.sender != marketAddress && msg.sender != owner()) {
+            revert MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
+        }
+        if (!isManualReviewMarket[market]) return;
+
+        uint256 index = manualReviewMarketToIndex[market];
+        address lastMarket = manualReviewMarkets[manualReviewMarkets.length - 1];
+
+        manualReviewMarkets[index] = lastMarket;
+        manualReviewMarketToIndex[lastMarket] = index;
+        manualReviewMarkets.pop();
+
+        delete manualReviewMarketToIndex[market];
+        delete isManualReviewMarket[market];
+        emit ManualReviewMarketRemoved(marketId, market);
     }
 
     /// @inheritdoc IAny2EVMMessageReceiver

@@ -33,61 +33,16 @@ const factoryAbi = [
 const marketAbi = [
   {
     type: "function",
-    name: "state",
+    name: "getDisputeResolutionSnapshot",
     inputs: [],
-    outputs: [{ name: "", type: "uint8" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "proposedResolution",
-    inputs: [],
-    outputs: [{ name: "", type: "uint8" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "resolutionDisputed",
-    inputs: [],
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "disputeDeadline",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "resolutionTime",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "s_question",
-    inputs: [],
-    outputs: [{ name: "", type: "string" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "getDisputeSubmissionsCount",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "disputeSubmissions",
-    inputs: [{ name: "", type: "uint256" }],
     outputs: [
-      { name: "disputer", type: "address" },
-      { name: "proposedOutcome", type: "uint8" },
-      { name: "submittedAt", type: "uint256" },
+      { name: "marketState", type: "uint8" },
+      { name: "currentProposedResolution", type: "uint8" },
+      { name: "isResolutionDisputed", type: "bool" },
+      { name: "currentDisputeDeadline", type: "uint256" },
+      { name: "currentResolutionTime", type: "uint256" },
+      { name: "question", type: "string" },
+      { name: "disputedUniqueOutcomes", type: "uint8[]" },
     ],
     stateMutability: "view",
   },
@@ -107,6 +62,16 @@ const toOutcomeCode = (value: string): number => {
   if (normalized === "INCONCLUSIVE") return 3;
   return 3;
 };
+
+type DisputeResolutionSnapshot = readonly [
+  number,
+  number,
+  boolean,
+  bigint,
+  bigint,
+  string,
+  number[]
+];
 
 const callView = <T>(
   runtime: Runtime<Config>,
@@ -220,9 +185,19 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
 
   for (const market of activeMarkets) {
     try {
-      const state = callView<number>(runtime, evmClient, market, "state");
-      const proposedResolution = callView<number>(runtime, evmClient, market, "proposedResolution");
-      const disputeDeadline = callView<bigint>(runtime, evmClient, market, "disputeDeadline");
+      const snapshot = callView<DisputeResolutionSnapshot>(
+        runtime,
+        evmClient,
+        market,
+        "getDisputeResolutionSnapshot"
+      );
+      const state = Number(snapshot[0]);
+      const proposedResolution = Number(snapshot[1]);
+      const resolutionDisputed = snapshot[2];
+      const disputeDeadline = snapshot[3];
+      const resolutionTime = snapshot[4];
+      const question = snapshot[5];
+      const uniqueOutcomesRaw = snapshot[6];
 
       if (state !== 2 || proposedResolution === 0) {
         continue;
@@ -231,7 +206,6 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
         continue;
       }
 
-      const resolutionDisputed = callView<boolean>(runtime, evmClient, market, "resolutionDisputed");
       if (!resolutionDisputed) {
         const txHash = sendMarketReport(runtime, evmClient, market, ACTION_FINALIZE, "0x");
         finalizedCount++;
@@ -239,25 +213,19 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
         continue;
       }
 
-      const disputesCount = callView<bigint>(runtime, evmClient, market, "getDisputeSubmissionsCount");
-      if (disputesCount === 0n) {
+      if (uniqueOutcomesRaw.length === 0) {
         runtime.log(`Skipping disputed market ${market}: no dispute submissions found`);
         continue;
       }
+      const outcomes = uniqueOutcomesRaw
+        .map((outcome) => toOutcomeLabel(Number(outcome)))
+        .filter((label) => label !== "UNSET");
 
-      const outcomes = new Set<string>();
-      for (let i = 0n; i < disputesCount; i++) {
-        const row = callView<readonly [string, number, bigint]>(runtime, evmClient, market, "disputeSubmissions", [i]);
-        outcomes.add(toOutcomeLabel(Number(row[1])));
-      }
-
-      const question = callView<string>(runtime, evmClient, market, "s_question");
-      const resolutionTime = callView<bigint>(runtime, evmClient, market, "resolutionTime");
       const gemini = askGeminiAdjudicateDispute(runtime, {
         question,
         resolutionTime: resolutionTime.toString(),
         originalProposedOutcome: toOutcomeLabel(proposedResolution),
-        disputedOutcomes: [...outcomes].filter((label) => label !== "UNSET"),
+        disputedOutcomes: outcomes,
       });
 
       const adjudicatedOutcome = toOutcomeCode(gemini.result || "INCONCLUSIVE");

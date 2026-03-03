@@ -41,8 +41,16 @@ abstract contract MarketFactoryBase is
     uint256 private Amount_Funding_Factory;
     /// @notice Active market list used by UI/indexers.
     address[] public activeMarkets;
+    /// @notice Membership marker for active market set.
+    mapping(address => bool) public isActiveMarket;
+    /// @notice Markets currently awaiting manual review after inconclusive resolution.
+    address[] public manualReviewMarkets;
     /// @notice Index lookup for active market array.
     mapping(address => uint256) public marketToIndex;
+    /// @notice Index lookup for manual-review market array.
+    mapping(address => uint256) public manualReviewMarketToIndex;
+    /// @notice Membership marker for manual-review market set.
+    mapping(address => bool) public isManualReviewMarket;
     /// @dev External helper that deploys market clones.
     MarketDeployer private marketDeployer;
 
@@ -147,6 +155,8 @@ abstract contract MarketFactoryBase is
     event WithdrawSkippedNoShares(uint256 indexed marketId);
     event WithdrawSkippedNotResolved(uint256 indexed marketId);
     event MarkertFactor_ReslovedEventReomved(uint256 indexed marketId);
+    event MarketMarkedForManualReview(uint256 indexed marketId, address indexed market);
+    event ManualReviewMarketRemoved(uint256 indexed marketId, address indexed market);
     event NewPredictionImplementationSet(address indexed newPredictionMarketImplementation);
 
     struct UnsafeArbContext {
@@ -350,6 +360,7 @@ abstract contract MarketFactoryBase is
         
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
+        isActiveMarket[address(m)] = true;
         m.setCrossChainController(address(this));
         uint64 nonce = ++ccipNonce;
 

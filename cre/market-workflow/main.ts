@@ -4,6 +4,7 @@ import { resoloveEvent } from "./handlers/cronHandlers/resolve";
 import { syncCanonicalPrice } from "./handlers/cronHandlers/syncPrice";
 import { arbitrateUnsafeMarketHandler } from "./handlers/cronHandlers/arbitrage";
 import { adjudicateExpiredDisputeWindows } from "./handlers/cronHandlers/disputeResolution";
+import { syncManualReviewMarketsToFirebase } from "./handlers/cronHandlers/manualReviewSync";
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/cronHandlers/marketCreation";
 import { type Config } from "./Constant-variable/config";
 import { processPendingWithdrawalsHandler } from "./handlers/cronHandlers/marketWithdrawal";
@@ -63,6 +64,7 @@ const initWorkflow = (config: Config) => {
      handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
      handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
      handler(cron.trigger({ schedule: config.schedule }), adjudicateExpiredDisputeWindows),
+     handler(cron.trigger({ schedule: config.schedule }), syncManualReviewMarketsToFirebase),
      handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
   ];
 
@@ -175,6 +177,7 @@ export {
   syncCanonicalPrice,
   arbitrateUnsafeMarketHandler,
   adjudicateExpiredDisputeWindows,
+  syncManualReviewMarketsToFirebase,
   marketFactoryBalanceTopUp,
   resoloveEvent,
   sponsorUserOpPolicyHandler,

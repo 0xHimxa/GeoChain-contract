@@ -356,4 +356,9 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
     function getActiveEventList() external view returns (address[] memory) {
         return activeMarkets;
     }
+
+    /// @notice Returns all markets currently awaiting manual review.
+    function getManualReviewEventList() external view returns (address[] memory) {
+        return manualReviewMarkets;
+    }
 }

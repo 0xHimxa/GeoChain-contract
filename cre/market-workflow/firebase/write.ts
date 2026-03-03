@@ -77,3 +77,58 @@ const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
 
   return response.value;
 };
+
+export const upsertManualReviewMarketToFirestore = (
+  runtime: Runtime<Config>,
+  idToken: string,
+  documentId: string,
+  input: {
+    chainName: string;
+    marketAddress: string;
+    question: string;
+    resolutionTime: string;
+    state: string;
+  }
+) => {
+  const projectId = runtime.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const httpClient = new HTTPClient();
+
+  const requester = (sendRequester: any) => {
+    const payload = {
+      fields: {
+        chainName: { stringValue: input.chainName },
+        marketAddress: { stringValue: input.marketAddress },
+        question: { stringValue: input.question },
+        resolutionTime: { stringValue: input.resolutionTime },
+        state: { stringValue: input.state },
+        updated_at: { integerValue: Date.now().toString() },
+      },
+    };
+
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const url =
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/manual_review_markets/${documentId}`;
+
+    const req = {
+      url,
+      method: "PATCH" as const,
+      body,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json",
+      },
+    };
+
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200) {
+      const errorText = new TextDecoder().decode(res.body);
+      throw new Error(`Firestore upsert failed: ${res.statusCode} - ${errorText}`);
+    }
+
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+
+  const response = httpClient.sendRequest(runtime, requester, consensusIdenticalAggregation())().result();
+  return response.value;
+};

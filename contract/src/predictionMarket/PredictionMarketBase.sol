@@ -79,6 +79,12 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
     mapping(address => bool) public hasSubmittedDispute;
     /// @notice Ordered list of all dispute submissions for the active proposal.
     DisputeSubmission[] public disputeSubmissions;
+    /// @notice Unique set of disputed outcomes submitted for this market proposal (max 3).
+    Resolution[3] internal uniqueDisputedOutcomes;
+    /// @notice Number of populated entries in `uniqueDisputedOutcomes`.
+    uint8 internal uniqueDisputedOutcomesCount;
+    /// @dev Outcome-membership marker for `uniqueDisputedOutcomes`.
+    mapping(uint8 => bool) internal uniqueDisputedOutcomeSeen;
     /// @notice True when inconclusive result requires manual finalize call.
     bool internal manualReviewNeeded;
     /// @notice Parent factory reference for cross-contract coordination.
@@ -476,6 +482,7 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         if (removeFromFactory) {
             marketFactory.removeResolvedMarket(address(this));
         }
+        marketFactory.removeManualReviewMarket(address(this));
 
         if (notifyHub && crossChainController != address(0) && marketFactory.isHubFactory()) {
             marketFactory.onHubMarketResolved(_outcome, proofUrl);
