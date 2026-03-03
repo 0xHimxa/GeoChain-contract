@@ -1,5 +1,5 @@
 import { Contract, Interface, JsonRpcProvider, type Log } from "ethers";
-import type { MarketEvent } from "./types";
+import type { MarketEvent, MarketState, OutcomeLabel } from "./types";
 
 export type SupportedChainId = 84532 | 421614;
 
@@ -44,6 +44,9 @@ export const MARKET_ABI = [
   "function resolutionTime() view returns (uint256)",
   "function state() view returns (uint8)",
   "function resolution() view returns (uint8)",
+  "function proposedResolution() view returns (uint8)",
+  "function disputeDeadline() view returns (uint256)",
+  "function resolutionDisputed() view returns (bool)",
   "function marketId() view returns (uint256)",
   "function getYesPriceProbability() view returns (uint256)",
   "function getNoPriceProbability() view returns (uint256)",
@@ -86,15 +89,17 @@ export const decodeMarketCreatedLog = (log: Log): { market: string; marketId: bi
   }
 };
 
-export const marketStateLabel = (raw: bigint): "open" | "closed" | "resolved" => {
+export const marketStateLabel = (raw: bigint): MarketState => {
   if (raw === 0n) return "open";
   if (raw === 1n) return "closed";
+  if (raw === 2n) return "review";
   return "resolved";
 };
 
-export const resolutionLabel = (raw: bigint): "yes" | "no" | null => {
+export const resolutionLabel = (raw: bigint): OutcomeLabel => {
   if (raw === 1n) return "yes";
   if (raw === 2n) return "no";
+  if (raw === 3n) return "inconclusive";
   return null;
 };
 
@@ -109,6 +114,9 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     resolutionTime,
     state,
     resolution,
+    proposedResolution,
+    disputeDeadline,
+    resolutionDisputed,
     marketId,
     yesPrice,
     noPrice,
@@ -121,6 +129,9 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     market.resolutionTime(),
     market.state(),
     market.resolution(),
+    market.proposedResolution().catch(() => 0n),
+    market.disputeDeadline().catch(() => 0n),
+    market.resolutionDisputed().catch(() => false),
     market.marketId(),
     market.getYesPriceProbability().catch(() => 500_000n),
     market.getNoPriceProbability().catch(() => 500_000n),
@@ -133,9 +144,11 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
   const now = Math.floor(Date.now() / 1000);
   const rawState = marketStateLabel(BigInt(state));
   const resolutionOutcome = resolutionLabel(BigInt(resolution));
-  let effectiveState: "open" | "closed" | "resolved" = rawState;
-  if (resolutionOutcome) {
+  let effectiveState: MarketState = rawState;
+  if (resolutionOutcome && resolutionOutcome !== "inconclusive") {
     effectiveState = "resolved";
+  } else if (rawState === "review") {
+    effectiveState = "review";
   } else if (now >= closeTimeUnix && rawState === "open") {
     effectiveState = "closed";
   }
@@ -151,6 +164,9 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     resolutionTimeUnix,
     state: effectiveState,
     resolutionOutcome,
+    proposedResolutionOutcome: resolutionLabel(BigInt(proposedResolution)),
+    disputeDeadlineUnix: Number(disputeDeadline || 0),
+    resolutionDisputed: Boolean(resolutionDisputed),
     yesPriceBps: Math.floor((Number(yesPrice) / 1_000_000) * 10_000),
     noPriceBps: Math.floor((Number(noPrice) / 1_000_000) * 10_000),
     yesToken: String(yesToken),

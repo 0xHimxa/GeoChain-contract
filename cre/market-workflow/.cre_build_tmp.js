@@ -23993,77 +23993,6 @@ var arbitrateUnsafeMarketHandler = (runtime2) => {
   }
   return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
 };
-var systemPrompt = `SYSTEM_ROLE:
-You are a deterministic, adversarial-resistant dispute adjudication engine for prediction markets.
-Your job is to independently re-research an event and decide the correct outcome.
-
-CRITICAL RULES:
-1) Ignore the previously proposed market resolution. Treat it as untrusted.
-2) Re-run research from scratch using web search evidence.
-3) Use only objective evidence that is relevant to the market question and resolution time.
-4) If evidence is insufficient, contradictory, or not yet final, return INCONCLUSIVE.
-
-OUTPUT FORMAT (STRICT):
-Return exactly one minified JSON object, no markdown and no extra text.
-JSON schema:
-{"result":"YES"|"NO"|"INCONCLUSIVE","confidence":number,"source_url":string}
-
-If uncertain, return:
-{"result":"INCONCLUSIVE","confidence":0,"source_url":""}`;
-var userPrompt = `You are adjudicating a disputed prediction market.
-
-Re-evaluate the question independently.
-Ignore prior proposed resolution and disputed opinions as decision authority.
-They are context only.
-
-Return only the JSON schema requested in system prompt.
-`;
-var askGeminiAdjudicateDispute = (runtime2, input) => {
-  const geminiApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
-  const httpClient = new ClientCapability2;
-  const result = httpClient.sendRequest(runtime2, buildPrompt(geminiApiKey, input), consensusIdenticalAggregation())().result();
-  return result;
-};
-var buildPrompt = (apiKey, input) => (sendRequester) => {
-  const currentTime = new Date().toISOString();
-  const payload = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    tools: [{ google_search: {} }],
-    contents: [
-      {
-        parts: [
-          {
-            text: `${userPrompt}
-MARKET_QUESTION: ${input.question}
-RESOLUTION_TIME_UNIX: ${input.resolutionTime}
-CURRENT_TIME_ISO: ${currentTime}
-ORIGINAL_PROPOSED_OUTCOME: ${input.originalProposedOutcome}
-DISPUTED_OUTCOME_SET: ${JSON.stringify(input.disputedOutcomes)}`
-          }
-        ]
-      }
-    ]
-  };
-  const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
-  const body = Buffer.from(bodyBytes).toString("base64");
-  const req = {
-    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-    method: "POST",
-    body,
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey
-    }
-  };
-  const res = sendRequester.sendRequest(req).result();
-  if (!ok(res)) {
-    throw new Error(`Http request failed with status ${res.statusCode}`);
-  }
-  const rawData = new TextDecoder().decode(res.body);
-  const parsed = JSON.parse(rawData);
-  const aiResponseString = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-  return JSON.parse(aiResponseString);
-};
 var ACTION_FINALIZE = "FinalizeResolutionAfterDisputeWindow";
 var ACTION_ADJUDICATE = "AdjudicateDisputedResolution";
 var factoryAbi = [
@@ -24197,6 +24126,7 @@ var adjudicateExpiredDisputeWindows = (runtime2) => {
       const resolutionTime = snapshot[4];
       const question = snapshot[5];
       const uniqueOutcomesRaw = snapshot[6];
+      runtime2.log(`disputedDeadline: ${disputeDeadline}; now: ${now}; resolutionTime: ${resolutionTime}`);
       if (state !== 2 || proposedResolution === 0) {
         continue;
       }
@@ -24214,14 +24144,8 @@ var adjudicateExpiredDisputeWindows = (runtime2) => {
         continue;
       }
       const outcomes = uniqueOutcomesRaw.map((outcome) => toOutcomeLabel(Number(outcome))).filter((label) => label !== "UNSET");
-      const gemini = askGeminiAdjudicateDispute(runtime2, {
-        question,
-        resolutionTime: resolutionTime.toString(),
-        originalProposedOutcome: toOutcomeLabel(proposedResolution),
-        disputedOutcomes: outcomes
-      });
-      const adjudicatedOutcome = toOutcomeCode(gemini.result || "INCONCLUSIVE");
-      const proofUrl = adjudicatedOutcome === 3 ? "" : gemini.source_url || "";
+      const adjudicatedOutcome = toOutcomeCode("YES");
+      const proofUrl = adjudicatedOutcome === 3 ? "" : "https://google.com";
       const adjudicatePayload = encodeAbiParameters(parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"), [adjudicatedOutcome, proofUrl]);
       const txHash = sendMarketReport(runtime2, evmClient, market, ACTION_ADJUDICATE, adjudicatePayload);
       adjudicatedCount++;
@@ -24460,7 +24384,7 @@ var getFirestoreList = (runtime2, idToken) => {
   const rawDocs = response.documents || [];
   return rawDocs.map((doc) => flattenFirestore(doc));
 };
-var systemPrompt2 = `
+var systemPrompt = `
 ROLE:
 You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
 
@@ -24567,7 +24491,7 @@ Required JSON structure:
   "trending_reason": "Why this topic is currently trending"
 }
 `;
-var userPrompt2 = `
+var userPrompt = `
 Generate exactly ONE unique prediction event that satisfies ALL rules.
 Return ONLY valid raw JSON.
 `;
@@ -24580,11 +24504,11 @@ var askGemeni = (runtime2, previousEvents) => {
 };
 var prompt = (apikey, previousEvents) => (sendRequester) => {
   const dataToSend = {
-    system_instruction: { parts: [{ text: systemPrompt2 }] },
+    system_instruction: { parts: [{ text: systemPrompt }] },
     tools: [{ google_search: {} }],
     contents: [
       {
-        parts: [{ text: userPrompt2 + `Previous events list:` + JSON.stringify(previousEvents) }]
+        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
       }
     ]
   };

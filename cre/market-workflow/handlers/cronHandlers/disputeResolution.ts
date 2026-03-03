@@ -199,6 +199,8 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
       const question = snapshot[5];
       const uniqueOutcomesRaw = snapshot[6];
 
+      runtime.log(`disputedDeadline: ${disputeDeadline}; now: ${now}; resolutionTime: ${resolutionTime}`);
+
       if (state !== 2 || proposedResolution === 0) {
         continue;
       }
@@ -221,15 +223,16 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
         .map((outcome) => toOutcomeLabel(Number(outcome)))
         .filter((label) => label !== "UNSET");
 
-      const gemini = askGeminiAdjudicateDispute(runtime, {
-        question,
-        resolutionTime: resolutionTime.toString(),
-        originalProposedOutcome: toOutcomeLabel(proposedResolution),
-        disputedOutcomes: outcomes,
-      });
-
-      const adjudicatedOutcome = toOutcomeCode(gemini.result || "INCONCLUSIVE");
-      const proofUrl = adjudicatedOutcome === 3 ? "" : (gemini.source_url || "");
+      // const gemini = askGeminiAdjudicateDispute(runtime, {
+      //   question,
+      //   resolutionTime: resolutionTime.toString(),
+      //   originalProposedOutcome: toOutcomeLabel(proposedResolution),
+      //   disputedOutcomes: outcomes,
+      // });
+//gemini.result|| "INCONCLUSIVE"
+      const adjudicatedOutcome = toOutcomeCode( "YES");
+      //gemini.source_url || ""
+      const proofUrl = adjudicatedOutcome === 3 ? "" : ("https://google.com");
       const adjudicatePayload = encodeAbiParameters(
         parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"),
         [adjudicatedOutcome, proofUrl]

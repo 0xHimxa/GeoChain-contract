@@ -1,0 +1,29 @@
+{
+  "updatedAtUnix": 1772508453,
+  "wallets": [
+    {
+      "wallet": "0xbc57f2803e03be11bf298174889b27865ea2eb59",
+      "markets": [
+        {
+          "chainId": 421614,
+          "marketAddress": "0x2c0a9da959d66f1612c0f16a7be88f6e4efa2500",
+          "marketId": "1",
+          "question": "Will BTC price be above $3,000 in 1 hour?",
+          "yesToken": "0x3f94BFFCC9C9a99B239a83e63C94D9960909D336",
+          "noToken": "0x63dDa417882612cE06371ca9777C6ad75f07B65f",
+          "firstSeenAtUnix": 1772504270,
+          "lastSeenAtUnix": 1772508029
+        }
+      ],
+      "positions": [
+        {
+          "eventId": "421614:1",
+          "yesShares": "400000",
+          "noShares": "19400000",
+          "completeSetsMinted": "400000",
+          "redeemableUsdc": "400000"
+        }
+      ]
+    }
+  ]
+}

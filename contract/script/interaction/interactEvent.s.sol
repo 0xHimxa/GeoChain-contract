@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import {Script,console} from "forge-std/Script.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {PredictionMarketResolution} from "../../src/predictionMarket/PredictionMarketResolution.sol";
 
 import {State, Resolution, MarketConstants, MarketEvents, MarketErrors} from "../../src/libraries/MarketTypes.sol";
 
@@ -11,30 +12,34 @@ contract InteractWithEvent is Script {
 
 address evnentAddress = 0x04FFA2af594836FB3f2538d1C4ac2c4e2634a0B8;
 address event2Address =0x7a042d3e3054563389c13bDaae132C1C6cc472F8;
+address currentEvent = 0x2C0a9dA959d66f1612c0f16A7be88f6e4EFA2500;
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
 function run() external{
 string memory proof = "https://github.com/";
 
 vm.startBroadcast(owner);
 
-string memory question = PredictionMarket(event2Address).s_question();
-uint256 closeTime = PredictionMarket(event2Address).closeTime();
-uint256 resolutionTime = PredictionMarket(event2Address).resolutionTime();
-uint256 myshare = PredictionMarket(event2Address).lpShares(0x7c7fe235fC63509969E329E5D660E073EeFa5d39);
-bool readyReslolve = PredictionMarket(event2Address).checkResolutionTime();
-console.log("ready to resolve",readyReslolve);
+// string memory question = PredictionMarket(event2Address).s_question();
+// uint256 closeTime = PredictionMarket(event2Address).closeTime();
+// uint256 resolutionTime = PredictionMarket(event2Address).resolutionTime();
+// uint256 myshare = PredictionMarket(event2Address).lpShares(0x7c7fe235fC63509969E329E5D660E073EeFa5d39);
+// bool readyReslolve = PredictionMarket(event2Address).checkResolutionTime();
+// console.log("ready to resolve",readyReslolve);
 
-PredictionMarket(event2Address).resolve( Resolution.Yes, proof);
+// PredictionMarket(event2Address).resolve( Resolution.Yes, proof);
+
+PredictionMarketResolution(currentEvent).setDisputeWindow( 10 minutes);
+PredictionMarketResolution(currentEvent).adjudicateDisputedResolution(Resolution.Yes, "https://github.com/");
 
 vm.stopBroadcast();
 
-bool eventClosed = closeTime < block.timestamp;
+//bool eventClosed = closeTime < block.timestamp;
 
 
-console.log("new event question",question);
-console.log("event closed",eventClosed);
-console.log(closeTime,resolutionTime);
-console.log(myshare);
+// console.log("new event question",question);
+// console.log("event closed",eventClosed);
+// console.log(closeTime,resolutionTime);
+// console.log(myshare);
 
 
 

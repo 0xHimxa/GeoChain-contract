@@ -51,6 +51,15 @@ type Position = {
   redeemableUsdc: bigint;
 };
 
+type PositionSnapshotInput = {
+  eventId?: string;
+  question?: string;
+  yesShares?: string;
+  noShares?: string;
+  completeSetsMinted?: string;
+  redeemableUsdc?: string;
+};
+
 type SponsorApiRequest = {
   requestId?: string;
   chainId: number;
@@ -62,6 +71,14 @@ type SponsorApiRequest = {
   slippageBps: number;
   reportPayloadHex?: string;
   session?: Record<string, unknown>;
+  market?: {
+    chainId?: number;
+    marketAddress?: string;
+    marketId?: string;
+    question?: string;
+    yesToken?: string;
+    noToken?: string;
+  };
 };
 
 type RevokeSessionApiRequest = {
@@ -98,6 +115,17 @@ type CreFiatCreditPayload = {
   provider: string;
 };
 
+type TrackedMarket = {
+  chainId: number;
+  marketAddress: string;
+  marketId?: string;
+  question?: string;
+  yesToken?: string;
+  noToken?: string;
+  firstSeenAtUnix: number;
+  lastSeenAtUnix: number;
+};
+
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
     executeReceiverAddress: "0x4924D16b5ffadF307e7370c6961d8F3FB084Fc23",
@@ -113,6 +141,8 @@ const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.m
 const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow","payload" ,"sponser.json");
 const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","execute.json");
 const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","fiat.json");
+const CRE_DISPUTE_JSON_PATH = process.env.CRE_DISPUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload", "dispute.json");
+const CRE_POSITIONS_JSON_PATH = process.env.CRE_POSITIONS_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload", "positions.json");
 
 const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -122,6 +152,7 @@ const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   mintCompleteSets: "routerMintCompleteSets",
   redeemCompleteSets: "routerRedeemCompleteSets",
   redeem: "routerRedeem",
+  disputeProposedResolution: "routerDisputeProposedResolution",
 };
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -130,7 +161,9 @@ const ALLOWED_ACTIONS = new Set(Object.keys(ACTION_TO_REPORT_ACTION_TYPE));
 
 const sessions = new Map<string, UserSession>();
 const markets = new Map<string, MarketEvent>();
+// Wallet-scoped positions persisted to disk. Keyed by lowercase wallet address.
 const positions = new Map<string, Map<string, Position>>();
+const trackedMarketsByWallet = new Map<string, Map<string, TrackedMarket>>();
 const sseControllers = new Map<number, ReadableStreamDefaultController<Uint8Array>>();
 let sseId = 0;
 
@@ -249,6 +282,117 @@ const writeCreFiatRequestJson = (payload: Record<string, unknown>): void => {
   writeJsonFile(CRE_FIAT_JSON_PATH, payload);
 };
 
+const writeCreDisputeRequestJson = (payload: Record<string, unknown>): void => {
+  writeJsonFile(CRE_DISPUTE_JSON_PATH, payload);
+};
+
+const persistTrackedMarketsToJson = (): void => {
+  const payload = {
+    updatedAtUnix: nowUnix(),
+    wallets: [...new Set([...trackedMarketsByWallet.keys(), ...positions.keys()])].map((wallet) => {
+      const marketsByKey = trackedMarketsByWallet.get(wallet) || new Map<string, TrackedMarket>();
+      const positionByEvent = positions.get(wallet) || new Map<string, Position>();
+      return {
+        wallet,
+        markets: [...marketsByKey.values()],
+        positions: [...positionByEvent.values()].map((value) => ({
+          eventId: value.eventId,
+          yesShares: value.yesShares.toString(),
+          noShares: value.noShares.toString(),
+          completeSetsMinted: value.completeSetsMinted.toString(),
+          redeemableUsdc: value.redeemableUsdc.toString(),
+        })),
+      };
+    }),
+  };
+  writeJsonFile(CRE_POSITIONS_JSON_PATH, payload);
+};
+
+const hydrateTrackedMarketsFromJson = (): void => {
+  if (!existsSync(CRE_POSITIONS_JSON_PATH)) return;
+  try {
+    const raw = readFileSync(CRE_POSITIONS_JSON_PATH, "utf8");
+    const parsed = JSON.parse(raw) as {
+      wallets?: Array<{
+        wallet?: string;
+        markets?: TrackedMarket[];
+        positions?: Array<{
+          eventId?: string;
+          yesShares?: string;
+          noShares?: string;
+          completeSetsMinted?: string;
+          redeemableUsdc?: string;
+        }>;
+      }>;
+    };
+    for (const entry of parsed.wallets || []) {
+      const wallet = String(entry.wallet || "").toLowerCase();
+      if (!HEX_ADDRESS_REGEX.test(wallet)) continue;
+      const next = new Map<string, TrackedMarket>();
+      for (const item of entry.markets || []) {
+        if (!Number.isInteger(item.chainId) || !HEX_ADDRESS_REGEX.test(String(item.marketAddress || ""))) continue;
+        const key = `${item.chainId}:${String(item.marketAddress).toLowerCase()}`;
+        next.set(key, {
+          chainId: item.chainId,
+          marketAddress: String(item.marketAddress),
+          marketId: item.marketId,
+          question: item.question,
+          yesToken: item.yesToken,
+          noToken: item.noToken,
+          firstSeenAtUnix: Number(item.firstSeenAtUnix || nowUnix()),
+          lastSeenAtUnix: Number(item.lastSeenAtUnix || nowUnix()),
+        });
+      }
+      trackedMarketsByWallet.set(wallet, next);
+
+      const nextPositions = new Map<string, Position>();
+      for (const row of entry.positions || []) {
+        const eventId = String(row.eventId || "").trim();
+        if (!eventId) continue;
+        try {
+          nextPositions.set(eventId, {
+            eventId,
+            yesShares: BigInt(String(row.yesShares || "0")),
+            noShares: BigInt(String(row.noShares || "0")),
+            completeSetsMinted: BigInt(String(row.completeSetsMinted || "0")),
+            redeemableUsdc: BigInt(String(row.redeemableUsdc || "0")),
+          });
+        } catch {
+          // Ignore malformed stored rows and continue hydration.
+        }
+      }
+      positions.set(wallet, nextPositions);
+    }
+  } catch (error) {
+    console.error("[TRACKED_MARKETS_HYDRATE_ERROR]", error);
+  }
+};
+
+const upsertTrackedMarket = (sender: string, market: SponsorApiRequest["market"]): void => {
+  const senderKey = String(sender || "").trim().toLowerCase();
+  if (!HEX_ADDRESS_REGEX.test(senderKey) || !market) return;
+  const chainId = Number(market.chainId);
+  const marketAddress = String(market.marketAddress || "").trim().toLowerCase();
+  if (!Number.isInteger(chainId) || chainId <= 0 || !HEX_ADDRESS_REGEX.test(marketAddress)) return;
+
+  const now = nowUnix();
+  const key = `${chainId}:${marketAddress}`;
+  const current = trackedMarketsByWallet.get(senderKey) || new Map<string, TrackedMarket>();
+  const prev = current.get(key);
+  current.set(key, {
+    chainId,
+    marketAddress,
+    marketId: String(market.marketId || prev?.marketId || ""),
+    question: String(market.question || prev?.question || ""),
+    yesToken: String(market.yesToken || prev?.yesToken || ""),
+    noToken: String(market.noToken || prev?.noToken || ""),
+    firstSeenAtUnix: prev?.firstSeenAtUnix || now,
+    lastSeenAtUnix: now,
+  });
+  trackedMarketsByWallet.set(senderKey, current);
+  persistTrackedMarketsToJson();
+};
+
 const decodeHexJson = (hex: string): Record<string, unknown> | null => {
   try {
     const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -325,6 +469,7 @@ for (let i = 0; i < 3; i += 1) {
   const item = seedMarket(i);
   markets.set(item.id, item);
 }
+hydrateTrackedMarketsFromJson();
 
 const serializeMarket = (item: MarketEvent): MarketEvent => ({ ...item });
 
@@ -336,6 +481,8 @@ const serializePosition = (item: Position, question: string) => ({
   completeSetsMinted: item.completeSetsMinted.toString(),
   redeemableUsdc: item.redeemableUsdc.toString(),
 });
+
+const walletKeyOf = (address: string): string => String(address || "").trim().toLowerCase();
 
 const sendSse = (eventName: string, payload: unknown): void => {
   const message = encoder.encode(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
@@ -409,10 +556,11 @@ const getSessionFromRequest = (req: Request): UserSession | null => {
 };
 
 const getOrCreatePosition = (session: UserSession, eventId: string): Position => {
-  let userPositions = positions.get(session.sessionToken);
+  const walletKey = walletKeyOf(session.walletAddress);
+  let userPositions = positions.get(walletKey);
   if (!userPositions) {
     userPositions = new Map();
-    positions.set(session.sessionToken, userPositions);
+    positions.set(walletKey, userPositions);
   }
 
   let position = userPositions.get(eventId);
@@ -621,7 +769,7 @@ const handlePositions = (req: Request): Response => {
   const session = getSessionFromRequest(req);
   if (!session) return json(401, { error: "missing or invalid session" });
 
-  const userPositions = positions.get(session.sessionToken) || new Map<string, Position>();
+  const userPositions = positions.get(walletKeyOf(session.walletAddress)) || new Map<string, Position>();
   const response = [...userPositions.values()].map((entry) => {
     const market = markets.get(entry.eventId);
     const question = market?.question || "Unknown market";
@@ -632,6 +780,55 @@ const handlePositions = (req: Request): Response => {
     positions: response,
     vaultBalanceUsdc: session.vaultBalanceUsdc.toString(),
   });
+};
+
+const handlePositionSnapshotSync = async (req: Request): Promise<Response> => {
+  const session = getSessionFromRequest(req);
+  if (!session) return json(401, { error: "missing or invalid session" });
+
+  const body = (await req.json().catch(() => ({}))) as { positions?: PositionSnapshotInput[] };
+  const rows = Array.isArray(body.positions) ? body.positions : [];
+  const walletKey = walletKeyOf(session.walletAddress);
+  const existing = positions.get(walletKey) || new Map<string, Position>();
+
+  for (const row of rows) {
+    const eventId = String(row.eventId || "").trim();
+    if (!eventId) continue;
+    try {
+      existing.set(eventId, {
+        eventId,
+        yesShares: BigInt(String(row.yesShares || "0")),
+        noShares: BigInt(String(row.noShares || "0")),
+        completeSetsMinted: BigInt(String(row.completeSetsMinted || "0")),
+        redeemableUsdc: BigInt(String(row.redeemableUsdc || "0")),
+      });
+    } catch {
+      // Ignore malformed row.
+    }
+  }
+  positions.set(walletKey, existing);
+  persistTrackedMarketsToJson();
+
+  return json(200, {
+    ok: true,
+    stored: existing.size,
+  });
+};
+
+const handleTrackedMarkets = (req: Request): Response => {
+  const session = getSessionFromRequest(req);
+  if (!session) return json(401, { error: "missing or invalid session" });
+
+  const chainIdRaw = new URL(req.url).searchParams.get("chainId");
+  const chainId = chainIdRaw ? Number(chainIdRaw) : NaN;
+  if (!Number.isInteger(chainId) || chainId <= 0) {
+    return json(400, { error: "invalid chainId" });
+  }
+
+  const walletKey = session.walletAddress.toLowerCase();
+  const byWallet = trackedMarketsByWallet.get(walletKey) || new Map<string, TrackedMarket>();
+  const trackedMarkets = [...byWallet.values()].filter((item) => item.chainId === chainId);
+  return json(200, { trackedMarkets });
 };
 
 const handleVaultDeposit = async (req: Request): Promise<Response> => {
@@ -742,6 +939,8 @@ const handleSponsor = async (req: Request): Promise<Response> => {
     });
   }
 
+  upsertTrackedMarket(body.sender, body.market);
+
   const policyPayload = buildCreSponsorRequestPayload(body, actionType);
   writeCreSponsorRequestJson(policyPayload);
   console.log("[MOCK_CRE_POLICY] payload=", JSON.stringify(policyPayload));
@@ -766,12 +965,30 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   console.log("[MOCK_CRE_EXECUTE] payload=", JSON.stringify(executePayload));
   console.log("[MOCK_CRE_EXECUTE] wrote execute request json:", CRE_EXECUTE_JSON_PATH);
 
+  if (actionType === "routerDisputeProposedResolution") {
+    const disputePayload = {
+      requestId: policyPayload.requestId,
+      chainId: body.chainId,
+      action: body.action,
+      actionType,
+      sender: body.sender,
+      amountUsdc: body.amountUsdc,
+      payloadHex: executePayload.payloadHex,
+      market: body.market || null,
+      createdAtUnix: nowUnix(),
+    };
+    writeCreDisputeRequestJson(disputePayload);
+    console.log("[MOCK_CRE_DISPUTE] payload=", JSON.stringify(disputePayload));
+    console.log("[MOCK_CRE_DISPUTE] wrote dispute request json:", CRE_DISPUTE_JSON_PATH);
+  }
+
   return json(200, {
     approved: true,
     stage: "cre-execute",
     creDecision,
     sponsorJsonPath: CRE_SPONSOR_JSON_PATH,
     executeJsonPath: CRE_EXECUTE_JSON_PATH,
+    disputeJsonPath: actionType === "routerDisputeProposedResolution" ? CRE_DISPUTE_JSON_PATH : undefined,
     execute: {
       submitted: true,
       requestId: executePayload.requestId,
@@ -908,6 +1125,7 @@ const handleMarketAction = async (req: Request): Promise<Response> => {
 
   console.log("[MOCK_CRE_POLICY] payload=", JSON.stringify(policyPayload));
   console.log("[MOCK_CRE_EXECUTE] payload=", JSON.stringify(executePayload));
+  persistTrackedMarketsToJson();
 
   return json(200, {
     ok: true,
@@ -952,7 +1170,6 @@ const handleSessionRevoke = async (req: Request): Promise<Response> => {
   for (const [token, session] of sessions.entries()) {
     if (session.sessionAuth.sessionId === body.sessionId) {
       sessions.delete(token);
-      positions.delete(token);
     }
   }
 
@@ -1021,6 +1238,8 @@ const server = Bun.serve({
       if (url.pathname === "/api/events" && req.method === "GET") return handleEvents(req);
       if (url.pathname === "/api/events/stream" && req.method === "GET") return handleEventStream(req);
       if (url.pathname === "/api/positions" && req.method === "GET") return handlePositions(req);
+      if (url.pathname === "/api/positions/snapshot" && req.method === "POST") return await handlePositionSnapshotSync(req);
+      if (url.pathname === "/api/positions/tracked" && req.method === "GET") return handleTrackedMarkets(req);
       if (url.pathname === "/api/vault/deposit" && req.method === "POST") return await handleVaultDeposit(req);
       if (url.pathname === "/api/fiat-payment-success" && req.method === "POST") return await handleFiatPaymentSuccess(req);
       if (url.pathname === "/api/funding/external-deposit" && req.method === "POST") return await handleExternalDepositFunding(req);

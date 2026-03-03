@@ -1,4 +1,4 @@
-import type { ActionResponse, AuthResponse, FiatResponse, MarketEvent, Position } from "./types";
+import type { ActionResponse, AuthResponse, FiatResponse, MarketEvent, Position, TrackedMarket } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5173";
 
@@ -85,6 +85,14 @@ export const submitAction = (
     slippageBps: number;
     reportPayloadHex: string;
     session?: Record<string, unknown>;
+    market?: {
+      chainId: number;
+      marketAddress: string;
+      marketId?: string;
+      question?: string;
+      yesToken?: string;
+      noToken?: string;
+    };
   }
 ): Promise<ActionResponse> =>
   request("/api/sponsor", {
@@ -101,6 +109,37 @@ export const submitExternalDepositFunding = (body: {
 }): Promise<Record<string, unknown>> =>
   request("/api/funding/external-deposit", {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const fetchTrackedMarkets = (
+  sessionToken: string,
+  chainId: number
+): Promise<{ trackedMarkets: TrackedMarket[] }> =>
+  request(`/api/positions/tracked?chainId=${encodeURIComponent(String(chainId))}`, {
+    headers: {
+      "x-session-token": sessionToken,
+    },
+  });
+
+export const syncPositionSnapshots = (
+  sessionToken: string,
+  body: {
+    positions: Array<{
+      eventId: string;
+      question: string;
+      yesShares: string;
+      noShares: string;
+      completeSetsMinted: string;
+      redeemableUsdc: string;
+    }>;
+  }
+): Promise<{ ok: boolean; stored: number }> =>
+  request("/api/positions/snapshot", {
+    method: "POST",
+    headers: {
+      "x-session-token": sessionToken,
+    },
     body: JSON.stringify(body),
   });
 

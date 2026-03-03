@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AbiCoder, BrowserProvider, Contract, Wallet, formatUnits, keccak256, parseUnits, toUtf8Bytes, type Eip1193Provider } from "ethers";
-import { signInWithGoogleAndSession, submitAction, submitExternalDepositFunding, submitFiatPayment } from "./api";
+import { fetchTrackedMarkets, signInWithGoogleAndSession, submitAction, submitExternalDepositFunding, submitFiatPayment, syncPositionSnapshots } from "./api";
 import {
   CHAIN_CONFIG,
   ERC20_ABI,
@@ -13,13 +13,14 @@ import {
 import { clearStoredWallet, createOrLoadWallet, getStoredWalletMeta } from "./keyVault";
 import type { MarketEvent, Position, SessionIdentity, UiPage, UserProfile } from "./types";
 
-const ACTIONS = ["mintCompleteSets", "swapYesForNo", "swapNoForYes", "redeemCompleteSets", "redeem"] as const;
+const ACTIONS = ["mintCompleteSets", "swapYesForNo", "swapNoForYes", "redeemCompleteSets", "redeem", "disputeProposedResolution"] as const;
 const ACTION_TYPE_MAP: Record<(typeof ACTIONS)[number], string> = {
   mintCompleteSets: "routerMintCompleteSets",
   swapYesForNo: "routerSwapYesForNo",
   swapNoForYes: "routerSwapNoForYes",
   redeemCompleteSets: "routerRedeemCompleteSets",
   redeem: "routerRedeem",
+  disputeProposedResolution: "routerDisputeProposedResolution",
 };
 
 const SESSION_DOMAIN_NAME = "CRE Session Authorization";
@@ -43,6 +44,7 @@ const formatDateTime = (unix: number): string => new Date(unix * 1000).toLocaleS
 const marketStateTone: Record<MarketEvent["state"], string> = {
   open: "text-mint-400",
   closed: "text-gold-400",
+  review: "text-amber-300",
   resolved: "text-rose-400",
 };
 
@@ -50,7 +52,8 @@ const encodeRouterPayloadHex = (
   action: (typeof ACTIONS)[number],
   user: string,
   market: string,
-  amountUsdcRaw: bigint
+  amountUsdcRaw: bigint,
+  disputeOutcome: number
 ): string => {
   const coder = AbiCoder.defaultAbiCoder();
   if (action === "mintCompleteSets" || action === "redeemCompleteSets" || action === "redeem") {
@@ -60,11 +63,15 @@ const encodeRouterPayloadHex = (
     // Keep min out as 0 for now; slippage controls are currently enforced in sponsor policy layer.
     return coder.encode(["address", "address", "uint256", "uint256"], [user, market, amountUsdcRaw, 0n]);
   }
+  if (action === "disputeProposedResolution") {
+    return coder.encode(["address", "address", "uint8"], [user, market, disputeOutcome]);
+  }
   throw new Error(`unsupported action for router payload: ${action}`);
 };
 
 const effectiveMarketState = (event: MarketEvent, nowUnix: number): MarketEvent["state"] => {
   if (event.state === "resolved") return "resolved";
+  if (event.state === "review") return "review";
   if (event.resolutionOutcome) return "resolved";
   if (nowUnix >= event.closeTimeUnix) return "closed";
   return event.state;
@@ -77,6 +84,7 @@ export function App() {
   const [events, setEvents] = useState<MarketEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>("");
   const [positions, setPositions] = useState<Position[]>([]);
+  const [trackedMarketSnapshots, setTrackedMarketSnapshots] = useState<MarketEvent[]>([]);
   const [vaultBalanceUsdc, setVaultBalanceUsdc] = useState<string>("0");
   const [email, setEmail] = useState("trader@example.com");
   const [name, setName] = useState("Market Trader");
@@ -88,6 +96,7 @@ export function App() {
   const [fiatUsd, setFiatUsd] = useState("15");
   const [provider, setProvider] = useState("google_pay");
   const [activeAction, setActiveAction] = useState<(typeof ACTIONS)[number]>("mintCompleteSets");
+  const [disputeOutcome, setDisputeOutcome] = useState<"1" | "2" | "3">("1");
   const [nowUnix, setNowUnix] = useState<number>(Math.floor(Date.now() / 1000));
   const [busy, setBusy] = useState(false);
   const [logLine, setLogLine] = useState("Waiting for action...");
@@ -107,6 +116,7 @@ export function App() {
   useEffect(() => {
     // Prevent stale market cards from previous chain/address config while reloading.
     setEvents([]);
+    setTrackedMarketSnapshots([]);
     setSelectedEventId("");
   }, [selectedChain]);
 
@@ -121,20 +131,32 @@ export function App() {
   const groupedEvents = useMemo(() => {
     const active: MarketEvent[] = [];
     const closed: MarketEvent[] = [];
+    const review: MarketEvent[] = [];
     const resolved: MarketEvent[] = [];
     for (const item of events) {
       const state = effectiveMarketState(item, nowUnix);
       if (state === "open") active.push(item);
       else if (state === "closed") closed.push(item);
+      else if (state === "review") review.push(item);
       else resolved.push(item);
     }
-    return { active, closed, resolved };
+    return { active, closed, review, resolved };
   }, [events, nowUnix]);
 
-  const visibleMarkets = useMemo(
-    () => [...groupedEvents.active, ...groupedEvents.closed],
-    [groupedEvents.active, groupedEvents.closed]
-  );
+  const visibleMarkets = useMemo(() => [...groupedEvents.active, ...groupedEvents.closed, ...groupedEvents.review, ...groupedEvents.resolved], [
+    groupedEvents.active,
+    groupedEvents.closed,
+    groupedEvents.review,
+    groupedEvents.resolved,
+  ]);
+
+  const knownMarkets = useMemo(() => {
+    const map = new Map<string, MarketEvent>();
+    for (const item of [...events, ...trackedMarketSnapshots]) {
+      map.set(item.id, item);
+    }
+    return [...map.values()];
+  }, [events, trackedMarketSnapshots]);
 
   const selectedEvent = useMemo(
     () => visibleMarkets.find((item) => item.id === selectedEventId) || visibleMarkets[0] || null,
@@ -165,7 +187,20 @@ export function App() {
   const loadMarkets = useCallback(async () => {
     const provider = providerForChain(selectedChain);
     const factory = new Contract(CHAIN_CONFIG[selectedChain].addresses.marketFactory, MARKET_FACTORY_ABI, provider);
-    const marketAddresses = [...new Set((((await factory.getActiveEventList()) as string[]) || []).map((value) => value.toLowerCase()))];
+    const [activeEventList, marketCountRaw] = await Promise.all([
+      factory.getActiveEventList().catch(() => []),
+      factory.marketCount().catch(() => 0n),
+    ]);
+    const marketCount = Number(marketCountRaw || 0n);
+    const indexedMarkets =
+      marketCount > 0
+        ? await Promise.all(
+            Array.from({ length: marketCount }, (_, index) =>
+              factory.marketById(BigInt(index + 1)).catch(() => null)
+            )
+          )
+        : [];
+    const marketAddresses = [...new Set([...(activeEventList as string[]), ...indexedMarkets.filter(Boolean)].map((value) => String(value).toLowerCase()))];
     const snapshots = await Promise.all(
       marketAddresses.map(async (address) => ({
         address,
@@ -192,7 +227,26 @@ export function App() {
   }, [selectedChain]);
 
   const refreshPositions = useCallback(async () => {
-    if (!walletAddress || !events.length) {
+    if (!walletAddress) {
+      setPositions([]);
+      return;
+    }
+
+    let trackedSnapshots: MarketEvent[] = [];
+    if (user?.sessionToken) {
+      const tracked = await fetchTrackedMarkets(user.sessionToken, selectedChain).catch(() => ({ trackedMarkets: [] }));
+      trackedSnapshots = (
+        await Promise.all(
+          tracked.trackedMarkets.map((entry) =>
+            loadMarketSnapshot(selectedChain, entry.marketAddress).catch(() => null)
+          )
+        )
+      ).filter((item): item is MarketEvent => item !== null);
+    }
+    setTrackedMarketSnapshots(trackedSnapshots);
+
+    const marketsForPositions = [...events, ...trackedSnapshots];
+    if (!marketsForPositions.length) {
       setPositions([]);
       return;
     }
@@ -202,7 +256,7 @@ export function App() {
     const router = new Contract(cfg.addresses.router, ROUTER_ABI, provider);
 
     const rows = await Promise.all(
-      events.map(async (event) => {
+      marketsForPositions.map(async (event) => {
         if (!event.yesToken || !event.noToken) return null;
         const [yes, no] = await Promise.all([
           router.tokenCredits(walletAddress, event.yesToken),
@@ -231,8 +285,17 @@ export function App() {
       })
     );
 
-    setPositions(rows.filter((value): value is Position => Boolean(value)));
-  }, [events, selectedChain, walletAddress]);
+    const deduped = new Map<string, Position>();
+    for (const row of rows) {
+      if (!row) continue;
+      deduped.set(row.eventId, row);
+    }
+    const nextPositions = [...deduped.values()];
+    setPositions(nextPositions);
+    if (user?.sessionToken) {
+      await syncPositionSnapshots(user.sessionToken, { positions: nextPositions }).catch(() => undefined);
+    }
+  }, [events, selectedChain, user?.sessionToken, walletAddress]);
 
   useEffect(() => {
     loadMarkets().catch((error) => setLogLine(`Load markets failed: ${String(error)}`));
@@ -292,6 +355,7 @@ export function App() {
     setWalletHint("Stored wallet cleared. Sign in again to generate a new one.");
     setVaultBalanceUsdc("0");
     setPositions([]);
+    setTrackedMarketSnapshots([]);
   };
 
   const onConnectFundingWallet = async () => {
@@ -380,7 +444,7 @@ export function App() {
   };
 
   const onPrepareRedeemFromPosition = (position: Position) => {
-    const market = events.find((item) => item.id === position.eventId);
+    const market = knownMarkets.find((item) => item.id === position.eventId);
     if (!market) {
       setLogLine("Cannot prepare redeem: market snapshot is missing.");
       return;
@@ -401,6 +465,23 @@ export function App() {
     );
   };
 
+  const onPrepareDisputeFromPosition = (position: Position) => {
+    const market = knownMarkets.find((item) => item.id === position.eventId);
+    if (!market) {
+      setLogLine("Cannot prepare dispute: market snapshot is missing.");
+      return;
+    }
+    if (effectiveMarketState(market, nowUnix) !== "review") {
+      setLogLine("This market is not in review/dispute state.");
+      return;
+    }
+    setSelectedEventId(market.id);
+    setActiveAction("disputeProposedResolution");
+    setAmountUsdc("0");
+    setPage("markets");
+    setLogLine(`Dispute prepared for "${market.question}". Select your outcome and click "Sign + Submit Action".`);
+  };
+
   const onAction = async () => {
     if (!selectedEvent || !sessionIdentity?.privateKey) {
       setLogLine("Select event and sign in first.");
@@ -416,17 +497,29 @@ export function App() {
       setLogLine("Market resolved. Only redeem action is allowed.");
       return;
     }
+    if (stateNow === "review" && activeAction !== "disputeProposedResolution") {
+      setLogLine("Market is in dispute review. Only dispute action is allowed.");
+      return;
+    }
+    if (stateNow !== "review" && activeAction === "disputeProposedResolution") {
+      setLogLine("Dispute action is only available when market is in review state.");
+      return;
+    }
 
     setBusy(true);
     try {
-      const amount = parseUnits(amountUsdc || "0", 6);
+      const amount = activeAction === "disputeProposedResolution" ? 0n : parseUnits(amountUsdc || "0", 6);
+      if (activeAction !== "disputeProposedResolution" && amount <= 0n) {
+        throw new Error("Amount must be greater than zero");
+      }
       const actionType = ACTION_TYPE_MAP[activeAction];
       const requestId = `ui_${Date.now()}`;
       const reportPayloadHex = encodeRouterPayloadHex(
         activeAction,
         sessionIdentity.address,
         selectedEvent.marketAddress,
-        amount
+        amount,
+        Number(disputeOutcome)
       );
 
       const signer = new Wallet(sessionIdentity.privateKey);
@@ -510,6 +603,14 @@ export function App() {
           requestNonce,
           requestSignature,
         },
+        market: {
+          chainId: selectedChain,
+          marketAddress: selectedEvent.marketAddress,
+          marketId: selectedEvent.marketId,
+          question: selectedEvent.question,
+          yesToken: selectedEvent.yesToken,
+          noToken: selectedEvent.noToken,
+        },
       });
 
       setLogLine(JSON.stringify(res, null, 2));
@@ -533,6 +634,9 @@ export function App() {
     if (!selectedEvent) return true;
     if (selectedEventState === "closed") return true;
     if (selectedEventState === "resolved" && activeAction !== "redeem") return true;
+    if (selectedEventState === "review" && activeAction !== "disputeProposedResolution") return true;
+    if (selectedEventState !== "review" && activeAction === "disputeProposedResolution") return true;
+    if (selectedEventState === "open" && activeAction === "disputeProposedResolution") return true;
     if (activeAction === "redeem") {
       const redeemable = BigInt(eventPosition?.redeemableUsdc || "0");
       if (redeemable <= 0n) return true;
@@ -635,6 +739,8 @@ export function App() {
               {([
                 ["Active", groupedEvents.active, "open"],
                 ["Closed", groupedEvents.closed, "closed"],
+                ["Review", groupedEvents.review, "review"],
+                ["Resolved", groupedEvents.resolved, "resolved"],
               ] as const).map(([label, list, state]) => (
                 <div key={label}>
                   <div className="mb-2 flex items-center justify-between">
@@ -692,6 +798,9 @@ export function App() {
                   <p>Resolution Time: {formatDateTime(selectedEvent.resolutionTimeUnix)}</p>
                   <p className={marketStateTone[selectedEventState]}>State: {selectedEventState}</p>
                   {selectedEvent.resolutionOutcome ? <p>Outcome: {selectedEvent.resolutionOutcome}</p> : null}
+                  {selectedEvent.proposedResolutionOutcome ? <p>Proposed Outcome: {selectedEvent.proposedResolutionOutcome}</p> : null}
+                  {selectedEvent.disputeDeadlineUnix ? <p>Dispute Deadline: {formatDateTime(selectedEvent.disputeDeadlineUnix)}</p> : null}
+                  {selectedEvent.resolutionDisputed ? <p>Disputed: yes</p> : null}
                   {selectedEvent.questionProofUrl ? (
                     <p>
                       Proof URL:{" "}
@@ -725,6 +834,7 @@ export function App() {
                     value={amountUsdc}
                     onChange={(event) => setAmountUsdc(event.target.value)}
                     placeholder="Amount in USDC"
+                    disabled={activeAction === "disputeProposedResolution"}
                   />
 
                   <button
@@ -736,9 +846,25 @@ export function App() {
                     Sign + Submit Action
                   </button>
                 </div>
+                {activeAction === "disputeProposedResolution" ? (
+                  <div className="mt-2">
+                    <select
+                      className="rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm"
+                      value={disputeOutcome}
+                      onChange={(event) => setDisputeOutcome(event.target.value as "1" | "2" | "3")}
+                    >
+                      <option value="1">Propose YES</option>
+                      <option value="2">Propose NO</option>
+                      <option value="3">Propose INCONCLUSIVE</option>
+                    </select>
+                  </div>
+                ) : null}
 
                 {selectedEventState === "closed" ? (
                   <p className="mt-2 text-xs text-gold-400">Market closed. Trading disabled.</p>
+                ) : null}
+                {selectedEventState === "review" && activeAction !== "disputeProposedResolution" ? (
+                  <p className="mt-2 text-xs text-amber-300">Market is under review. Select disputeProposedResolution to submit your dispute.</p>
                 ) : null}
                 {selectedEventState === "resolved" && activeAction !== "redeem" ? (
                   <p className="mt-2 text-xs text-rose-400">Market resolved. Select redeem to claim winnings.</p>
@@ -842,8 +968,10 @@ export function App() {
           <div className="mt-4 space-y-2">
             {positions.map((item) => (
               (() => {
-                const market = events.find((entry) => entry.id === item.eventId) || null;
-                const resolved = market ? effectiveMarketState(market, nowUnix) === "resolved" : false;
+                const market = knownMarkets.find((entry) => entry.id === item.eventId) || null;
+                const currentState = market ? effectiveMarketState(market, nowUnix) : "open";
+                const resolved = currentState === "resolved";
+                const review = currentState === "review";
                 const outcome = market?.resolutionOutcome || null;
                 const yesShares = BigInt(item.yesShares || "0");
                 const noShares = BigInt(item.noShares || "0");
@@ -887,6 +1015,18 @@ export function App() {
                           className="mt-2 rounded-xl bg-mint-500 px-3 py-1.5 text-xs font-semibold text-ink-950 hover:bg-mint-400 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           Prepare Redeem
+                        </button>
+                      </>
+                    ) : review ? (
+                      <>
+                        <p className="text-xs text-amber-300">State: review/dispute window open</p>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => onPrepareDisputeFromPosition(item)}
+                          className="mt-2 rounded-xl bg-amber-300 px-3 py-1.5 text-xs font-semibold text-ink-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Prepare Dispute
                         </button>
                       </>
                     ) : (

@@ -1,4 +1,6 @@
 export type UiPage = "markets" | "deposit" | "fiat" | "positions";
+export type MarketState = "open" | "closed" | "review" | "resolved";
+export type OutcomeLabel = "yes" | "no" | "inconclusive" | null;
 
 export type WalletIdentity = {
   address: string;
@@ -37,8 +39,11 @@ export type MarketEvent = {
   question: string;
   closeTimeUnix: number;
   resolutionTimeUnix: number;
-  state: "open" | "closed" | "resolved";
-  resolutionOutcome: "yes" | "no" | null;
+  state: MarketState;
+  resolutionOutcome: OutcomeLabel;
+  proposedResolutionOutcome?: OutcomeLabel;
+  disputeDeadlineUnix?: number;
+  resolutionDisputed?: boolean;
   yesPriceBps: number;
   noPriceBps: number;
   createdAtUnix: number;
@@ -51,6 +56,15 @@ export type Position = {
   noShares: string;
   completeSetsMinted: string;
   redeemableUsdc: string;
+};
+
+export type TrackedMarket = {
+  chainId: number;
+  marketAddress: string;
+  marketId?: string;
+  question?: string;
+  yesToken?: string;
+  noToken?: string;
 };
 
 export type ActionResponse = {
