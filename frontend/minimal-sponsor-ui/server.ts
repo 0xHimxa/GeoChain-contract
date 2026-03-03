@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, normalize } from "node:path";
 import { AbiCoder } from "ethers";
 
 type WalletIdentity = {
@@ -109,10 +109,10 @@ const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; co
   },
 };
 
-const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponsor.json");
-const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow", "sponser.json");
-const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "execute.json");
-const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "fiat.json");
+const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow","payload" ,"sponsor.json");
+const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow","payload" ,"sponser.json");
+const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","execute.json");
+const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","fiat.json");
 
 const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -230,21 +230,23 @@ const buildCreSponsorRequestPayload = (body: SponsorApiRequest, actionType: stri
   };
 };
 
+const writeJsonFile = (filePath: string, payload: Record<string, unknown>): void => {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(payload, null, 2));
+};
+
 const writeCreSponsorRequestJson = (payload: Record<string, unknown>): void => {
-  const jsonText = JSON.stringify(payload, null, 2);
-  writeFileSync(CRE_SPONSOR_JSON_PATH, jsonText);
+  writeJsonFile(CRE_SPONSOR_JSON_PATH, payload);
   // Keep backward compatibility with the old misspelled filename already present in this repo.
-  writeFileSync(CRE_SPONSER_JSON_COMPAT_PATH, jsonText);
+  writeJsonFile(CRE_SPONSER_JSON_COMPAT_PATH, payload);
 };
 
 const writeCreExecuteRequestJson = (payload: Record<string, unknown>): void => {
-  const jsonText = JSON.stringify(payload, null, 2);
-  writeFileSync(CRE_EXECUTE_JSON_PATH, jsonText);
+  writeJsonFile(CRE_EXECUTE_JSON_PATH, payload);
 };
 
 const writeCreFiatRequestJson = (payload: Record<string, unknown>): void => {
-  const jsonText = JSON.stringify(payload, null, 2);
-  writeFileSync(CRE_FIAT_JSON_PATH, jsonText);
+  writeJsonFile(CRE_FIAT_JSON_PATH, payload);
 };
 
 const decodeHexJson = (hex: string): Record<string, unknown> | null => {

@@ -23993,6 +23993,245 @@ var arbitrateUnsafeMarketHandler = (runtime2) => {
   }
   return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
 };
+var systemPrompt = `SYSTEM_ROLE:
+You are a deterministic, adversarial-resistant dispute adjudication engine for prediction markets.
+Your job is to independently re-research an event and decide the correct outcome.
+
+CRITICAL RULES:
+1) Ignore the previously proposed market resolution. Treat it as untrusted.
+2) Re-run research from scratch using web search evidence.
+3) Use only objective evidence that is relevant to the market question and resolution time.
+4) If evidence is insufficient, contradictory, or not yet final, return INCONCLUSIVE.
+
+OUTPUT FORMAT (STRICT):
+Return exactly one minified JSON object, no markdown and no extra text.
+JSON schema:
+{"result":"YES"|"NO"|"INCONCLUSIVE","confidence":number,"source_url":string}
+
+If uncertain, return:
+{"result":"INCONCLUSIVE","confidence":0,"source_url":""}`;
+var userPrompt = `You are adjudicating a disputed prediction market.
+
+Re-evaluate the question independently.
+Ignore prior proposed resolution and disputed opinions as decision authority.
+They are context only.
+
+Return only the JSON schema requested in system prompt.
+`;
+var askGeminiAdjudicateDispute = (runtime2, input) => {
+  const geminiApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
+  const httpClient = new ClientCapability2;
+  const result = httpClient.sendRequest(runtime2, buildPrompt(geminiApiKey, input), consensusIdenticalAggregation())().result();
+  return result;
+};
+var buildPrompt = (apiKey, input) => (sendRequester) => {
+  const currentTime = new Date().toISOString();
+  const payload = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    tools: [{ google_search: {} }],
+    contents: [
+      {
+        parts: [
+          {
+            text: `${userPrompt}
+MARKET_QUESTION: ${input.question}
+RESOLUTION_TIME_UNIX: ${input.resolutionTime}
+CURRENT_TIME_ISO: ${currentTime}
+ORIGINAL_PROPOSED_OUTCOME: ${input.originalProposedOutcome}
+DISPUTED_OUTCOME_SET: ${JSON.stringify(input.disputedOutcomes)}`
+          }
+        ]
+      }
+    ]
+  };
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
+  const body = Buffer.from(bodyBytes).toString("base64");
+  const req = {
+    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    method: "POST",
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    }
+  };
+  const res = sendRequester.sendRequest(req).result();
+  if (!ok(res)) {
+    throw new Error(`Http request failed with status ${res.statusCode}`);
+  }
+  const rawData = new TextDecoder().decode(res.body);
+  const parsed = JSON.parse(rawData);
+  const aiResponseString = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return JSON.parse(aiResponseString);
+};
+var ACTION_FINALIZE = "FinalizeResolutionAfterDisputeWindow";
+var ACTION_ADJUDICATE = "AdjudicateDisputedResolution";
+var factoryAbi = [
+  {
+    type: "function",
+    name: "getActiveEventList",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+    stateMutability: "view"
+  }
+];
+var marketAbi = [
+  {
+    type: "function",
+    name: "getDisputeResolutionSnapshot",
+    inputs: [],
+    outputs: [
+      { name: "marketState", type: "uint8" },
+      { name: "currentProposedResolution", type: "uint8" },
+      { name: "isResolutionDisputed", type: "bool" },
+      { name: "currentDisputeDeadline", type: "uint256" },
+      { name: "currentResolutionTime", type: "uint256" },
+      { name: "question", type: "string" },
+      { name: "disputedUniqueOutcomes", type: "uint8[]" }
+    ],
+    stateMutability: "view"
+  }
+];
+var toOutcomeLabel = (outcome) => {
+  if (outcome === 1)
+    return "YES";
+  if (outcome === 2)
+    return "NO";
+  if (outcome === 3)
+    return "INCONCLUSIVE";
+  return "UNSET";
+};
+var toOutcomeCode = (value2) => {
+  const normalized = value2.trim().toUpperCase();
+  if (normalized === "YES")
+    return 1;
+  if (normalized === "NO")
+    return 2;
+  if (normalized === "INCONCLUSIVE")
+    return 3;
+  return 3;
+};
+var callView = (runtime2, evmClient, market, functionName, args = []) => {
+  const data = encodeFunctionData({
+    abi: marketAbi,
+    functionName,
+    args
+  });
+  const result = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: market,
+      data
+    })
+  }).result();
+  return decodeFunctionResult({
+    abi: marketAbi,
+    functionName,
+    data: bytesToHex(result.data)
+  });
+};
+var sendMarketReport = (runtime2, evmClient, market, actionType, payload) => {
+  const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+    actionType,
+    payload
+  ]);
+  const reportResponse = runtime2.report({
+    ...prepareReportRequest(encodedReport)
+  }).result();
+  const writeReportResult = evmClient.writeReport(runtime2, {
+    receiver: market,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit: "10000000"
+    }
+  }).result();
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    throw new Error(`${actionType} reverted for ${market}: ${writeReportResult.errorMessage || "unknown"}`);
+  }
+  return bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+};
+var adjudicateExpiredDisputeWindows = (runtime2) => {
+  const sepoConfig = runtime2.config.evms[0];
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: sepoConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const isHub = isHubFactoryConfig(runtime2, sepoConfig, evmClient);
+  if (!isHub) {
+    return `Configured dispute resolver chain is not hub: ${sepoConfig.chainName}`;
+  }
+  const activeEventListData = encodeFunctionData({
+    abi: factoryAbi,
+    functionName: "getActiveEventList"
+  });
+  const activeResult = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress,
+      data: activeEventListData
+    })
+  }).result();
+  const activeMarkets = decodeFunctionResult({
+    abi: factoryAbi,
+    functionName: "getActiveEventList",
+    data: bytesToHex(activeResult.data)
+  });
+  if (activeMarkets.length === 0) {
+    return "No Active Events";
+  }
+  let finalizedCount = 0;
+  let adjudicatedCount = 0;
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  for (const market of activeMarkets) {
+    try {
+      const snapshot = callView(runtime2, evmClient, market, "getDisputeResolutionSnapshot");
+      const state = Number(snapshot[0]);
+      const proposedResolution = Number(snapshot[1]);
+      const resolutionDisputed = snapshot[2];
+      const disputeDeadline = snapshot[3];
+      const resolutionTime = snapshot[4];
+      const question = snapshot[5];
+      const uniqueOutcomesRaw = snapshot[6];
+      if (state !== 2 || proposedResolution === 0) {
+        continue;
+      }
+      if (now <= disputeDeadline) {
+        continue;
+      }
+      if (!resolutionDisputed) {
+        const txHash2 = sendMarketReport(runtime2, evmClient, market, ACTION_FINALIZE, "0x");
+        finalizedCount++;
+        runtime2.log(`Finalized undisputed market ${market}: ${txHash2}`);
+        continue;
+      }
+      if (uniqueOutcomesRaw.length === 0) {
+        runtime2.log(`Skipping disputed market ${market}: no dispute submissions found`);
+        continue;
+      }
+      const outcomes = uniqueOutcomesRaw.map((outcome) => toOutcomeLabel(Number(outcome))).filter((label) => label !== "UNSET");
+      const gemini = askGeminiAdjudicateDispute(runtime2, {
+        question,
+        resolutionTime: resolutionTime.toString(),
+        originalProposedOutcome: toOutcomeLabel(proposedResolution),
+        disputedOutcomes: outcomes
+      });
+      const adjudicatedOutcome = toOutcomeCode(gemini.result || "INCONCLUSIVE");
+      const proofUrl = adjudicatedOutcome === 3 ? "" : gemini.source_url || "";
+      const adjudicatePayload = encodeAbiParameters(parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"), [adjudicatedOutcome, proofUrl]);
+      const txHash = sendMarketReport(runtime2, evmClient, market, ACTION_ADJUDICATE, adjudicatePayload);
+      adjudicatedCount++;
+      runtime2.log(`Adjudicated disputed market ${market}: ${txHash}; outcome=${adjudicatedOutcome}`);
+    } catch (error) {
+      runtime2.log(`Skipping dispute automation for ${market}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return `markets=${activeMarkets.length}; finalized=${finalizedCount}; adjudicated=${adjudicatedCount}`;
+};
 var signUpWorkFlow = (runtime2) => {
   const firestoreApiKey = runtime2.getSecret({ id: "FIREBASE_API_KEY" }).result();
   const httpClient = new ClientCapability2;
@@ -24020,38 +24259,6 @@ var signUpWorkFlow = (runtime2) => {
   };
   const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
   return response;
-};
-var flattenFirestore = (doc) => {
-  if (!doc.fields)
-    return doc;
-  const flattened = { id: doc.name.split("/").pop() };
-  for (const [key, value2] of Object.entries(doc.fields)) {
-    const valObj = value2;
-    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
-    flattened[key] = actualValue;
-  }
-  return flattened;
-};
-var getFirestoreList = (runtime2, idToken) => {
-  const httpClient = new ClientCapability2;
-  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
-  const listRequester = (sendRequester) => {
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
-    const req = {
-      url,
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${idToken}`
-      }
-    };
-    const res = sendRequester.sendRequest(req).result();
-    if (res.statusCode !== 200)
-      throw new Error("Failed to fetch list");
-    return JSON.parse(new TextDecoder().decode(res.body));
-  };
-  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
-  const rawDocs = response.documents || [];
-  return rawDocs.map((doc) => flattenFirestore(doc));
 };
 var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
   const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
@@ -24087,7 +24294,173 @@ var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData)
   const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
   return response.value;
 };
-var systemPrompt = `
+var upsertManualReviewMarketToFirestore = (runtime2, idToken, documentId, input) => {
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const httpClient = new ClientCapability2;
+  const requester = (sendRequester) => {
+    const payload = {
+      fields: {
+        chainName: { stringValue: input.chainName },
+        marketAddress: { stringValue: input.marketAddress },
+        question: { stringValue: input.question },
+        resolutionTime: { stringValue: input.resolutionTime },
+        state: { stringValue: input.state },
+        updated_at: { integerValue: Date.now().toString() }
+      }
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/manual_review_markets/${documentId}`;
+    const req = {
+      url,
+      method: "PATCH",
+      body,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json"
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200) {
+      const errorText = new TextDecoder().decode(res.body);
+      throw new Error(`Firestore upsert failed: ${res.statusCode} - ${errorText}`);
+    }
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, requester, consensusIdenticalAggregation())().result();
+  return response.value;
+};
+var factoryAbi2 = [
+  {
+    type: "function",
+    name: "getManualReviewEventList",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+    stateMutability: "view"
+  }
+];
+var marketAbi2 = [
+  {
+    type: "function",
+    name: "getDisputeResolutionSnapshot",
+    inputs: [],
+    outputs: [
+      { name: "marketState", type: "uint8" },
+      { name: "currentProposedResolution", type: "uint8" },
+      { name: "isResolutionDisputed", type: "bool" },
+      { name: "currentDisputeDeadline", type: "uint256" },
+      { name: "currentResolutionTime", type: "uint256" },
+      { name: "question", type: "string" },
+      { name: "disputedUniqueOutcomes", type: "uint8[]" }
+    ],
+    stateMutability: "view"
+  }
+];
+var syncManualReviewMarketsToFirebase = (runtime2) => {
+  const sepoConfig = runtime2.config.evms[0];
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: sepoConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const isHub = isHubFactoryConfig(runtime2, sepoConfig, evmClient);
+  if (!isHub) {
+    return `Configured manual-review sync chain is not hub: ${sepoConfig.chainName}`;
+  }
+  const manualReviewListData = encodeFunctionData({
+    abi: factoryAbi2,
+    functionName: "getManualReviewEventList"
+  });
+  const listResult = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: sender,
+      to: sepoConfig.marketFactoryAddress,
+      data: manualReviewListData
+    })
+  }).result();
+  const manualReviewMarkets = decodeFunctionResult({
+    abi: factoryAbi2,
+    functionName: "getManualReviewEventList",
+    data: bytesToHex(listResult.data)
+  });
+  if (manualReviewMarkets.length === 0) {
+    return "No manual-review markets";
+  }
+  const auth = signUpWorkFlow(runtime2);
+  let written = 0;
+  for (const market of manualReviewMarkets) {
+    try {
+      const snapshotData = encodeFunctionData({
+        abi: marketAbi2,
+        functionName: "getDisputeResolutionSnapshot"
+      });
+      const snapshotResult = evmClient.callContract(runtime2, {
+        call: encodeCallMsg({
+          from: sender,
+          to: market,
+          data: snapshotData
+        })
+      }).result();
+      const snapshot = decodeFunctionResult({
+        abi: marketAbi2,
+        functionName: "getDisputeResolutionSnapshot",
+        data: bytesToHex(snapshotResult.data)
+      });
+      const question = snapshot[5] || "";
+      const resolutionTime = snapshot[4].toString();
+      const state = Number(snapshot[0]) === 2 ? "review" : "unknown";
+      const docId = `${sepoConfig.chainName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${market.toLowerCase()}`;
+      upsertManualReviewMarketToFirestore(runtime2, auth.idToken, docId, {
+        chainName: sepoConfig.chainName,
+        marketAddress: market,
+        question,
+        resolutionTime,
+        state
+      });
+      written++;
+    } catch (error) {
+      runtime2.log(`manual-review firebase sync skipped for ${market}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return `manualReviewMarkets=${manualReviewMarkets.length}; synced=${written}`;
+};
+var flattenFirestore = (doc) => {
+  if (!doc.fields)
+    return doc;
+  const flattened = { id: doc.name.split("/").pop() };
+  for (const [key, value2] of Object.entries(doc.fields)) {
+    const valObj = value2;
+    const actualValue = valObj.stringValue ?? valObj.integerValue ?? valObj.booleanValue ?? valObj.timestampValue;
+    flattened[key] = actualValue;
+  }
+  return flattened;
+};
+var getFirestoreList = (runtime2, idToken) => {
+  const httpClient = new ClientCapability2;
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const listRequester = (sendRequester) => {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo?pageSize=31&orderBy=created_at%20desc`;
+    const req = {
+      url,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200)
+      throw new Error("Failed to fetch list");
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, listRequester, consensusIdenticalAggregation())().result();
+  const rawDocs = response.documents || [];
+  return rawDocs.map((doc) => flattenFirestore(doc));
+};
+var systemPrompt2 = `
 ROLE:
 You are a Senior Prediction Market Analyst, Event Architect, and Strict Duplicate Detection Engine for a decentralized prediction market platform.
 
@@ -24194,7 +24567,7 @@ Required JSON structure:
   "trending_reason": "Why this topic is currently trending"
 }
 `;
-var userPrompt = `
+var userPrompt2 = `
 Generate exactly ONE unique prediction event that satisfies ALL rules.
 Return ONLY valid raw JSON.
 `;
@@ -24207,11 +24580,11 @@ var askGemeni = (runtime2, previousEvents) => {
 };
 var prompt = (apikey, previousEvents) => (sendRequester) => {
   const dataToSend = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
+    system_instruction: { parts: [{ text: systemPrompt2 }] },
     tools: [{ google_search: {} }],
     contents: [
       {
-        parts: [{ text: userPrompt + `Previous events list:` + JSON.stringify(previousEvents) }]
+        parts: [{ text: userPrompt2 + `Previous events list:` + JSON.stringify(previousEvents) }]
       }
     ]
   };
@@ -24881,7 +25254,8 @@ var DEFAULT_ALLOWED_ACTIONS = new Set([
   "swapNoForYes",
   "mintCompleteSets",
   "redeemCompleteSets",
-  "redeem"
+  "redeem",
+  "disputeProposedResolution"
 ]);
 var ACTION_TO_ROUTER_ACTION_TYPE = {
   addLiquidity: "routerAddLiquidity",
@@ -24890,8 +25264,12 @@ var ACTION_TO_ROUTER_ACTION_TYPE = {
   swapNoForYes: "routerSwapNoForYes",
   mintCompleteSets: "routerMintCompleteSets",
   redeemCompleteSets: "routerRedeemCompleteSets",
-  redeem: "routerRedeem"
+  redeem: "routerRedeem",
+  disputeProposedResolution: "routerDisputeProposedResolution"
 };
+var ZERO_AMOUNT_ALLOWED_ACTIONS = new Set([
+  "disputeProposedResolution"
+]);
 var decodePayloadInput = (payload) => {
   return new TextDecoder().decode(payload.input);
 };
@@ -24977,7 +25355,8 @@ var sponsorUserOpPolicyHandler = async (runtime2, payload) => {
   } catch (error) {
     return JSON.stringify(makeDecision(requestId, error instanceof Error ? error.message : "invalid amountUsdc"));
   }
-  if (amount <= 0n) {
+  const allowZeroAmount = ZERO_AMOUNT_ALLOWED_ACTIONS.has(request.action);
+  if (!allowZeroAmount && amount <= 0n) {
     return JSON.stringify(makeDecision(requestId, "amountUsdc must be greater than zero"));
   }
   if (amount > maxAmount) {
@@ -25030,6 +25409,9 @@ var sponsorUserOpPolicyHandler = async (runtime2, payload) => {
 var HEX_ADDRESS_REGEX3 = /^0x[a-fA-F0-9]{40}$/;
 var HEX_BYTES_REGEX2 = /^0x([a-fA-F0-9]{2})*$/;
 var ROUTER_ACTION_PREFIX = "router";
+var ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
+  "routerDisputeProposedResolution"
+]);
 var toBigIntAmount2 = (value2) => {
   if (!value2)
     return 0n;
@@ -25119,7 +25501,8 @@ var executeReportHttpHandler = async (runtime2, payload) => {
       reason: error instanceof Error ? error.message : "invalid amountUsdc"
     });
   }
-  if (amount <= 0n) {
+  const allowZeroAmount = !!req.actionType && ZERO_AMOUNT_ALLOWED_ACTION_TYPES.has(req.actionType);
+  if (!allowZeroAmount && amount <= 0n) {
     return JSON.stringify({
       submitted: false,
       requestId,
@@ -25621,7 +26004,7 @@ var initWorkflow = (config) => {
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), createEventHelper)
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
   ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
@@ -25678,6 +26061,7 @@ async function main() {
 }
 main().catch(sendErrorResponse);
 export {
+  syncManualReviewMarketsToFirebase,
   syncCanonicalPrice,
   sponsorUserOpPolicyHandler,
   revokeSessionHttpHandler,
@@ -25690,5 +26074,6 @@ export {
   createPredictionMarketEvent,
   createEventHelper,
   authWorkflow,
-  arbitrateUnsafeMarketHandler
+  arbitrateUnsafeMarketHandler,
+  adjudicateExpiredDisputeWindows
 };
