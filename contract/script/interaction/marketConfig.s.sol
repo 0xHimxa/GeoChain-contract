@@ -8,14 +8,14 @@ import {PredictionMarketBridge} from "../../src/Bridge/PredictionMarketBridge.so
 
 contract SetCCIPconfig is Script {
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-address router = 0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93;
+address router = 0x29D4d09493e507E6b31ffD18f28AC647EE56916a;
 address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
 
 function run() external{
 
 
 vm.startBroadcast(owner);
-MarketFactory(0x02b0E40A0D3E6A0fb27aBBb5FA4f39B40e131bd3).setCcipConfig(router, link, false);
+MarketFactory(0x82dB8e8d6CC0E1fc7C305905140822e0EB57557f).setCcipConfig(router, link, false);
 
 vm.stopBroadcast();
 
@@ -27,11 +27,11 @@ vm.stopBroadcast();
 
 contract SetRemoteChainSelector is Script {
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-address  marketFactory = 0x54DDeC2F7420b3AF1BB53157f3c533F9Ad598651;
-address bridge = 0xf898E8b44513F261a13EfF8387eC7b58baB4846e;
+address  marketFactory = 0x82dB8e8d6CC0E1fc7C305905140822e0EB57557f;
+address bridge =0xCDFf4223DF721593d8300e80379197AaFa6134d6;
 
-address arbMarketFactory = 0x145A8D0eD56fd02A8b29b2E81C09F5d66e1918Ec;
-address arbBridge = 0x0043866570462b0495eC23d780D873aF1afA1711;
+address arbMarketFactory = 0x093a5F31A845FCadAbd55AB3915A6300B4cbCB47;
+address arbBridge = 0x0152047B15D7312DE9315B6df818987a7B9bDDe0;
 
 uint64 chainSelector = 10344971235874465080;
 uint64 arbChainSelector = 3478487238524512106;
@@ -41,8 +41,8 @@ function run() external{
 
 vm.startBroadcast(owner);
 
-MarketFactory(arbMarketFactory).setTrustedRemote(chainSelector,marketFactory);
-PredictionMarketBridge(arbBridge).setTrustedRemote(chainSelector,bridge);
+MarketFactory(marketFactory).setTrustedRemote(arbChainSelector,arbMarketFactory);
+PredictionMarketBridge(bridge).setTrustedRemote(arbChainSelector,arbBridge);
 vm.stopBroadcast();
 
 }

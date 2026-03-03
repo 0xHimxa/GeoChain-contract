@@ -100,12 +100,12 @@ type CreFiatCreditPayload = {
 
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
-    executeReceiverAddress: "0x3E6206fa635C74288C807ee3ba90C603a82B94A8",
-    collateralTokenAddress: "0x28dF0b4CD6d0627134b708CCAfcF230bC272a663",
+    executeReceiverAddress: "0x4924D16b5ffadF307e7370c6961d8F3FB084Fc23",
+    collateralTokenAddress: "0x4114D2B355f6dcEFbEd61A316e0516496b43c055",
   },
   84532: {
-    executeReceiverAddress: "0x1381A3b6d81BA62bb256607Cc2BfBBd5271DD525",
-    collateralTokenAddress: "0x15a6D5380397644076f13D76B648A45B29e754bc",
+    executeReceiverAddress: "0x29D4d09493e507E6b31ffD18f28AC647EE56916a",
+    collateralTokenAddress: "0x8423148D55274a2430B1093F3352c460C0c14C4C",
   },
 };
 
