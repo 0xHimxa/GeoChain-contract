@@ -24309,6 +24309,40 @@ var signUpWorkFlow = (runtime2) => {
   const response = httpClient.sendRequest(runtime2, authRequester, consensusIdenticalAggregation())().result();
   return response;
 };
+var writeToFirestore = (runtime2, idToken, question, resolutionTime, geminiData) => {
+  const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
+  const httpClient = new ClientCapability2;
+  const writeRequester = (sendRequester) => {
+    const dataToSend = {
+      fields: {
+        question: { stringValue: question },
+        resolutionTime: { stringValue: resolutionTime },
+        geminiResponse: { stringValue: geminiData.response || "No response" },
+        created_at: { integerValue: Date.now().toString() }
+      }
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(dataToSend));
+    const body = Buffer.from(bodyBytes).toString("base64");
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/demo`;
+    const req = {
+      url,
+      method: "POST",
+      body,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json"
+      }
+    };
+    const res = sendRequester.sendRequest(req).result();
+    if (res.statusCode !== 200) {
+      const errorText = new TextDecoder().decode(res.body);
+      throw new Error(`Firestore write failed: ${res.statusCode} - ${errorText}`);
+    }
+    return JSON.parse(new TextDecoder().decode(res.body));
+  };
+  const response = httpClient.sendRequest(runtime2, writeRequester, consensusIdenticalAggregation())().result();
+  return response.value;
+};
 var upsertManualReviewMarketToFirestore = (runtime2, idToken, documentId, input) => {
   const projectId = runtime2.getSecret({ id: "FIREBASE_PROJECT_ID" }).result().value;
   const httpClient = new ClientCapability2;
@@ -24775,9 +24809,10 @@ var createPredictionMarketEvent = (runtime2) => {
   const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
   const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
   runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db`);
-  runtime2.log(`returned data: CloseTime: ${closeTime}, ResolutionTime: ${resolutionTime},startTime: ${eventInfo.event_start},`);
+  writeToFirestore(runtime2, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
   const marketFactoryCall = runtime2.config.evms.map((evmConfig) => {
     const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.event_name, closeTime, resolutionTime]);
+    sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
     return `[${evmConfig.chainName}] ok`;
   });
   return marketFactoryCall.join(", ");
@@ -26122,10 +26157,7 @@ var initWorkflow = (config) => {
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
-  const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
-    handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent)
-  ];
+  const cronWorkflows = [];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
       authorizedKeys: httpAuthorizedKeys
