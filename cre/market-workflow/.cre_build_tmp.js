@@ -24601,8 +24601,8 @@ var createPredictionMarketEvent = (runtime2) => {
 };
 var createEventHelper = (runtime2) => {
   const eventName = "Will BTC price be above $3,000 in 1 hour?";
-  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 10 * 60);
-  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 15 * 60);
+  const closeTime = BigInt(Math.floor(Date.now() / 1000) + 45 * 60);
+  const resolutionTime = BigInt(Math.floor(Date.now() / 1000) + 55 * 60);
   runtime2.config.evms.map((evmConfig) => {
     const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventName, closeTime, resolutionTime]);
     sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
@@ -25176,67 +25176,6 @@ var AGENT_ACTION_TO_ROUTER_ACTION_TYPE = {
   removeLiquidity: "routerAgentRemoveLiquidity",
   redeem: "routerAgentRedeem",
   disputeProposedResolution: "routerAgentDisputeProposedResolution"
-};
-var toUint = (value2) => {
-  if (!value2)
-    return 0n;
-  if (!/^\d+$/.test(value2))
-    throw new Error("amount fields must be unsigned integer strings");
-  return BigInt(value2);
-};
-var buildAgentPayloadHex = (action, input) => {
-  if (action === "mintCompleteSets" || action === "redeemCompleteSets" || action === "redeem") {
-    return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint256 amount"), [
-      input.user,
-      input.agent,
-      input.market,
-      toUint(input.amountUsdc)
-    ]);
-  }
-  if (action === "swapYesForNo") {
-    return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint256 yesIn,uint256 minNoOut"), [
-      input.user,
-      input.agent,
-      input.market,
-      toUint(input.yesIn ?? input.amountUsdc),
-      toUint(input.minNoOut)
-    ]);
-  }
-  if (action === "swapNoForYes") {
-    return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint256 noIn,uint256 minYesOut"), [
-      input.user,
-      input.agent,
-      input.market,
-      toUint(input.noIn ?? input.amountUsdc),
-      toUint(input.minYesOut)
-    ]);
-  }
-  if (action === "addLiquidity") {
-    return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint256 yesAmount,uint256 noAmount,uint256 minShares"), [
-      input.user,
-      input.agent,
-      input.market,
-      toUint(input.yesAmount),
-      toUint(input.noAmount),
-      toUint(input.minShares)
-    ]);
-  }
-  if (action === "removeLiquidity") {
-    return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint256 shares,uint256 minYesOut,uint256 minNoOut"), [
-      input.user,
-      input.agent,
-      input.market,
-      toUint(input.shares),
-      toUint(input.minYesOut),
-      toUint(input.minNoOut)
-    ]);
-  }
-  return encodeAbiParameters(parseAbiParameters("address user,address agent,address market,uint8 proposedOutcome"), [
-    input.user,
-    input.agent,
-    input.market,
-    Number(input.proposedOutcome || 0)
-  ]);
 };
 var HEX_ADDRESS_REGEX2 = /^0x[a-fA-F0-9]{40}$/;
 var PRICISION = 1000000n;
@@ -25978,427 +25917,6 @@ var ethCreditFromLogsHandler = (runtime2, log) => {
   runtime2.log(`[ETH_CREDIT] sender=${sender3} amountWei=${amountWei.toString()} amountUsdcE6=${amountUsdcE6.toString()} txHash=${txHashHex} logIndex=${log.index}`);
   return `processed eth deposit tx=${txHashHex}`;
 };
-var HEX_ADDRESS_REGEX7 = /^0x[a-fA-F0-9]{40}$/;
-var ZERO_AMOUNT_ALLOWED_ACTIONS2 = new Set(["disputeProposedResolution"]);
-var parseRequest5 = (payload) => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim())
-    throw new Error("empty payload");
-  return JSON.parse(raw);
-};
-var validateUintString = (value2, field) => {
-  const safe = (value2 || "").trim();
-  if (!/^\d+$/.test(safe))
-    throw new Error(`${field} must be a numeric string`);
-  return safe;
-};
-var agentPlanTradeHttpHandler = async (runtime2, payload) => {
-  const requestIdFallback = `agent_plan_${runtime2.now().toISOString()}`;
-  const agentPolicy = runtime2.config.agentPolicy;
-  if (!agentPolicy?.enabled) {
-    return JSON.stringify({
-      planned: false,
-      requestId: requestIdFallback,
-      reason: "agent policy disabled"
-    });
-  }
-  let req;
-  try {
-    req = parseRequest5(payload);
-  } catch (error) {
-    return JSON.stringify({
-      planned: false,
-      requestId: requestIdFallback,
-      reason: error instanceof Error ? error.message : "invalid payload"
-    });
-  }
-  const requestId = (req.requestId || requestIdFallback).trim();
-  const action = req.action;
-  if (!action || !AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action]) {
-    return JSON.stringify({ planned: false, requestId, reason: "invalid action" });
-  }
-  if (!agentPolicy.allowedActions.includes(action)) {
-    return JSON.stringify({ planned: false, requestId, reason: "action not allowed by agent policy" });
-  }
-  if (typeof req.chainId !== "number" || !agentPolicy.supportedChainIds.includes(req.chainId)) {
-    return JSON.stringify({ planned: false, requestId, reason: "unsupported chainId" });
-  }
-  const sender3 = (req.sender || req.user || "").trim();
-  const user = (req.user || req.sender || "").trim();
-  const agent = (req.agent || "").trim();
-  const market = (req.market || "").trim();
-  if (!HEX_ADDRESS_REGEX7.test(sender3) || !HEX_ADDRESS_REGEX7.test(user) || !HEX_ADDRESS_REGEX7.test(agent) || !HEX_ADDRESS_REGEX7.test(market)) {
-    return JSON.stringify({ planned: false, requestId, reason: "invalid address field" });
-  }
-  if (sender3.toLowerCase() !== user.toLowerCase()) {
-    return JSON.stringify({ planned: false, requestId, reason: "sender must equal user" });
-  }
-  let amountUsdc = (req.amountUsdc || "0").trim();
-  try {
-    amountUsdc = validateUintString(amountUsdc, "amountUsdc");
-  } catch (error) {
-    return JSON.stringify({ planned: false, requestId, reason: error instanceof Error ? error.message : "invalid amountUsdc" });
-  }
-  const allowZeroAmount = ZERO_AMOUNT_ALLOWED_ACTIONS2.has(action);
-  if (!allowZeroAmount && BigInt(amountUsdc) == 0n) {
-    return JSON.stringify({ planned: false, requestId, reason: "amountUsdc must be greater than zero" });
-  }
-  const maxAmount = BigInt(agentPolicy.maxAmountUsdc);
-  if (BigInt(amountUsdc) > maxAmount) {
-    return JSON.stringify({ planned: false, requestId, reason: "amount exceeds agent policy" });
-  }
-  const slippageBps = typeof req.slippageBps === "number" ? req.slippageBps : agentPolicy.defaultSlippageBps;
-  if (!Number.isInteger(slippageBps) || slippageBps < 0) {
-    return JSON.stringify({ planned: false, requestId, reason: "invalid slippageBps" });
-  }
-  if (slippageBps > agentPolicy.maxSlippageBps) {
-    return JSON.stringify({ planned: false, requestId, reason: "slippage exceeds agent policy" });
-  }
-  const response = {
-    planned: true,
-    requestId,
-    plan: {
-      action,
-      actionType: AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action],
-      chainId: req.chainId,
-      sender: sender3,
-      user,
-      agent,
-      market,
-      amountUsdc,
-      slippageBps,
-      yesIn: req.yesIn,
-      minNoOut: req.minNoOut,
-      noIn: req.noIn,
-      minYesOut: req.minYesOut,
-      yesAmount: req.yesAmount,
-      noAmount: req.noAmount,
-      minShares: req.minShares,
-      shares: req.shares,
-      proposedOutcome: req.proposedOutcome,
-      session: req.session
-    }
-  };
-  return JSON.stringify(response);
-};
-var agentSponsorTradeHttpHandler = async (runtime2, payload) => {
-  const requestIdFallback = `agent_sponsor_${runtime2.now().toISOString()}`;
-  const agentPolicy = runtime2.config.agentPolicy;
-  if (!agentPolicy?.enabled) {
-    return JSON.stringify({ approved: false, reason: "agent policy disabled", requestId: requestIdFallback });
-  }
-  let req;
-  try {
-    const raw = new TextDecoder().decode(payload.input);
-    if (!raw.trim())
-      throw new Error("empty payload");
-    req = JSON.parse(raw);
-  } catch (error) {
-    return JSON.stringify({ approved: false, reason: error instanceof Error ? error.message : "invalid payload", requestId: requestIdFallback });
-  }
-  const action = req.action;
-  if (!action || !AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action]) {
-    return JSON.stringify({ approved: false, reason: "invalid action", requestId: req.requestId || requestIdFallback });
-  }
-  const sponsorRequest = {
-    requestId: req.requestId || requestIdFallback,
-    chainId: req.chainId,
-    action,
-    actionType: AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action],
-    amountUsdc: req.amountUsdc || "0",
-    sender: req.sender || "",
-    slippageBps: req.slippageBps,
-    session: req.session
-  };
-  return sponsorUserOpPolicyHandler(runtime2, {
-    ...payload,
-    input: new TextEncoder().encode(JSON.stringify(sponsorRequest))
-  });
-};
-var agentExecuteTradeHttpHandler = async (runtime2, payload) => {
-  const requestIdFallback = `agent_execute_${runtime2.now().toISOString()}`;
-  const agentPolicy = runtime2.config.agentPolicy;
-  if (!agentPolicy?.enabled) {
-    return JSON.stringify({ submitted: false, requestId: requestIdFallback, reason: "agent policy disabled" });
-  }
-  let req;
-  try {
-    const raw = new TextDecoder().decode(payload.input);
-    if (!raw.trim())
-      throw new Error("empty payload");
-    req = JSON.parse(raw);
-  } catch (error) {
-    return JSON.stringify({
-      submitted: false,
-      requestId: requestIdFallback,
-      reason: error instanceof Error ? error.message : "invalid payload"
-    });
-  }
-  const action = req.action;
-  if (!action || !AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action]) {
-    return JSON.stringify({ submitted: false, requestId: req.requestId || requestIdFallback, reason: "invalid action" });
-  }
-  const user = req.user || req.sender || "";
-  const actionType = AGENT_ACTION_TO_ROUTER_ACTION_TYPE[action];
-  let payloadHex;
-  try {
-    payloadHex = buildAgentPayloadHex(action, {
-      user,
-      agent: req.agent || "",
-      market: req.market || "",
-      amountUsdc: req.amountUsdc,
-      yesIn: req.yesIn,
-      minNoOut: req.minNoOut,
-      noIn: req.noIn,
-      minYesOut: req.minYesOut,
-      yesAmount: req.yesAmount,
-      noAmount: req.noAmount,
-      minShares: req.minShares,
-      shares: req.shares,
-      proposedOutcome: req.proposedOutcome
-    });
-  } catch (error) {
-    return JSON.stringify({
-      submitted: false,
-      requestId: req.requestId || requestIdFallback,
-      reason: error instanceof Error ? error.message : "failed to build payload"
-    });
-  }
-  const executeRequest = {
-    requestId: req.requestId || requestIdFallback,
-    approvalId: req.approvalId,
-    chainId: req.chainId,
-    amountUsdc: req.amountUsdc || "0",
-    actionType,
-    payloadHex
-  };
-  return executeReportHttpHandler(runtime2, {
-    ...payload,
-    input: new TextEncoder().encode(JSON.stringify(executeRequest))
-  });
-};
-var agentRevokeHttpHandler = async (runtime2, payload) => {
-  const agentPolicy = runtime2.config.agentPolicy;
-  if (!agentPolicy?.enabled) {
-    return JSON.stringify({
-      revoked: false,
-      requestId: `agent_revoke_${runtime2.now().toISOString()}`,
-      reason: "agent policy disabled"
-    });
-  }
-  return revokeSessionHttpHandler(runtime2, payload);
-};
-var AUTO_EXEC_ACTIONS = new Set([
-  "mintCompleteSets",
-  "redeemCompleteSets",
-  "redeem",
-  "swapYesForNo",
-  "swapNoForYes"
-]);
-var SYSTEM_PROMPT = `You are a risk-constrained trading assistant for prediction markets.
-Return a single minified JSON object only.
-Schema: {"action":"mintCompleteSets"|"redeemCompleteSets"|"redeem"|"swapYesForNo"|"swapNoForYes"|"hold","amountUsdc":"<uint-string>","rationale":"<short>","confidenceBps":<0-10000 integer>}
-Rules:
-1) action must be one of ALLOWED_ACTIONS.
-2) amountUsdc must be a base-10 integer string and <= MAX_AMOUNT_USDC.
-3) If uncertain, output "hold" with amountUsdc "0".
-4) No markdown, no prose, no extra keys.`;
-var decodeInput = (payload) => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim())
-    throw new Error("empty payload");
-  return JSON.parse(raw);
-};
-var parseDecision = (raw) => {
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object")
-    throw new Error("invalid gemini response");
-  if (!("action" in parsed) || !("amountUsdc" in parsed))
-    throw new Error("gemini response missing fields");
-  return parsed;
-};
-var withInput = (base, obj) => ({
-  ...base,
-  input: new TextEncoder().encode(JSON.stringify(obj))
-});
-var makeInternalPayload = (obj) => ({
-  $typeName: "capabilities.networking.http.v1alpha.Payload",
-  input: new TextEncoder().encode(JSON.stringify(obj))
-});
-var askGeminiForTrade = (runtime2, userPrompt2) => {
-  const apiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
-  const httpClient = new ClientCapability2;
-  const requester = (sender3) => {
-    const data = {
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: userPrompt2 }] }]
-    };
-    const bodyBytes = new TextEncoder().encode(JSON.stringify(data));
-    const body = Buffer.from(bodyBytes).toString("base64");
-    const res = sender3.sendRequest({
-      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      method: "POST",
-      body,
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      }
-    }).result();
-    if (!ok(res)) {
-      throw new Error(`gemini call failed (${res.statusCode})`);
-    }
-    const rawBody = new TextDecoder().decode(res.body);
-    const json = JSON.parse(rawBody);
-    const text = (json.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
-    if (!text)
-      throw new Error("empty gemini decision");
-    return parseDecision(text);
-  };
-  return httpClient.sendRequest(runtime2, requester, consensusIdenticalAggregation())().result();
-};
-var executeGeminiAutoTrade = async (runtime2, req, payloadFactory) => {
-  const requestIdFallback = `agent_gemini_${runtime2.now().toISOString()}`;
-  const policy = runtime2.config.agentPolicy;
-  if (!policy?.enabled) {
-    return {
-      requestId: requestIdFallback,
-      handled: false,
-      reason: "agent policy disabled"
-    };
-  }
-  const requestId = req.requestId || requestIdFallback;
-  const allowedActions = (req.allowedActions || policy.allowedActions || []).filter((a) => Boolean(AGENT_ACTION_TO_ROUTER_ACTION_TYPE[a])).filter((a) => AUTO_EXEC_ACTIONS.has(a));
-  if (allowedActions.length === 0) {
-    return {
-      requestId,
-      handled: false,
-      reason: "no auto-executable allowed actions provided"
-    };
-  }
-  const maxAmountUsdc = req.amountUsdc && /^\d+$/.test(req.amountUsdc) ? req.amountUsdc : policy.maxAmountUsdc;
-  const userPrompt2 = `REQUEST_ID=${requestId}
-ALLOWED_ACTIONS=${allowedActions.join(",")}
-MAX_AMOUNT_USDC=${maxAmountUsdc}
-CHAIN_ID=${String(req.chainId || "")}
-MARKET=${req.market || ""}
-QUESTION=${req.marketContext?.question || ""}
-YES_PRICE_BPS=${String(req.marketContext?.yesPriceBps ?? "")}
-NO_PRICE_BPS=${String(req.marketContext?.noPriceBps ?? "")}
-NOTE=${req.marketContext?.note || ""}`;
-  let decision;
-  try {
-    decision = askGeminiForTrade(runtime2, userPrompt2);
-  } catch (error) {
-    return {
-      requestId,
-      handled: false,
-      reason: error instanceof Error ? error.message : "gemini decision failed"
-    };
-  }
-  if (decision.action === "hold") {
-    return {
-      requestId,
-      handled: true,
-      reason: "gemini decided to hold",
-      decision
-    };
-  }
-  if (!allowedActions.includes(decision.action)) {
-    return {
-      requestId,
-      handled: false,
-      reason: "gemini selected action outside allowed set",
-      decision
-    };
-  }
-  if (!/^\d+$/.test(decision.amountUsdc)) {
-    return {
-      requestId,
-      handled: false,
-      reason: "gemini returned invalid amountUsdc",
-      decision
-    };
-  }
-  const boundedAmount = BigInt(decision.amountUsdc) > BigInt(maxAmountUsdc) ? maxAmountUsdc : decision.amountUsdc;
-  const planReq = {
-    requestId,
-    chainId: req.chainId,
-    sender: req.sender || req.user,
-    user: req.user || req.sender,
-    agent: req.agent,
-    market: req.market,
-    action: decision.action,
-    amountUsdc: boundedAmount,
-    slippageBps: req.slippageBps,
-    session: req.session
-  };
-  const toPayload = payloadFactory || makeInternalPayload;
-  const planRaw = await agentPlanTradeHttpHandler(runtime2, toPayload(planReq));
-  const planJson = JSON.parse(planRaw);
-  if (!planJson.planned || !planJson.plan) {
-    return {
-      requestId,
-      handled: false,
-      reason: `plan rejected: ${planJson.reason || "unknown"}`,
-      decision
-    };
-  }
-  const sponsorRaw = await agentSponsorTradeHttpHandler(runtime2, toPayload(planJson.plan));
-  const sponsorJson = JSON.parse(sponsorRaw);
-  if (!sponsorJson.approved || !sponsorJson.approvalId) {
-    return {
-      requestId,
-      handled: false,
-      reason: `sponsor rejected: ${sponsorJson.reason || "unknown"}`,
-      decision,
-      sponsor: sponsorJson
-    };
-  }
-  const executeReq = {
-    ...planJson.plan,
-    requestId,
-    approvalId: sponsorJson.approvalId,
-    action: decision.action,
-    amountUsdc: boundedAmount
-  };
-  const executeRaw = await agentExecuteTradeHttpHandler(runtime2, toPayload(executeReq));
-  const executeJson = JSON.parse(executeRaw);
-  if (!executeJson.submitted) {
-    return {
-      requestId,
-      handled: false,
-      reason: `execute failed: ${executeJson.reason || "unknown"}`,
-      decision,
-      sponsor: sponsorJson,
-      execute: executeJson
-    };
-  }
-  return {
-    requestId,
-    handled: true,
-    reason: "gemini-selected trade executed",
-    decision: {
-      ...decision,
-      amountUsdc: boundedAmount
-    },
-    sponsor: sponsorJson,
-    execute: executeJson
-  };
-};
-var agentGeminiAutoTradeHttpHandler = async (runtime2, payload) => {
-  let req;
-  try {
-    req = decodeInput(payload);
-  } catch (error) {
-    return JSON.stringify({
-      requestId: `agent_gemini_${runtime2.now().toISOString()}`,
-      handled: false,
-      reason: error instanceof Error ? error.message : "invalid payload"
-    });
-  }
-  const result = await executeGeminiAutoTrade(runtime2, req, (obj) => withInput(payload, obj));
-  return JSON.stringify(result);
-};
 var ETH_RECEIVED_EVENT_SIG2 = "0xe98f6e2bbf18d38ab3110207f18cc6cc79ca9fcd98fb75e8f5fdc7fc4f09d5e3";
 var toChainId4 = (chainName) => {
   if (chainName.includes("arbitrum"))
@@ -26416,15 +25934,14 @@ var initWorkflow = (config) => {
   const httpAuthorizedKeys = config.httpTriggerAuthorizedKeys || [];
   const httpExecutionAuthorizedKeys = config.httpExecutionAuthorizedKeys || [];
   const httpFiatCreditAuthorizedKeys = config.httpFiatCreditAuthorizedKeys || [];
-  const httpAgentAuthorizedKeys = config.httpAgentAuthorizedKeys || httpAuthorizedKeys;
   const hasHttpTriggerKeys = httpAuthorizedKeys.length > 0;
   const hasHttpExecutionTriggerKeys = httpExecutionAuthorizedKeys.length > 0;
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
-  const hasHttpAgentKeys = httpAgentAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent)
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+    handler(cron.trigger({ schedule: config.schedule }), createEventHelper)
   ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
@@ -26443,23 +25960,6 @@ var initWorkflow = (config) => {
     handler(http.trigger({
       authorizedKeys: httpFiatCreditAuthorizedKeys
     }), fiatCreditHttpHandler)
-  ] : [];
-  const agentHttpWorkflows = hasHttpAgentKeys ? [
-    handler(http.trigger({
-      authorizedKeys: httpAgentAuthorizedKeys
-    }), agentPlanTradeHttpHandler),
-    handler(http.trigger({
-      authorizedKeys: httpAgentAuthorizedKeys
-    }), agentSponsorTradeHttpHandler),
-    handler(http.trigger({
-      authorizedKeys: httpAgentAuthorizedKeys
-    }), agentExecuteTradeHttpHandler),
-    handler(http.trigger({
-      authorizedKeys: httpAgentAuthorizedKeys
-    }), agentGeminiAutoTradeHttpHandler),
-    handler(http.trigger({
-      authorizedKeys: httpAgentAuthorizedKeys
-    }), agentRevokeHttpHandler)
   ] : [];
   const ethCreditLogWorkflows = hasEthCredit ? config.evms.filter((evm) => {
     const chainId = toChainId4(evm.chainName);
@@ -26489,7 +25989,6 @@ var initWorkflow = (config) => {
     ...sponsorHttpWorkflows,
     ...executeHttpWorkflows,
     ...fiatCreditHttpWorkflows,
-    ...agentHttpWorkflows,
     ...ethCreditLogWorkflows
   ];
 };
@@ -26513,10 +26012,5 @@ export {
   createEventHelper,
   authWorkflow,
   arbitrateUnsafeMarketHandler,
-  agentSponsorTradeHttpHandler,
-  agentRevokeHttpHandler,
-  agentPlanTradeHttpHandler,
-  agentGeminiAutoTradeHttpHandler,
-  agentExecuteTradeHttpHandler,
   adjudicateExpiredDisputeWindows
 };
