@@ -12,13 +12,13 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     using SafeERC20 for IERC20;
 
     /// @notice Grants or updates agent permissions for caller-owned credits.
-    function setAgentPermission(address agent, uint32 actionMask, uint128 maxAmountPerAction, uint64 expiresAt) external {
+    function setAgentPermission(address agent,address _user, uint32 actionMask, uint128 maxAmountPerAction, uint64 expiresAt) external {
         if (agent == address(0)) revert Router__ZeroAddress();
         if (expiresAt <= block.timestamp) revert Router__AgentPermissionExpired();
         if (actionMask == 0) revert Router__AgentActionNotAllowed();
         if (maxAmountPerAction == 0) revert Router__InvalidAmount();
 
-        agentPermissions[msg.sender][agent] = AgentPermission({
+        agentPermissions[_user][agent] = AgentPermission({
             enabled: true,
             expiresAt: expiresAt,
             maxAmountPerAction: maxAmountPerAction,

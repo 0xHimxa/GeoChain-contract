@@ -1,0 +1,60 @@
+{
+  "schedule": "*/30 * * * * *",
+  "httpTriggerAuthorizedKeys": [],
+  "httpExecutionAuthorizedKeys": [],
+  "httpFiatCreditAuthorizedKeys": [],
+  "sponsorPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "allowedActions": [],
+    "requireSessionAuthorization": true,
+    "sessionMaxDurationSec": 86400,
+    "maxAmountUsdc": "0",
+    "maxSlippageBps": 0
+  },
+  "executePolicy": {
+    "enabled": false,
+    "allowedActionTypes": [
+      "routerDepositFor",
+      "routerWithdrawCollateralFor",
+      "routerWithdrawOutcomeFor",
+      "routerMintCompleteSets",
+      "routerRedeemCompleteSets",
+      "routerRedeem",
+      "routerSwapYesForNo",
+      "routerSwapNoForYes",
+      "routerAddLiquidity",
+      "routerRemoveLiquidity",
+      "routerDisputeProposedResolution",
+      "routerAgentMintCompleteSets",
+      "routerAgentRedeemCompleteSets",
+      "routerAgentRedeem",
+      "routerAgentSwapYesForNo",
+      "routerAgentSwapNoForYes",
+      "routerAgentAddLiquidity",
+      "routerAgentRemoveLiquidity",
+      "routerAgentDisputeProposedResolution",
+      "routerCreditFromFiat",
+      "routerCreditFromEth"
+    ]
+  },
+  "agentPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "allowedActions": [],
+    "maxAmountUsdc": "0",
+    "maxSlippageBps": 0,
+    "defaultSlippageBps": 0
+  },
+  "ethCreditPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "maxAmountUsdc": "0"
+  },
+  "fiatCreditPolicy": {
+    "enabled": false,
+    "supportedChainIds": [],
+    "maxAmountUsdc": "0",
+    "allowedProviders": []
+  }
+}

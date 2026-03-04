@@ -7,7 +7,10 @@
     "frontend:dev": "bunx vite --host --port 5174",
     "frontend:build": "bunx vite build",
     "frontend:preview": "bunx vite preview --host --port 4174",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "dev:agent": "bun --hot server-agent.ts",
+    "frontend:dev:agent": "bunx vite --config vite.agent.config.ts --open /agent.html",
+    "frontend:preview:agent": "bunx vite preview --config vite.agent.config.ts"
   },
   "dependencies": {
     "ethers": "^6.15.0",

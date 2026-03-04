@@ -59,6 +59,8 @@ export const ROUTER_ABI = [
   "function tokenCredits(address,address) view returns (uint256)",
   "function depositCollateral(uint256 amount)",
   "function depositFor(address beneficiary, uint256 amount)",
+  "function setAgentPermission(address agent, uint32 actionMask, uint128 maxAmountPerAction, uint64 expiresAt)",
+  "function revokeAgentPermission(address agent)",
 ] as const;
 
 export const ERC20_ABI = [
