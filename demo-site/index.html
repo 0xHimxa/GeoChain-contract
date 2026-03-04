@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GeoChain — Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ───────────── Reset & Base ───────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #06060e;
+      --surface: #0d0f1a;
+      --surface-2: #141726;
+      --border: #1e2235;
+      --border-glow: #375BD2;
+      --text: #e4e6f0;
+      --text-dim: #8b8fa8;
+      --accent: #375BD2;
+      --accent-light: #5b7fec;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --rose: #f472b6;
+      --purple: #a78bfa;
+      --cyan: #22d3ee;
+      --font: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ───────────── Navigation ───────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(6, 6, 14, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+
+    nav .nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    nav .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    nav .logo .icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    nav .nav-links {
+      display: flex;
+      gap: 0.25rem;
+      list-style: none;
+      overflow-x: auto;
+    }
+
+    nav .nav-links a {
+      text-decoration: none;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    nav .nav-links a:hover, nav .nav-links a.active {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+
+    /* ───────────── Hero ───────────── */
+    .hero {
+      min-height: 50vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 2rem 60px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(55, 91, 210, 0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(55, 91, 210, 0.12);
+      border: 1px solid rgba(55, 91, 210, 0.25);
+      color: var(--accent-light);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.4rem 1rem;
+      border-radius: 50px;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.03em;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 5vw, 4.5rem);
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+      margin-bottom: 1rem;
+    }
+
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, var(--accent-light), var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      color: var(--text-dim);
+      font-size: 1.15rem;
+      max-width: 640px;
+      margin-bottom: 2rem;
+    }
+
+    .hero .tech-row {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tech-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.9rem;
+      border-radius: 50px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+
+    .tech-pill .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ───────────── Sections ───────────── */
+    section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 80px 2rem;
+    }
+
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-light);
+      margin-bottom: 0.75rem;
+    }
+
+    .section-label .line {
+      width: 24px;
+      height: 2px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    section h2 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.65rem;
+    }
+
+    section .subtitle {
+      color: var(--text-dim);
+      font-size: 1rem;
+      max-width: 700px;
+      margin-bottom: 2.5rem;
+    }
+
+    /* ───────────── Diagram Cards ───────────── */
+    .diagram-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+      transition: border-color 0.3s;
+    }
+
+    .diagram-card:hover {
+      border-color: rgba(55, 91, 210, 0.4);
+    }
+
+    .diagram-card .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .diagram-card .card-header h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .diagram-card .card-header .tag {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      background: rgba(55, 91, 210, 0.12);
+      color: var(--accent-light);
+    }
+
+    .diagram-card .card-body {
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+      min-height: 300px;
+      align-items: center;
+    }
+
+    .diagram-card .card-body .mermaid {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .diagram-card .card-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ───────────── Grid Layouts ───────────── */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 1.5rem;
+    }
+
+    /* ───────────── Flow Cards ───────────── */
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .flow-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      position: relative;
+      transition: border-color 0.3s, transform 0.2s;
+    }
+
+    .flow-card:hover {
+      border-color: rgba(55, 91, 210, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .flow-card .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 800;
+      margin-bottom: 0.75rem;
+    }
+
+    .flow-card h4 {
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+
+    .flow-card p {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    /* ───────────── Security Layers ───────────── */
+    .security-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .security-layer {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      transition: background 0.2s;
+    }
+
+    .security-layer:first-child { border-radius: 12px 12px 0 0; }
+    .security-layer:last-child { border-bottom: 1px solid var(--border); border-radius: 0 0 12px 12px; }
+
+    .security-layer:hover { background: var(--surface-2); }
+
+    .security-layer .layer-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .security-layer .layer-info {
+      flex: 1;
+    }
+
+    .security-layer .layer-info h4 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 0.15rem;
+    }
+
+    .security-layer .layer-info p {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+
+    .security-layer .layer-loc {
+      font-size: 0.68rem;
+      font-family: var(--mono);
+      color: var(--text-dim);
+      background: var(--surface-2);
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+    }
+
+    /* ───────────── Workflow Comparison ───────────── */
+    .workflow-compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .workflow-compare { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .workflow-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .workflow-box .wf-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .workflow-box .wf-header .wf-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .workflow-box .wf-header h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .workflow-box .wf-header .wf-tag {
+      font-size: 0.62rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .workflow-box ul {
+      list-style: none;
+      padding: 1rem 1.5rem;
+    }
+
+    .workflow-box ul li {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.55rem 0;
+      font-size: 0.82rem;
+      border-bottom: 1px solid rgba(30, 34, 53, 0.5);
+    }
+
+    .workflow-box ul li:last-child { border-bottom: none; }
+
+    .workflow-box ul li .trigger-type {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      flex-shrink: 0;
+      min-width: 38px;
+      text-align: center;
+    }
+
+    /* ───────────── Utility ───────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .text-green { color: var(--green); }
+    .text-amber { color: var(--amber); }
+    .text-rose { color: var(--rose); }
+    .text-purple { color: var(--purple); }
+    .text-cyan { color: var(--cyan); }
+    .text-accent { color: var(--accent-light); }
+
+    .bg-green { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+    .bg-amber { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+    .bg-purple { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
+    .bg-cyan { background: rgba(34, 211, 238, 0.15); color: var(--cyan); }
+    .bg-rose { background: rgba(244, 114, 182, 0.15); color: var(--rose); }
+    .bg-accent { background: rgba(55, 91, 210, 0.15); color: var(--accent-light); }
+
+    .border-green { border-top: 2px solid var(--green); }
+    .border-amber { border-top: 2px solid var(--amber); }
+    .border-purple { border-top: 2px solid var(--purple); }
+    .border-cyan { border-top: 2px solid var(--cyan); }
+    .border-rose { border-top: 2px solid var(--rose); }
+    .border-accent { border-top: 2px solid var(--accent); }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════ NAV ═══════ -->
+  <nav>
+    <div class="nav-inner">
+      <div class="logo">
+        <div class="icon">🌐</div>
+        GeoChain
+      </div>
+      <ul class="nav-links">
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#lifecycle">Lifecycle</a></li>
+        <li><a href="#workflows">CRE Workflows</a></li>
+        <li><a href="#agent-pipeline">Agent Pipeline</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#cross-chain">Cross-Chain</a></li>
+        <li><a href="#resolution">AI Resolution</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- ═══════ HERO ═══════ -->
+  <header class="hero">
+    <div class="badge">⛓️ Convergence: A Chainlink Hackathon 2026</div>
+    <h1>
+      <span class="gradient">Autonomous</span> Prediction<br />Markets On-Chain
+    </h1>
+    <p>AI-powered resolution · Cross-chain via CCIP · Agent-native trading — all orchestrated by Chainlink CRE</p>
+    <div class="tech-row">
+      <span class="tech-pill"><span class="dot" style="background:var(--accent)"></span>Chainlink CRE</span>
+      <span class="tech-pill"><span class="dot" style="background:var(--cyan)"></span>Chainlink CCIP</span>
+      <span class="tech-pill"><span class="dot" style="background:var(--purple)"></span>Gemini 2.5 Flash</span>
+      <span class="tech-pill"><span class="dot" style="background:var(--green)"></span>Solidity 0.8.33</span>
+      <span class="tech-pill"><span class="dot" style="background:var(--amber)"></span>Arbitrum + Base</span>
+    </div>
+  </header>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 1. SYSTEM ARCHITECTURE ═══════ -->
+  <section id="architecture">
+    <div class="section-label"><span class="line"></span> Diagram 01</div>
+    <h2>System Architecture</h2>
+    <p class="subtitle">End-to-end view: users, frontends, CRE workflows, external services, and multi-chain smart contracts connected via CCIP.</p>
+
+    <div class="diagram-card">
+      <div class="card-header">
+        <h3>🏗️ Full System Architecture</h3>
+        <span class="tag">Overview</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+graph TB
+    subgraph Users["👥 Users"]
+        U1["Browser / Wallet"]
+        AI_Agent["AI Agent"]
+    end
+
+    subgraph Frontend["Frontend"]
+        APP["App.tsx — Market Trading"]
+        AGENT_APP["AgentApp.tsx — Agent Delegation"]
+    end
+
+    subgraph CRE["⛓️ Chainlink CRE"]
+        MW["market-workflow"]
+        AW["agents-workflow"]
+    end
+
+    subgraph External["☁️ External"]
+        GEMINI["Gemini 2.5 Flash"]
+        FIRE["Firebase Firestore"]
+    end
+
+    subgraph Arb["Arbitrum Sepolia — Hub"]
+        MF_A["MarketFactory"]
+        PM_A["PredictionMarkets"]
+        RV_A["RouterVault"]
+        BR_A["Bridge"]
+    end
+
+    subgraph Base_S["Base Sepolia — Spoke"]
+        MF_B["MarketFactory"]
+        PM_B["PredictionMarkets"]
+        RV_B["RouterVault"]
+        BR_B["Bridge"]
+    end
+
+    U1 --> APP
+    AI_Agent --> AGENT_APP
+    APP -->|Sponsor + Execute| MW
+    AGENT_APP -->|Plan + Sponsor + Execute| AW
+    MW -->|AI Calls| GEMINI
+    AW -->|Trade Decisions| GEMINI
+    MW -->|Audit Trail| FIRE
+    MW -->|onReport| MF_A
+    MW -->|onReport| PM_A
+    AW -->|onReport| RV_A
+    MF_A --> PM_A
+    MF_A ===|"CCIP — Price + Resolution Sync"| MF_B
+    BR_A ===|"CCIP — Claim Bridge"| BR_B
+    MF_B --> PM_B
+
+    style CRE fill:#375BD2,color:#fff
+    style Arb fill:#1B1B3A,color:#fff
+    style Base_S fill:#0052FF,color:#fff
+    style External fill:#174EA6,color:#fff
+        </pre>
+      </div>
+      <div class="card-footer">💡 Two independent CRE deployments orchestrate all automation and agent trading</div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 2. MARKET LIFECYCLE ═══════ -->
+  <section id="lifecycle">
+    <div class="section-label"><span class="line"></span> Diagram 02</div>
+    <h2>Market Lifecycle</h2>
+    <p class="subtitle">From AI-generated event → market creation → trading → resolution → redemption — fully autonomous.</p>
+
+    <div class="flow-grid">
+      <div class="flow-card border-green">
+        <div class="step-num bg-green">1</div>
+        <h4>🤖 AI Creates Event</h4>
+        <p>Gemini generates a unique market question. CRE cron handler calls MarketFactory.createMarket() on-chain.</p>
+      </div>
+      <div class="flow-card border-cyan">
+        <div class="step-num bg-cyan">2</div>
+        <h4>💧 Liquidity Seeded</h4>
+        <p>Factory transfers collateral. Market deploys YES/NO tokens and seeds the constant-product AMM pool.</p>
+      </div>
+      <div class="flow-card border-accent">
+        <div class="step-num bg-accent">3</div>
+        <h4>📈 Active Trading</h4>
+        <p>Users mint complete sets, swap YES↔NO via AMM, and add/remove liquidity. Agents trade via the agents-workflow.</p>
+      </div>
+      <div class="flow-card border-amber">
+        <div class="step-num bg-amber">4</div>
+        <h4>⏰ Market Closes</h4>
+        <p>At close time, trading halts. Resolution time gate ensures no premature settlement.</p>
+      </div>
+      <div class="flow-card border-purple">
+        <div class="step-num bg-purple">5</div>
+        <h4>⚖️ AI Resolves</h4>
+        <p>CRE calls Gemini with search grounding. AI returns YES/NO/INCONCLUSIVE with source URL and confidence score.</p>
+      </div>
+      <div class="flow-card border-rose">
+        <div class="step-num bg-rose">6</div>
+        <h4>✋ Dispute Window</h4>
+        <p>Users can dispute. If disputed, CRE re-adjudicates with evidence. If inconclusive, manual review kicks in.</p>
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <div class="card-header">
+        <h3>🔄 Lifecycle Flow</h3>
+        <span class="tag">Sequence</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+flowchart LR
+    A["🤖 Gemini AI<br/>generates event"] --> B["CRE handler<br/>createEventHelper"]
+    B -->|onReport| C["MarketFactory<br/>createMarket()"]
+    C --> D["Market Live<br/>AMM Trading"]
+    D --> E["Close Time<br/>Reached"]
+    E --> F["CRE handler<br/>resolveEvent"]
+    F --> G["Gemini AI<br/>evaluates"]
+    G --> H{"Result?"}
+    H -->|"YES / NO"| I["On-chain report<br/>+ dispute window"]
+    H -->|"INCONCLUSIVE"| J["Manual Review"]
+    I --> K["✅ Resolved"]
+    J --> K
+    K --> L["💰 Redemption"]
+
+    style A fill:#174EA6,color:#fff
+    style G fill:#174EA6,color:#fff
+    style K fill:#1b692d,color:#fff
+        </pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 3. TWO-WORKFLOW CRE ═══════ -->
+  <section id="workflows">
+    <div class="section-label"><span class="line"></span> Diagram 03</div>
+    <h2>Two-Workflow CRE Architecture</h2>
+    <p class="subtitle">Operational automation and agent trading are architected as isolated CRE deployments — independent keys, configs, and failure domains.</p>
+
+    <div class="workflow-compare">
+      <div class="workflow-box">
+        <div class="wf-header">
+          <div class="wf-icon" style="background:rgba(52,211,153,0.15)">⚙️</div>
+          <div>
+            <h3>market-workflow</h3>
+            <span class="wf-tag bg-green">Operational Automation</span>
+          </div>
+        </div>
+        <ul>
+          <li><span class="trigger-type bg-amber">CRON</span> resolveEvent — AI-powered resolution</li>
+          <li><span class="trigger-type bg-amber">CRON</span> createEventHelper — AI market creation</li>
+          <li><span class="trigger-type bg-amber">CRON</span> marketFactoryBalanceTopUp</li>
+          <li><span class="trigger-type bg-amber">CRON</span> syncCanonicalPrice — CCIP broadcast</li>
+          <li><span class="trigger-type bg-amber">CRON</span> arbitrateUnsafeMarket</li>
+          <li><span class="trigger-type bg-amber">CRON</span> adjudicateExpiredDisputes</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> sponsorUserOpPolicy</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> executeReport</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> fiatCredit</li>
+          <li><span class="trigger-type bg-purple">LOG</span> ethCreditFromLogs</li>
+        </ul>
+      </div>
+
+      <div class="workflow-box">
+        <div class="wf-header">
+          <div class="wf-icon" style="background:rgba(167,139,250,0.15)">🤖</div>
+          <div>
+            <h3>agents-workflow</h3>
+            <span class="wf-tag bg-purple">Agent Trading Engine</span>
+          </div>
+        </div>
+        <ul>
+          <li><span class="trigger-type bg-cyan">HTTP</span> agentPlanTrade — validate intent</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> agentSponsorTrade — session auth</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> agentExecuteTrade — payload + submit</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> agentGeminiAutoTrade — AI one-shot</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> agentRevoke — terminate session</li>
+          <li style="border:none;padding-top:1.5rem;color:var(--text-dim);font-size:0.75rem">
+            Gemini 2.5 Flash decides action + amount.<br/>
+            Bounded by policy caps.<br/>
+            Routed through full security pipeline.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top:2rem;">
+      <div class="diagram-card">
+        <div class="card-header">
+          <h3>🔀 Why Two Workflows?</h3>
+          <span class="tag">Architecture Decision</span>
+        </div>
+        <div class="card-body" style="flex-direction:column;gap:1rem;align-items:stretch;padding:1.5rem">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem">
+            <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
+              <div style="font-size:1.2rem;margin-bottom:0.4rem">🔑</div>
+              <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Separate Auth Keys</h4>
+              <p style="font-size:0.72rem;color:var(--text-dim)">Market ops keys can't trigger agent trades and vice versa</p>
+            </div>
+            <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
+              <div style="font-size:1.2rem;margin-bottom:0.4rem">🧱</div>
+              <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Isolated Failures</h4>
+              <p style="font-size:0.72rem;color:var(--text-dim)">Agent misconfiguration can't break market resolution</p>
+            </div>
+            <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
+              <div style="font-size:1.2rem;margin-bottom:0.4rem">🚀</div>
+              <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Independent Deploys</h4>
+              <p style="font-size:0.72rem;color:var(--text-dim)">Upgrade agent logic without touching market automation</p>
+            </div>
+            <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
+              <div style="font-size:1.2rem;margin-bottom:0.4rem">📋</div>
+              <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Separate Policies</h4>
+              <p style="font-size:0.72rem;color:var(--text-dim)">agentPolicy vs sponsorPolicy vs executePolicy — each scoped</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 4. AGENT TRADING PIPELINE ═══════ -->
+  <section id="agent-pipeline">
+    <div class="section-label"><span class="line"></span> Diagram 04</div>
+    <h2>Agent Trading Pipeline</h2>
+    <p class="subtitle">Non-custodial AI agent delegation with a plan→sponsor→execute pipeline and optional Gemini autonomous mode.</p>
+
+    <div class="diagram-card" style="margin-bottom:2rem">
+      <div class="card-header">
+        <h3>🤖 Agent Execution Sequence</h3>
+        <span class="tag">Sequence Diagram</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+sequenceDiagram
+    participant User as 👤 User
+    participant Chain as ⛓️ Router (On-Chain)
+    participant Agent as 🤖 AI Agent
+    participant CRE as ⛓️ agents-workflow
+    participant Gemini as ☁️ Gemini AI
+
+    Note over User,Chain: One-Time Setup
+    User->>Chain: setAgentPermission(agent, mask, maxAmt, expiry)
+
+    rect rgb(30, 30, 60)
+        Note right of Agent: Manual Agent Flow
+        Agent->>CRE: POST /plan
+        CRE-->>Agent: ✅ plan
+        Agent->>CRE: POST /sponsor
+        CRE-->>Agent: ✅ approvalId
+        Agent->>CRE: POST /execute
+        CRE->>Chain: onReport(routerAgentSwapYesForNo)
+        Chain->>Chain: _authorizeAgent() ✅
+        CRE-->>Agent: ✅ txHash
+    end
+
+    rect rgb(50, 20, 50)
+        Note right of Agent: Gemini Auto-Trade
+        Agent->>CRE: POST /geminiAutoTrade
+        CRE->>Gemini: market context + budget
+        Gemini-->>CRE: {action, amount, rationale}
+        Note over CRE: Plan → Sponsor → Execute
+        CRE->>Chain: onReport(routerAgent...)
+        Chain->>Chain: _authorizeAgent() ✅
+        CRE-->>Agent: ✅ executed
+    end
+        </pre>
+      </div>
+      <div class="card-footer">💡 Funds never leave the RouterVault — the agent is an executor with scoped permission, not a custodian</div>
+    </div>
+
+    <div class="diagram-card">
+      <div class="card-header">
+        <h3>🧠 Gemini Auto-Trade Decision Flow</h3>
+        <span class="tag">AI Pipeline</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+flowchart TB
+    REQ["Incoming Request<br/>market context + allowed actions + budget"]
+    REQ --> GEM["Gemini 2.5 Flash<br/>risk-constrained trading assistant"]
+    GEM --> DEC{"Decision"}
+    DEC -->|"hold"| HOLD["No trade executed<br/>rationale logged"]
+    DEC -->|"trade"| VAL["Validate action in allowed set"]
+    VAL --> CAP["Cap amount to policy max"]
+    CAP --> PLAN["agentPlanTrade ✅"]
+    PLAN --> SPON["agentSponsorTrade ✅"]
+    SPON --> EXEC["agentExecuteTrade ✅"]
+    EXEC --> ONCHAIN["On-chain _authorizeAgent() ✅"]
+    ONCHAIN --> DONE["✅ Trade Confirmed"]
+
+    style GEM fill:#174EA6,color:#fff
+    style HOLD fill:#694d1b,color:#fff
+    style DONE fill:#1b692d,color:#fff
+        </pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 5. SIX-LAYER SECURITY ═══════ -->
+  <section id="security">
+    <div class="section-label"><span class="line"></span> Diagram 05</div>
+    <h2>Six-Layer Security</h2>
+    <p class="subtitle">Defense-in-depth: every agent trade passes through 6 independent validation layers. Even with all off-chain layers compromised, on-chain checks still block unauthorized activity.</p>
+
+    <div class="security-stack">
+      <div class="security-layer">
+        <div class="layer-num bg-purple">1</div>
+        <div class="layer-info">
+          <h4>🔑 HTTP Authorized Keys</h4>
+          <p>CRE trigger gate — only requests signed by registered workflow keys reach the handlers</p>
+        </div>
+        <span class="layer-loc">CRE trigger</span>
+      </div>
+      <div class="security-layer">
+        <div class="layer-num bg-accent">2</div>
+        <div class="layer-info">
+          <h4>📝 EIP-712 Session Signatures</h4>
+          <p>Sponsor policy verifies typed-data grant signatures from user wallet + session key</p>
+        </div>
+        <span class="layer-loc">CRE handler</span>
+      </div>
+      <div class="security-layer">
+        <div class="layer-num bg-cyan">3</div>
+        <div class="layer-info">
+          <h4>🔒 One-Time Approval + Nonce Replay</h4>
+          <p>Firestore stores approval records — each can only be consumed once, nonces prevent replay</p>
+        </div>
+        <span class="layer-loc">CRE state</span>
+      </div>
+      <div class="security-layer">
+        <div class="layer-num bg-green">4</div>
+        <div class="layer-info">
+          <h4>📋 Execute Policy Allowlist</h4>
+          <p>Only whitelisted routerAgent action types can be submitted on-chain</p>
+        </div>
+        <span class="layer-loc">CRE handler</span>
+      </div>
+      <div class="security-layer">
+        <div class="layer-num bg-amber">5</div>
+        <div class="layer-info">
+          <h4>⛓️ On-Chain _authorizeAgent()</h4>
+          <p>Smart contract checks: permission enabled · not expired · action in mask · amount within cap</p>
+        </div>
+        <span class="layer-loc">Smart contract</span>
+      </div>
+      <div class="security-layer">
+        <div class="layer-num bg-rose">6</div>
+        <div class="layer-info">
+          <h4>💰 Router Balance & Risk Checks</h4>
+          <p>Market allowlist verified · user balance sufficient · risk exposure cap enforced</p>
+        </div>
+        <span class="layer-loc">Smart contract</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 6. CROSS-CHAIN ═══════ -->
+  <section id="cross-chain">
+    <div class="section-label"><span class="line"></span> Diagram 06</div>
+    <h2>Cross-Chain Hub-Spoke</h2>
+    <p class="subtitle">Hub factory is the source of truth. Spoke factories follow canonical prices and resolutions via CCIP. The Bridge enables cross-chain claim portability.</p>
+
+    <div class="diagram-card" style="margin-bottom:2rem">
+      <div class="card-header">
+        <h3>🌐 Hub-Spoke Topology</h3>
+        <span class="tag">CCIP</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+graph TB
+    subgraph Hub["🏠 Hub — Arbitrum Sepolia"]
+        HF["MarketFactory — Source of Truth"]
+        HP["PredictionMarkets"]
+        HR["RouterVault"]
+        HB["Bridge"]
+        HF --> HP
+    end
+
+    subgraph Spoke["📡 Spoke — Base Sepolia"]
+        SF["MarketFactory — Canonical Follower"]
+        SP["PredictionMarkets"]
+        SR["RouterVault"]
+        SB["Bridge"]
+        SF --> SP
+    end
+
+    HF ==>|"CCIP: CanonicalPriceSync"| SF
+    HF ==>|"CCIP: ResolutionSync"| SF
+    HB ==>|"CCIP: Lock → Mint Claims"| SB
+    SB ==>|"CCIP: Burn → Unlock Claims"| HB
+
+    style Hub fill:#1B1B3A,color:#fff
+    style Spoke fill:#0052FF,color:#fff
+        </pre>
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <div class="card-header">
+        <h3>📊 Deviation Band Protection</h3>
+        <span class="tag">Price Safety</span>
+      </div>
+      <div class="card-body" style="flex-direction:column;gap:0;align-items:stretch;padding:0">
+        <div style="display:flex;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid var(--border)">
+          <div style="width:80px;text-align:center;font-weight:800;font-size:0.85rem" class="text-green">Normal</div>
+          <div style="flex:1;padding-left:1rem;font-size:0.82rem">Free trading — local AMM price within tolerance of hub canonical price</div>
+          <div style="font-size:1.2rem">✅</div>
+        </div>
+        <div style="display:flex;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);background:rgba(251,191,36,0.03)">
+          <div style="width:80px;text-align:center;font-weight:800;font-size:0.85rem" class="text-amber">Stress</div>
+          <div style="flex:1;padding-left:1rem;font-size:0.82rem">Extra fees applied + max output cap per trade enforced</div>
+          <div style="font-size:1.2rem">⚠️</div>
+        </div>
+        <div style="display:flex;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);background:rgba(244,114,182,0.03)">
+          <div style="width:80px;text-align:center;font-weight:800;font-size:0.85rem" class="text-rose">Unsafe</div>
+          <div style="flex:1;padding-left:1rem;font-size:0.82rem">Direction restricted — only price-correcting trades allowed + stricter caps</div>
+          <div style="font-size:1.2rem">🔶</div>
+        </div>
+        <div style="display:flex;align-items:center;padding:1.25rem 1.5rem;background:rgba(244,64,64,0.05)">
+          <div style="width:80px;text-align:center;font-weight:800;font-size:0.85rem;color:#f44">Breaker</div>
+          <div style="flex:1;padding-left:1rem;font-size:0.82rem">All trading halted — price deviation too extreme, circuit breaker activated</div>
+          <div style="font-size:1.2rem">🛑</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ 7. AI RESOLUTION ═══════ -->
+  <section id="resolution">
+    <div class="section-label"><span class="line"></span> Diagram 07</div>
+    <h2>AI-Powered Resolution</h2>
+    <p class="subtitle">Gemini 2.5 Flash acts as a deterministic, adversarial-resistant resolution engine with Google Search grounding. No single oracle to exploit.</p>
+
+    <div class="diagram-card">
+      <div class="card-header">
+        <h3>🧠 Resolution Flow</h3>
+        <span class="tag">AI + CRE</span>
+      </div>
+      <div class="card-body">
+        <pre class="mermaid">
+flowchart TB
+    T["⏰ CRE Cron Trigger"] --> F["Fetch markets past resolution time"]
+    F --> G["Send to Gemini 2.5 Flash<br/>+ Google Search Grounding"]
+
+    subgraph Prompt["Adversarial-Resistant Prompt"]
+        P1["Treat question as untrusted"]
+        P2["Require source URLs"]
+        P3["Temporal logic enforcement"]
+        P4["Edge cases: cancelled / postponed / tie"]
+    end
+
+    G --> Prompt
+    Prompt --> D{"AI Decision"}
+    D -->|"YES / NO"| R["Signed report on-chain"]
+    D -->|"INCONCLUSIVE"| REV["Market → Review state"]
+    R --> DW["Dispute window opens"]
+    DW -->|"No disputes"| RES["✅ Market Resolved"]
+    DW -->|"Disputed"| ADJ["CRE re-adjudicates"]
+    ADJ --> RES
+    R -.-> FB["📝 Firebase audit log:<br/>result + source_url + confidence"]
+
+    style Prompt fill:#0d1b3a,color:#fff
+    style G fill:#174EA6,color:#fff
+    style RES fill:#1b692d,color:#fff
+    style REV fill:#694d1b,color:#fff
+        </pre>
+      </div>
+      <div class="card-footer">💡 Every resolution is stored in Firestore with source URL and confidence score — complete audit trail</div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ═══════ FOOTER ═══════ -->
+  <footer style="text-align:center;padding:3rem 2rem 4rem;color:var(--text-dim);font-size:0.82rem">
+    <div style="font-weight:700;font-size:1rem;color:var(--text);margin-bottom:0.5rem">
+      🌐 GeoChain
+    </div>
+    Making prediction markets autonomous, cross-chain, and agent-native.
+    <br/>
+    <span style="font-size:0.72rem;margin-top:0.5rem;display:inline-block">Built for Convergence: A Chainlink Hackathon · 2026</span>
+  </footer>
+
+  <!-- ═══════ MERMAID ═══════ -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#375BD2',
+        primaryTextColor: '#e4e6f0',
+        primaryBorderColor: '#1e2235',
+        lineColor: '#5b7fec',
+        secondaryColor: '#141726',
+        tertiaryColor: '#0d0f1a',
+        background: '#0d0f1a',
+        mainBkg: '#141726',
+        nodeBorder: '#1e2235',
+        clusterBkg: '#0d0f1a',
+        clusterBorder: '#1e2235',
+        titleColor: '#e4e6f0',
+        edgeLabelBackground: '#0d0f1a',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '13px',
+      },
+      flowchart: { curve: 'basis', padding: 20 },
+      sequence: { mirrorActors: false, messageAlign: 'center' },
+    });
+  </script>
+
+</body>
+</html>
