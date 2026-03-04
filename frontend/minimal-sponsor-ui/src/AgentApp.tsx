@@ -66,6 +66,14 @@ const effectiveMarketState = (event: MarketEvent, nowUnix: number): MarketEvent[
 const toUsdcRaw = (value: string): string => parseUnits(value || "0", 6).toString();
 const SESSION_DOMAIN_NAME = "CRE Session Authorization";
 const SESSION_DOMAIN_VERSION = "1";
+const SESSION_REVOKE_TYPES = {
+  SessionRevoke: [
+    { name: "sessionId", type: "string" },
+    { name: "owner", type: "address" },
+    { name: "agent", type: "address" },
+    { name: "chainId", type: "uint256" },
+  ],
+};
 
 export function AgentApp() {
   const [selectedChain, setSelectedChain] = useState<SupportedChainId>(84532);
@@ -88,6 +96,7 @@ export function AgentApp() {
   const [slippageBps, setSlippageBps] = useState("120");
   const [proposedOutcome, setProposedOutcome] = useState<"1" | "2" | "3">("1");
   const [lastApprovalId, setLastApprovalId] = useState("");
+  const [lastSessionForRevoke, setLastSessionForRevoke] = useState<{ sessionId: string; owner: string; chainId: number } | null>(null);
 
   const [selectedMaskBits, setSelectedMaskBits] = useState<number[]>([0, 2]);
   const [maxAmountPerAction, setMaxAmountPerAction] = useState("100");
@@ -134,6 +143,7 @@ export function AgentApp() {
         : [];
 
     const marketAddresses = [...new Set([...(activeEventList as string[]), ...indexedMarkets.filter(Boolean)].map((value) => String(value).toLowerCase()))];
+    const knownAddressSet = new Set(marketAddresses);
 
     const snapshots = await Promise.all(
       marketAddresses.map(async (address) => ({
@@ -142,13 +152,33 @@ export function AgentApp() {
       }))
     );
 
-    const nextEvents = snapshots
-      .map((item) => item.snapshot)
-      .filter((item): item is MarketEvent => item !== null)
-      .sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
+    // Build a map of successfully loaded fresh snapshots
+    const freshMap = new Map<string, MarketEvent>();
+    for (const item of snapshots) {
+      if (item.snapshot) freshMap.set(item.address.toLowerCase(), item.snapshot);
+    }
 
-    setEvents(nextEvents);
-    setSelectedEventId((current) => (current && nextEvents.some((item) => item.id === current) ? current : nextEvents[0]?.id || ""));
+    // Scoped merge: for each address the contract still knows about,
+    // use fresh snapshot if available, otherwise fall back to the cached version.
+    // Events for addresses no longer returned by the contract are dropped.
+    setEvents((prev) => {
+      const prevMap = new Map<string, MarketEvent>();
+      for (const ev of prev) prevMap.set(ev.marketAddress.toLowerCase(), ev);
+
+      const nextEvents: MarketEvent[] = [];
+      for (const addr of knownAddressSet) {
+        const fresh = freshMap.get(addr);
+        const cached = prevMap.get(addr);
+        if (fresh) nextEvents.push(fresh);
+        else if (cached) nextEvents.push(cached);
+      }
+      nextEvents.sort((a, b) => a.closeTimeUnix - b.closeTimeUnix);
+
+      setSelectedEventId((current) =>
+        current && nextEvents.some((item) => item.id === current) ? current : nextEvents[0]?.id || ""
+      );
+      return nextEvents;
+    });
   }, [selectedChain]);
 
   useEffect(() => {
@@ -498,6 +528,11 @@ export function AgentApp() {
         slippageBps: payloads.sponsor.slippageBps,
         sender: payloads.sponsor.sender,
       });
+      setLastSessionForRevoke({
+        sessionId: session.sessionId,
+        owner: session.owner,
+        chainId: session.chainId,
+      });
       const res = await agentSponsor({ ...payloads.sponsor, session });
       const approval = String((res.approvalId as string) || "");
       if (approval) setLastApprovalId(approval);
@@ -538,16 +573,49 @@ export function AgentApp() {
   const onRevoke = async () => {
     setBusy(true);
     try {
-      if (!isHexAddress(userAddress)) throw new Error("user address invalid");
+      if (!lastSessionForRevoke) throw new Error("no session available to revoke. Run sponsor first.");
       if (!isHexAddress(agentAddress)) throw new Error("agent address invalid");
+      const { sessionId, owner, chainId } = lastSessionForRevoke;
+      const typedDomain = {
+        name: SESSION_DOMAIN_NAME,
+        version: SESSION_DOMAIN_VERSION,
+        chainId,
+      };
+
+      let revokeSignature = "";
+      const localOwnerSigner = walletPrivateKey ? new Wallet(walletPrivateKey) : null;
+      if (localOwnerSigner && localOwnerSigner.address.toLowerCase() === owner.toLowerCase()) {
+        revokeSignature = await localOwnerSigner.signTypedData(typedDomain, SESSION_REVOKE_TYPES, {
+          sessionId,
+          owner,
+          agent: agentAddress,
+          chainId,
+        });
+      } else {
+        const externalSigner = await getExternalSigner();
+        const externalAddress = await externalSigner.getAddress();
+        setConnectedWalletAddress(externalAddress);
+        if (externalAddress.toLowerCase() !== owner.toLowerCase()) {
+          throw new Error("connected wallet must match session owner to revoke");
+        }
+        revokeSignature = await externalSigner.signTypedData(typedDomain, SESSION_REVOKE_TYPES, {
+          sessionId,
+          owner,
+          agent: agentAddress,
+          chainId,
+        });
+      }
+
+      const requestId = `agent_revoke_${Date.now()}`;
       const res = await agentRevoke({
-        requestId: `agent_revoke_${Date.now()}`,
-        chainId: selectedChain,
-        user: userAddress,
+        requestId,
+        sessionId,
+        owner,
         agent: agentAddress,
-        reason: "manual revoke from agent page",
+        chainId,
+        revokeSignature,
       });
-      setLogLine(JSON.stringify({ phase: "4-revoke", response: res }, null, 2));
+      setLogLine(JSON.stringify({ phase: "4-revoke", payload: { requestId, sessionId, owner, chainId }, response: res }, null, 2));
     } catch (error) {
       setLogLine(`Revoke failed: ${String(error)}`);
     } finally {

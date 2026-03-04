@@ -73,6 +73,7 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     bytes32 internal constant HASHED_AGENT_REMOVE_LIQ = keccak256(abi.encode("routerAgentRemoveLiquidity"));
     bytes32 internal constant HASHED_AGENT_REDEEM_WINNINGS = keccak256(abi.encode("routerAgentRedeem"));
     bytes32 internal constant HASHED_AGENT_DISPUTE = keccak256(abi.encode("routerAgentDisputeProposedResolution"));
+    bytes32 internal constant HASHED_AGENT_REVOKE_PERMISSION = keccak256(abi.encode("routerAgentRevokePermission"));
 
     uint32 internal constant AGENT_ACTION_MINT = 1 << 0;
     uint32 internal constant AGENT_ACTION_REDEEM_COMPLETE_SETS = 1 << 1;

@@ -307,6 +307,22 @@ contract PredictionMarketRouterVaultTest is Test {
         router.onReport("", unknown);
     }
 
+    function testOnReportRevokeAgentPermission() external {
+        _setAgentPermissionAll(alice, bob, 100e6);
+        (bool enabledBefore,,,) = router.agentPermissions(alice, bob);
+        assertTrue(enabledBefore);
+
+        bytes memory revokeReport = abi.encode("routerAgentRevokePermission", abi.encode(alice, bob));
+        vm.prank(forwarder);
+        router.onReport("", revokeReport);
+
+        (bool enabledAfter, uint64 expiresAt, uint128 maxAmount, uint32 actionMask) = router.agentPermissions(alice, bob);
+        assertFalse(enabledAfter);
+        assertEq(expiresAt, 0);
+        assertEq(maxAmount, 0);
+        assertEq(actionMask, 0);
+    }
+
     function testDepositCollateralSuccess() external {
         uint256 depositAmount = 100e6;
 

@@ -1,10 +1,11 @@
 {
   "phaseNumber": 4,
   "phase": "revoke",
-  "requestId": "agent_revoke_1772601104416",
+  "requestId": "agent_revoke_1772604524848",
   "chainId": 421614,
-  "user": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
+  "sessionId": "sess_A85926f9_1772604352344",
+  "owner": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "agent": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "reason": "manual revoke from agent page",
-  "createdAtUnix": 1772601104
+  "revokeSignature": "0x1a41f497b961b5c84f58e3c564a988bb0df89b5db73cee799df75e76e99e2c5d17a07f720c2e858497e4c5a84f0fd10b1f1993bf340e18899e94ef3f8cab68db1b",
+  "createdAtUnix": 1772604524
 }

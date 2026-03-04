@@ -79,6 +79,15 @@ export type SessionAuthorizationPayload = {
   requestSignature: string;
 };
 
+export type SessionRevokePayload = {
+  requestId: string;
+  sessionId: string;
+  owner: string;
+  agent: string;
+  chainId: number;
+  revokeSignature: string;
+};
+
 export const agentPlan = (payload: AgentTradeDraft): Promise<Record<string, unknown>> =>
   request("/api/agent/plan", {
     method: "POST",
@@ -103,7 +112,7 @@ export const agentExecute = (
     body: JSON.stringify(payload),
   });
 
-export const agentRevoke = (payload: { requestId: string; chainId: number; user: string; agent: string; reason?: string }): Promise<Record<string, unknown>> =>
+export const agentRevoke = (payload: SessionRevokePayload): Promise<Record<string, unknown>> =>
   request("/api/agent/revoke", {
     method: "POST",
     body: JSON.stringify(payload),

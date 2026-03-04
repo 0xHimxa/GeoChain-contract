@@ -33,6 +33,9 @@ type AgentTradeInput = {
   proposedOutcome?: number;
   reason?: string;
   session?: Record<string, unknown>;
+  sessionId?: string;
+  owner?: string;
+  revokeSignature?: string;
 };
 
 const ACTION_TO_ROUTER_ACTION_TYPE: Record<AgentAction, string> = {
@@ -294,16 +297,29 @@ const handleAgentRevoke = async (req: Request): Promise<Response> => {
     const chainId = Number(body.chainId);
     if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("invalid chainId");
 
-    const payload = {
-      phaseNumber: 4,
-      phase: "revoke",
-      requestId,
-      chainId,
-      user: sanitizeAddress(body.user, "user"),
-      agent: sanitizeAddress(body.agent, "agent"),
-      reason: String(body.reason || "manual revoke from agent page"),
-      createdAtUnix: nowUnix(),
-    };
+    const hasSessionRevokeShape = Boolean(body.sessionId || body.owner || body.revokeSignature || body.agent);
+    const payload = hasSessionRevokeShape
+      ? {
+          phaseNumber: 4,
+          phase: "revoke",
+          requestId,
+          chainId,
+          sessionId: String(body.sessionId || "").trim(),
+          owner: sanitizeAddress(body.owner, "owner"),
+          agent: sanitizeAddress(body.agent, "agent"),
+          revokeSignature: String(body.revokeSignature || "").trim(),
+          createdAtUnix: nowUnix(),
+        }
+      : {
+          phaseNumber: 4,
+          phase: "revoke",
+          requestId,
+          chainId,
+          user: sanitizeAddress(body.user, "user"),
+          agent: sanitizeAddress(body.agent, "agent"),
+          reason: String(body.reason || "manual revoke from agent page"),
+          createdAtUnix: nowUnix(),
+        };
 
     writeJsonFile(AGENT_REVOKE_JSON_PATH, payload);
     console.log("[MOCK_AGENT_PHASE_4_REVOKE] payload=", JSON.stringify(payload));

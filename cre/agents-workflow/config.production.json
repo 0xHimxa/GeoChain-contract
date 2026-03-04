@@ -34,6 +34,7 @@
       "routerAgentAddLiquidity",
       "routerAgentRemoveLiquidity",
       "routerAgentDisputeProposedResolution",
+      "routerAgentRevokePermission",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]

@@ -30,9 +30,7 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
 
     /// @notice Revokes an agent immediately for caller-owned credits.
     function revokeAgentPermission(address agent) external {
-        if (agent == address(0)) revert Router__ZeroAddress();
-        delete agentPermissions[msg.sender][agent];
-        emit AgentPermissionRevoked(msg.sender, agent);
+        _revokeAgentPermission(msg.sender, agent);
     }
 
     /// @notice Allows or blocks a market for router operations.
@@ -447,6 +445,13 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
 //agent permisions set by user
+    /// @dev Clears delegated agent permission for a specific user-agent pair.
+    function _revokeAgentPermission(address user, address agent) internal {
+        if (agent == address(0)) revert Router__ZeroAddress();
+        delete agentPermissions[user][agent];
+        emit AgentPermissionRevoked(user, agent);
+    }
+
     /// @dev Verifies delegated agent permissions configured by user.
     function _authorizeAgent(address user, address agent, uint32 actionBit, uint256 boundedAmount) internal view {
         AgentPermission memory permission = agentPermissions[user][agent];
@@ -556,6 +561,9 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
             _authorizeAgent(user, agent, AGENT_ACTION_DISPUTE, 0);
             _disputeProposedResolution(user, market, proposedOutcome);
             emit AgentActionExecuted(user, agent, actionType, 0);
+        } else if (actionTypeHash == HASHED_AGENT_REVOKE_PERMISSION) {
+            (address user, address agent) = abi.decode(payload, (address, address));
+            _revokeAgentPermission(user, agent);
         } else {
             revert Router__ActionNotRecognized();
         }

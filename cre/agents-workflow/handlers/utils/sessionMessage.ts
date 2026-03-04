@@ -22,6 +22,7 @@ export type SponsorIntentShape = {
 export type SessionRevokeShape = {
   sessionId: string;
   owner: string;
+  agent: string;
   chainId: number;
 };
 
@@ -57,6 +58,7 @@ export const SESSION_REVOKE_TYPES = {
   SessionRevoke: [
     { name: "sessionId", type: "string" },
     { name: "owner", type: "address" },
+    { name: "agent", type: "address" },
     { name: "chainId", type: "uint256" },
   ],
 } as const;

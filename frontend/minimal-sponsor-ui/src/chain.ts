@@ -173,6 +173,6 @@ export const loadMarketSnapshot = async (chainId: SupportedChainId, marketAddres
     noPriceBps: Math.floor((Number(noPrice) / 1_000_000) * 10_000),
     yesToken: String(yesToken),
     noToken: String(noToken),
-    createdAtUnix: Math.floor(Date.now() / 1000),
+    createdAtUnix: closeTimeUnix > 0 ? closeTimeUnix : Math.floor(Date.now() / 1000),
   };
 };

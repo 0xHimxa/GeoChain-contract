@@ -1,15 +1,15 @@
 {
   "phaseNumber": 3,
   "phase": "execute",
-  "requestId": "agent_req_1772600871519",
-  "approvalId": "cre_approval_1772600831369_00766441_A85926",
+  "requestId": "agent_req_1772604670414",
+  "approvalId": "cre_approval_1772604636200_04585815_A85926",
   "chainId": 421614,
   "action": "mintCompleteSets",
   "actionType": "routerAgentMintCompleteSets",
   "user": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "agent": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "market": "0xe274ac746126f6e57e1b4d63012dd3a8ffe67e10",
-  "amountUsdc": "100000000",
-  "createdAtUnix": 1772600871
+  "market": "0xfb228276b943ed5cf1e428096efa09e669d45e00",
+  "amountUsdc": "10000000",
+  "createdAtUnix": 1772604670
 }
