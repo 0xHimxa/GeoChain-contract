@@ -27,10 +27,20 @@ interface IMockMarket {
 contract MockMarketFactory {
     address public lastRemoved;
     uint256 public removeCount;
+    uint256 public manualReviewAddedCount;
+    uint256 public manualReviewRemovedCount;
 
     function removeResolvedMarket(address market) external {
         lastRemoved = market;
         removeCount++;
+    }
+
+    function markMarketForManualReview(address) external {
+        manualReviewAddedCount++;
+    }
+
+    function removeManualReviewMarket(address) external {
+        manualReviewRemovedCount++;
     }
 
     function deployMarket(
@@ -119,6 +129,12 @@ contract PredictionMarketRouterVaultTest is Test {
         market.finalizeResolutionAfterDisputeWindow();
     }
 
+    function _setAgentPermissionAll(address user, address agent, uint128 maxAmount) internal {
+        uint32 allActions = (1 << 8) - 1;
+        vm.prank(user);
+        router.setAgentPermission(agent, allActions, maxAmount, uint64(block.timestamp + 1 days));
+    }
+
     function testConstructorRevertZeroCollateral() external {
         vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
         new PredictionMarketRouterVault(address(0), forwarder, owner, marketFactory);
@@ -188,6 +204,107 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
         router.setRiskExempt(address(0), true);
+    }
+
+    function testSetAgentPermissionRevertValidation() external {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
+        router.setAgentPermission(address(0), 1, 1, uint64(block.timestamp + 1 days));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentPermissionExpired()"));
+        router.setAgentPermission(bob, 1, 1, uint64(block.timestamp));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentActionNotAllowed()"));
+        router.setAgentPermission(bob, 0, 1, uint64(block.timestamp + 1 days));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__InvalidAmount()"));
+        router.setAgentPermission(bob, 1, 0, uint64(block.timestamp + 1 days));
+    }
+
+    function testSetAndRevokeAgentPermission() external {
+        _setAgentPermissionAll(alice, bob, 100e6);
+        (bool enabled, uint64 expiresAt, uint128 maxAmount, uint32 actionMask) = router.agentPermissions(alice, bob);
+        assertTrue(enabled);
+        assertGt(expiresAt, block.timestamp);
+        assertEq(uint256(maxAmount), 100e6);
+        assertEq(uint256(actionMask), 255);
+
+        vm.prank(alice);
+        router.revokeAgentPermission(bob);
+        (enabled, expiresAt, maxAmount, actionMask) = router.agentPermissions(alice, bob);
+        assertFalse(enabled);
+        assertEq(expiresAt, 0);
+        assertEq(maxAmount, 0);
+        assertEq(actionMask, 0);
+    }
+
+    function testAgentActionsRevertWithoutPermission() external {
+        vm.prank(alice);
+        router.depositCollateral(100e6);
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentNotAuthorized()"));
+        router.mintCompleteSetsFor(alice, address(market), 10e6);
+    }
+
+    function testAgentExecutionPathsSuccess() external {
+        vm.prank(alice);
+        router.depositCollateral(200e6);
+        _setAgentPermissionAll(alice, bob, 200e6);
+
+        vm.prank(bob);
+        router.mintCompleteSetsFor(alice, address(market), 50e6);
+
+        vm.prank(bob);
+        router.swapYesForNoFor(alice, address(market), 10e6, 0);
+
+        vm.prank(bob);
+        router.swapNoForYesFor(alice, address(market), 5e6, 0);
+
+        vm.prank(bob);
+        router.addLiquidityFor(alice, address(market), 5e6, 5e6, 0);
+        assertGt(router.lpShareCredits(alice, address(market)), 0);
+
+        uint256 shares = router.lpShareCredits(alice, address(market));
+        vm.prank(bob);
+        router.removeLiquidityFor(alice, address(market), shares / 2, 0, 0);
+
+        vm.prank(bob);
+        router.redeemCompleteSetsFor(alice, address(market), 5e6);
+
+        vm.warp(block.timestamp + 3 days);
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
+
+        vm.prank(bob);
+        router.redeemFor(alice, address(market), 1e6);
+        assertGt(router.collateralCredits(alice), 0);
+    }
+
+    function testOnReportCreditAndUnknownAction() external {
+        collateral.mint(address(router), 20e6);
+
+        bytes memory creditFiatReport = abi.encode("routerCreditFromFiat", abi.encode(alice, 10e6));
+        vm.prank(forwarder);
+        router.onReport("", creditFiatReport);
+        assertEq(router.collateralCredits(alice), 10e6);
+
+        bytes32 depositId = keccak256("dep-1");
+        bytes memory creditEthReport = abi.encode("routerCreditFromEth", abi.encode(alice, 5e6, depositId));
+        vm.prank(forwarder);
+        router.onReport("", creditEthReport);
+        assertEq(router.collateralCredits(alice), 15e6);
+
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__EthDepositAlreadyProcessed()"));
+        router.onReport("", creditEthReport);
+
+        bytes memory unknown = abi.encode("routerUnknownAction", abi.encode(uint256(1)));
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__ActionNotRecognized()"));
+        router.onReport("", unknown);
     }
 
     function testDepositCollateralSuccess() external {

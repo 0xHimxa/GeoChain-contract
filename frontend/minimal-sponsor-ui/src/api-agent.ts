@@ -2,6 +2,20 @@ const AGENT_API_BASE = import.meta.env.VITE_AGENT_API_BASE_URL || "http://localh
 
 type JsonValue = Record<string, unknown>;
 
+const coerceJson = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  const raw = value.trim();
+  if (!raw) return value;
+  if ((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"))) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${AGENT_API_BASE}${path}`, {
     ...init,
@@ -12,11 +26,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as JsonValue;
+    const parsed = coerceJson(await res.json().catch(() => ({})));
+    const body = (parsed && typeof parsed === "object" ? parsed : {}) as JsonValue;
     throw new Error(String(body.error || `request failed: ${res.status}`));
   }
 
-  return (await res.json()) as T;
+  const parsed = coerceJson(await res.json());
+  return parsed as T;
 }
 
 export type AgentAction =
@@ -70,7 +86,7 @@ export const agentPlan = (payload: AgentTradeDraft): Promise<Record<string, unkn
   });
 
 export const agentSponsor = (
-  payload: Pick<AgentTradeDraft, "requestId" | "chainId" | "sender" | "action" | "amountUsdc" | "slippageBps"> & {
+  payload: AgentTradeDraft & {
     session: SessionAuthorizationPayload;
   }
 ): Promise<Record<string, unknown>> =>

@@ -12,6 +12,10 @@ import {MarketErrors, MarketConstants, Resolution, State} from "../../src/librar
 contract MockMarketFactory {
     address public lastRemoved;
     uint256 public removeCount;
+    address public lastManualReviewAdded;
+    address public lastManualReviewRemoved;
+    uint256 public manualReviewAddedCount;
+    uint256 public manualReviewRemovedCount;
     bool public isHubFactory;
     Resolution public lastHubOutcome;
     string public lastHubProofUrl;
@@ -24,6 +28,16 @@ contract MockMarketFactory {
 
     function setIsHubFactory(bool value) external {
         isHubFactory = value;
+    }
+
+    function markMarketForManualReview(address market) external {
+        lastManualReviewAdded = market;
+        manualReviewAddedCount++;
+    }
+
+    function removeManualReviewMarket(address market) external {
+        lastManualReviewRemoved = market;
+        manualReviewRemovedCount++;
     }
 
     function onHubMarketResolved(Resolution outcome, string calldata proofUrl) external {
@@ -634,7 +648,7 @@ contract PredictionMarketTest is Test {
         vm.expectRevert(MarketErrors.PredictionMarket__ManualReviewNeeded.selector);
         market.finalizeResolutionAfterDisputeWindow();
 
-        market.manualResolveMarket(Resolution.No, "ipfs://manual-proof");
+        market.adjudicateDisputedResolution(Resolution.No, "ipfs://manual-proof");
         assertEq(uint256(market.state()), uint256(State.Resolved));
         assertEq(uint256(market.resolution()), uint256(Resolution.No));
     }

@@ -11,6 +11,8 @@ import {MarketConstants, MarketErrors, Resolution} from "../../src/libraries/Mar
 contract MockMarketFactoryFuzz {
     address public lastRemoved;
     uint256 public removeCount;
+    uint256 public manualReviewAddedCount;
+    uint256 public manualReviewRemovedCount;
     bool public isHubFactory;
 
     function removeResolvedMarket(address market) external {
@@ -20,6 +22,14 @@ contract MockMarketFactoryFuzz {
 
     function setIsHubFactory(bool value) external {
         isHubFactory = value;
+    }
+
+    function markMarketForManualReview(address) external {
+        manualReviewAddedCount++;
+    }
+
+    function removeManualReviewMarket(address) external {
+        manualReviewRemovedCount++;
     }
 
     function deployMarket(

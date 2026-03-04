@@ -46,3 +46,9 @@ arbi 1 sepolia deployed: Market Factory proxy address:0x015a4e609ED01012ff4B9401
 
 
 f i dinit not specify the initial liquidity for new event will add minimum in the next upgrade
+
+
+
+
+cast send 0x9e96ad0e4044356918477A36b58bFcb98eAD4566 "approve(address,uint256)" 0xdB5e75aC76136A3e9FFCbFf1DED42f3943aE1701 1000000000 --account "$ACCOUNT" --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV && \
+cast send 0xdB5e75aC76136A3e9FFCbFf1DED42f3943aE1701 "depositCollateral(uint256)" 1000000000 --account wallet  --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV

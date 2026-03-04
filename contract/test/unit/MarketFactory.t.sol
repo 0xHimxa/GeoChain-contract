@@ -458,7 +458,7 @@ contract MarketFactoryTest is Test {
         market.broadcastCanonicalPrice(1, 500_000, 500_000, block.timestamp + 1 days);
         vm.stopPrank();
 
-        assertEq(market.ccipNonce(), 1);
+        assertEq(market.ccipNonce(), 2);
         assertEq(router.sentCount(), 0);
     }
 
@@ -474,7 +474,7 @@ contract MarketFactoryTest is Test {
         market.broadcastCanonicalPrice(1, 600_000, 400_000, block.timestamp + 1 days);
         vm.stopPrank();
 
-        assertEq(market.ccipNonce(), 1);
+        assertEq(market.ccipNonce(), 2);
         assertEq(router.sentCount(), 2);
     }
 
@@ -501,7 +501,7 @@ contract MarketFactoryTest is Test {
         market.broadcastResolution(1, Resolution.Yes, "ipfs://proof");
         vm.stopPrank();
 
-        assertEq(market.ccipNonce(), 1);
+        assertEq(market.ccipNonce(), 2);
         assertEq(router.sentCount(), 2);
     }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BrowserProvider, Contract, Wallet, keccak256, parseUnits, toUtf8Bytes, type Eip1193Provider } from "ethers";
+import { BrowserProvider, Contract, SigningKey, TypedDataEncoder, Wallet, keccak256, parseUnits, toUtf8Bytes, type Eip1193Provider } from "ethers";
 import {
   agentExecute,
   agentPlan,
@@ -72,6 +72,7 @@ export function AgentApp() {
   const [walletPassword, setWalletPassword] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [walletPrivateKey, setWalletPrivateKey] = useState("");
+  const [connectedWalletAddress, setConnectedWalletAddress] = useState("");
   const [walletHint, setWalletHint] = useState(() => {
     const meta = getStoredWalletMeta();
     return meta ? `Stored wallet found: ${meta.address}` : "No local wallet loaded.";
@@ -186,6 +187,42 @@ export function AgentApp() {
     return new BrowserProvider(ethereum);
   };
 
+  const getExternalSigner = async () => {
+    const provider = getFundingProvider();
+    await provider.send("eth_requestAccounts", []);
+    await provider.send("wallet_switchEthereumChain", [{ chainId: CHAIN_HEX[selectedChain] }]);
+    return provider.getSigner();
+  };
+
+  const recoverPublicKeyFromExternalSigner = async (
+    signer: Awaited<ReturnType<typeof getExternalSigner>>,
+    owner: string,
+    chainId: number
+  ): Promise<string> => {
+    const domain = {
+      name: SESSION_DOMAIN_NAME,
+      version: SESSION_DOMAIN_VERSION,
+      chainId,
+    };
+    const types = {
+      SessionPubKeyProbe: [
+        { name: "owner", type: "address" },
+        { name: "nonce", type: "string" },
+      ],
+    };
+    const message = {
+      owner,
+      nonce: `probe_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    };
+    const signature = await signer.signTypedData(domain, types, message);
+    const digest = TypedDataEncoder.hash(domain, types, message);
+    const publicKey = SigningKey.recoverPublicKey(digest, signature);
+    if (!/^0x04[a-fA-F0-9]{128}$/.test(publicKey)) {
+      throw new Error("failed to recover uncompressed public key from connected wallet");
+    }
+    return publicKey;
+  };
+
   const buildPhasePayloads = () => {
     if (!selectedEvent) throw new Error("Select an event first");
     if (!isHexAddress(userAddress)) throw new Error("user address invalid");
@@ -218,12 +255,7 @@ export function AgentApp() {
     };
 
     const sponsor = {
-      requestId,
-      chainId: selectedChain,
-      sender: userAddress,
-      action,
-      amountUsdc: amountRaw,
-      slippageBps: slippage,
+      ...plan,
     };
 
     const execute = {
@@ -242,15 +274,29 @@ export function AgentApp() {
     slippageBps: number;
     sender: string;
   }): Promise<SessionAuthorizationPayload> => {
-    if (!walletPrivateKey) throw new Error("Load local wallet first");
-    const ownerSigner = new Wallet(walletPrivateKey);
-    const ownerAddress = ownerSigner.address;
+    const localSessionSigner = walletPrivateKey ? new Wallet(walletPrivateKey) : null;
+    let ownerAddress = "";
+    let externalOwnerSigner: Awaited<ReturnType<typeof getExternalSigner>> | null = null;
+    let sessionPublicKey = "";
+    let requestSignature = "";
 
-    if (ownerAddress.toLowerCase() !== input.sender.toLowerCase()) {
-      throw new Error("sender must be your loaded local wallet address for session validation");
+    if (localSessionSigner && localSessionSigner.address.toLowerCase() === input.sender.toLowerCase()) {
+      ownerAddress = localSessionSigner.address;
+      sessionPublicKey = localSessionSigner.signingKey.publicKey;
+    } else {
+      externalOwnerSigner = await getExternalSigner();
+      ownerAddress = await externalOwnerSigner.getAddress();
+      setConnectedWalletAddress(ownerAddress);
+      if (ownerAddress.toLowerCase() !== input.sender.toLowerCase()) {
+        throw new Error("connected wallet must match sender for session validation");
+      }
+      if (localSessionSigner) {
+        sessionPublicKey = localSessionSigner.signingKey.publicKey;
+      } else {
+        sessionPublicKey = await recoverPublicKeyFromExternalSigner(externalOwnerSigner, ownerAddress, input.chainId);
+      }
     }
 
-    const sessionSigner = new Wallet(walletPrivateKey);
     const sessionId = `sess_${ownerAddress.slice(2, 10)}_${Date.now()}`;
     const requestNonce = `nonce_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const expiresAtUnix = Math.floor(Date.now() / 1000) + 3600;
@@ -289,31 +335,59 @@ export function AgentApp() {
       ],
     };
 
-    const grantSignature = await ownerSigner.signTypedData(typedDomain, sessionGrantTypes, {
-      sessionId,
-      owner: ownerAddress,
-      sessionPublicKey: sessionSigner.signingKey.publicKey,
-      chainId: input.chainId,
-      allowedActionsHash,
-      maxAmountUsdc,
-      expiresAtUnix,
-    });
+    let grantSignature = "";
+    if (localSessionSigner && localSessionSigner.address.toLowerCase() === ownerAddress.toLowerCase()) {
+      grantSignature = await localSessionSigner.signTypedData(typedDomain, sessionGrantTypes, {
+        sessionId,
+        owner: ownerAddress,
+        sessionPublicKey,
+        chainId: input.chainId,
+        allowedActionsHash,
+        maxAmountUsdc,
+        expiresAtUnix,
+      });
+    } else {
+      if (!externalOwnerSigner) throw new Error("connected wallet is required for owner session grant signature");
+      grantSignature = await externalOwnerSigner.signTypedData(typedDomain, sessionGrantTypes, {
+        sessionId,
+        owner: ownerAddress,
+        sessionPublicKey,
+        chainId: input.chainId,
+        allowedActionsHash,
+        maxAmountUsdc,
+        expiresAtUnix,
+      });
+    }
 
-    const requestSignature = await sessionSigner.signTypedData(typedDomain, sponsorIntentTypes, {
-      requestId: input.requestId,
-      sessionId,
-      requestNonce,
-      chainId: input.chainId,
-      action: input.action,
-      amountUsdc: input.amountUsdcRaw,
-      slippageBps: input.slippageBps,
-      sender: input.sender,
-    });
+    if (localSessionSigner) {
+      requestSignature = await localSessionSigner.signTypedData(typedDomain, sponsorIntentTypes, {
+        requestId: input.requestId,
+        sessionId,
+        requestNonce,
+        chainId: input.chainId,
+        action: input.action,
+        amountUsdc: input.amountUsdcRaw,
+        slippageBps: input.slippageBps,
+        sender: input.sender,
+      });
+    } else {
+      if (!externalOwnerSigner) throw new Error("connected wallet is required for session request signature");
+      requestSignature = await externalOwnerSigner.signTypedData(typedDomain, sponsorIntentTypes, {
+        requestId: input.requestId,
+        sessionId,
+        requestNonce,
+        chainId: input.chainId,
+        action: input.action,
+        amountUsdc: input.amountUsdcRaw,
+        slippageBps: input.slippageBps,
+        sender: input.sender,
+      });
+    }
 
     return {
       sessionId,
       owner: ownerAddress,
-      sessionPublicKey: sessionSigner.signingKey.publicKey,
+      sessionPublicKey,
       chainId: input.chainId,
       allowedActions,
       maxAmountUsdc,
@@ -336,9 +410,25 @@ export function AgentApp() {
     }
   };
 
+  const onUseConnectedWalletAsUser = async () => {
+    setBusy(true);
+    try {
+      const signer = await getExternalSigner();
+      const signerAddress = await signer.getAddress();
+      setConnectedWalletAddress(signerAddress);
+      setUserAddress(signerAddress);
+      setLogLine(`Connected wallet set as user: ${signerAddress}`);
+    } catch (error) {
+      setLogLine(`Connect wallet failed: ${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onSetAgentPermission = async () => {
     setBusy(true);
     try {
+      if (!isHexAddress(userAddress)) throw new Error("user address invalid");
       if (!isHexAddress(agentAddress)) throw new Error("agent address invalid");
       if (actionMask === 0) throw new Error("select at least one action bit");
 
@@ -364,6 +454,7 @@ export function AgentApp() {
             step: "setAgentPermission",
             chainId: selectedChain,
             signer: signerAddress,
+            user: userAddress,
             router: CHAIN_CONFIG[selectedChain].addresses.router,
             txHash: tx.hash,
             receiptStatus: receipt?.status,
@@ -475,7 +566,7 @@ export function AgentApp() {
 
       <section className="glass mb-4 rounded-2xl border border-white/10 p-4">
         <h2 className="font-heading text-lg">Wallet + Chain</h2>
-        <div className="mt-3 grid gap-2 md:grid-cols-4">
+        <div className="mt-3 grid gap-2 md:grid-cols-5">
           <select
             className="rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm"
             value={selectedChain}
@@ -499,12 +590,21 @@ export function AgentApp() {
           >
             Load Local Wallet
           </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onUseConnectedWalletAsUser}
+            className="rounded-xl bg-sky-400 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40"
+          >
+            Use Connected Wallet As User
+          </button>
           <a className="rounded-xl bg-white/10 px-4 py-2 text-center text-sm font-semibold text-slate-100 hover:bg-white/20" href="/">
             Open Main App
           </a>
         </div>
         <div className="mt-2 text-xs text-slate-300">{walletHint}</div>
         <div className="mt-2 text-xs text-slate-300">Local Wallet: {walletAddress || "not loaded"}</div>
+        <div className="mt-2 text-xs text-slate-300">Connected Wallet: {connectedWalletAddress || "not connected"}</div>
       </section>
 
       <section className="glass mb-4 rounded-2xl border border-white/10 p-4">

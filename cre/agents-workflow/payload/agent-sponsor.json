@@ -1,0 +1,33 @@
+{
+  "phaseNumber": 2,
+  "phase": "sponsor",
+  "requestId": "agent_req_1772600766441",
+  "chainId": 421614,
+  "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
+  "action": "mintCompleteSets",
+  "actionType": "routerAgentMintCompleteSets",
+  "amountUsdc": "100000000",
+  "slippageBps": 120,
+  "session": {
+    "sessionId": "sess_A85926f9_1772600772625",
+    "owner": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
+    "sessionPublicKey": "0x0414fb631d24183a71f7453c3e7aad488948c94de5cf62180d0e75f34352e7874045356d4f60f4bab4b53346fd33a01643acbb3aa8092b89e6950eb1ee15b4040d",
+    "chainId": 421614,
+    "allowedActions": [
+      "mintCompleteSets",
+      "redeemCompleteSets",
+      "swapYesForNo",
+      "swapNoForYes",
+      "addLiquidity",
+      "removeLiquidity",
+      "redeem",
+      "disputeProposedResolution"
+    ],
+    "maxAmountUsdc": "10000000000",
+    "expiresAtUnix": 1772604372,
+    "grantSignature": "0xc1b1ba04c509264fcfb51012f11e3d55101a2d6443531b266a98c68d581f13c458ccde6ccd03aa39eb30480ab5153182900cb7ed8ee6f0ddbcb5532cae99901b1b",
+    "requestNonce": "nonce_1772600772625_sp2dobb6",
+    "requestSignature": "0xa35bae86b483481b9a7aee276de9866f4c119588af873c684a010fb7cfd7e59e76b0ab0a75d309fe6ef4bd0bfd14d1da790a940df38814219a8452ae5f158c7d1c"
+  },
+  "createdAtUnix": 1772600787
+}

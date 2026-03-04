@@ -1,0 +1,10 @@
+{
+  "phaseNumber": 4,
+  "phase": "revoke",
+  "requestId": "agent_revoke_1772601104416",
+  "chainId": 421614,
+  "user": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
+  "agent": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
+  "reason": "manual revoke from agent page",
+  "createdAtUnix": 1772601104
+}
