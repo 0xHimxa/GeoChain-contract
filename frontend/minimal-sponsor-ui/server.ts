@@ -128,12 +128,12 @@ type TrackedMarket = {
 
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
-    executeReceiverAddress: "0xdB5e75aC76136A3e9FFCbFf1DED42f3943aE1701",
-    collateralTokenAddress: "0x9e96ad0e4044356918477A36b58bFcb98eAD4566",
+    executeReceiverAddress: "0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe",
+    collateralTokenAddress: "0x52539038C1d1C88AA12438e3c13ADC6778B966Fc ",
   },
   84532: {
-    executeReceiverAddress: "0x7D60126CEE3D751913EAA299Ab3FFef480A39ee4",
-    collateralTokenAddress: "0x88e624252aF6Dc6AA5ca76f00458aa8Df39E2657 ",
+    executeReceiverAddress: ":0x2bE604A2052a6C5e246094151d8962B2E98D8f7c ",
+    collateralTokenAddress: "0xB17Ede44C636887ce980D9359A176a088DC46c2f ",
   },
 };
 

@@ -50,5 +50,5 @@ f i dinit not specify the initial liquidity for new event will add minimum in th
 
 
 
-cast send 0x9e96ad0e4044356918477A36b58bFcb98eAD4566 "approve(address,uint256)" 0xdB5e75aC76136A3e9FFCbFf1DED42f3943aE1701 1000000000 --account "$ACCOUNT" --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV && \
-cast send 0xdB5e75aC76136A3e9FFCbFf1DED42f3943aE1701 "depositCollateral(uint256)" 1000000000 --account wallet  --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV
+cast send 0x52539038C1d1C88AA12438e3c13ADC6778B966Fc  "approve(address,uint256)" 0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe 1000000000 --account "$ACCOUNT" --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV && \
+cast send 0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe "depositCollateral(uint256)" 1000000000 --account wallet  --rpc-url https://arb-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV
