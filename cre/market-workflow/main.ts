@@ -57,9 +57,8 @@ const initWorkflow = (config: Config) => {
    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
  //  handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     
-    //handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
+    handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
     // handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler),
-    handler(cron.trigger({ schedule: config.schedule }), createEventHelper),
     // handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
     // handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
     // handler(cron.trigger({ schedule: config.schedule }), adjudicateExpiredDisputeWindows),

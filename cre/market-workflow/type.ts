@@ -3,6 +3,7 @@
   "category": string,
   "description": string,
   "options": string[],
+  "event_start": string,
   "closing_date": string,
   "resolution_date": string,
   "verification_source": string,

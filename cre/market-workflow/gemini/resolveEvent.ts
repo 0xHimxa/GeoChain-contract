@@ -4,7 +4,7 @@ import {
   consensusIdenticalAggregation,
   type Runtime,
 } from "@chainlink/cre-sdk";
-import { type Config } from "../workflow/config";
+import { type Config } from "../Constant-variable/config";
 import { type GeminiResolveResponse } from "../type";
 
 const systemPrompt = `SYSTEM_ROLE: 
@@ -54,13 +54,14 @@ interface InputType {
 
 export const askGemeniResolve = (runtime: Runtime<Config>, marketInfo:InputType ): GeminiResolveResponse => {
   const gemeniApiKey = runtime.getSecret({ id: "AI_KEY" }).result().value;
+  const currentTimeIso = runtime.now().toISOString();
 
   const httpClient = new HTTPClient();
 
   const result = httpClient
     .sendRequest(
       runtime,
-      prompt(gemeniApiKey, marketInfo),
+      prompt(gemeniApiKey, marketInfo, currentTimeIso),
       consensusIdenticalAggregation(),
     )()
     .result();
@@ -75,9 +76,8 @@ export const askGemeniResolve = (runtime: Runtime<Config>, marketInfo:InputType 
 
 
 const prompt =
-  (apikey: string, marketInput:InputType) =>
+  (apikey: string, marketInput:InputType, currentTime: string) =>
   (sendRequester: any): GeminiResolveResponse => {
-    const currentTime = new Date().toISOString();
     const dataToSend = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       tools: [{ google_search: {} }],
@@ -105,7 +105,10 @@ CURRENT_TIME: ${currentTime}` }],
         "Content-Type": "application/json",
         "x-goog-api-key": apikey,
       },
-     
+      cacheSettings: {
+        store: true,
+        maxAge: "60s",
+      },
     };
 
     const res = sendRequester.sendRequest(req).result();

@@ -8,7 +8,6 @@ import {
   type Runtime,
 } from "@chainlink/cre-sdk";
 import {
-
   decodeFunctionResult,
   encodeAbiParameters,
   encodeFunctionData,
@@ -19,11 +18,45 @@ import { PredictionMarketAbi } from "../../contractsAbi/predictionMarket";
 import { isHubFactoryConfig } from "../utils/isHub";
 import { processPendingWithdrawalsHandler } from "./marketWithdrawal";
 import {
-
   sender,
   type Config,
-  
 } from "../../Constant-variable/config";
+import { askGemeniResolve } from "../../gemini/resolveEvent";
+
+const marketSnapshotAbi = [
+  {
+    type: "function",
+    name: "getDisputeResolutionSnapshot",
+    inputs: [],
+    outputs: [
+      { name: "marketState", type: "uint8" },
+      { name: "currentProposedResolution", type: "uint8" },
+      { name: "isResolutionDisputed", type: "bool" },
+      { name: "currentDisputeDeadline", type: "uint256" },
+      { name: "currentResolutionTime", type: "uint256" },
+      { name: "question", type: "string" },
+      { name: "disputedUniqueOutcomes", type: "uint8[]" },
+    ],
+    stateMutability: "view",
+  },
+] as const;
+
+type DisputeResolutionSnapshot = readonly [
+  number,
+  number,
+  boolean,
+  bigint,
+  bigint,
+  string,
+  number[]
+];
+
+const toOutcomeCode = (result: string): number => {
+  const normalized = (result || "").trim().toUpperCase();
+  if (normalized === "YES") return 1;
+  if (normalized === "NO") return 2;
+  return 3;
+};
 
 
 
@@ -106,9 +139,37 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
     if (readyForResolve) {
       runtime.log(`Resolving eligible market: ${eventAddress}`);
 
+      const snapshotCallData = encodeFunctionData({
+        abi: marketSnapshotAbi,
+        functionName: "getDisputeResolutionSnapshot",
+      });
+      const snapshotResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: sender,
+            to: eventAddress,
+            data: snapshotCallData,
+          }),
+        })
+        .result();
+      const snapshot = decodeFunctionResult({
+        abi: marketSnapshotAbi,
+        functionName: "getDisputeResolutionSnapshot",
+        data: bytesToHex(snapshotResult.data),
+      }) as DisputeResolutionSnapshot;
+      const question = snapshot[5] || "";
+      const resolutionTime = snapshot[4].toString();
+
+      const geminiResolve = askGemeniResolve(runtime, {
+        question,
+        resolutionTime,
+      });
+      const outcome = toOutcomeCode(geminiResolve.result);
+      const proofUrl = geminiResolve.source_url || "";
+
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
-        1,
-        "https:working",
+        outcome,
+        proofUrl,
       ]);
       const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
         "ResolveMarket",
@@ -139,7 +200,9 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
       }
 
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}`);
+      runtime.log(
+        `ResolveMarket tx succeeded for ${eventAddress}: ${txHash}; result=${geminiResolve.result}; confidence=${geminiResolve.confidence}; proofUrl=${proofUrl}`
+      );
       runtime.log(`View transaction at https://sepolia.arbiscan.io/tx/${txHash}`);
     }
 

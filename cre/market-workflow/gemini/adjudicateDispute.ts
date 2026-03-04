@@ -46,12 +46,13 @@ export const askGeminiAdjudicateDispute = (
   input: DisputeAdjudicationInput
 ): GeminiResolveResponse => {
   const geminiApiKey = runtime.getSecret({ id: "AI_KEY" }).result().value;
+  const currentTimeIso = runtime.now().toISOString();
   const httpClient = new HTTPClient();
 
   const result = httpClient
     .sendRequest(
       runtime,
-      buildPrompt(geminiApiKey, input),
+      buildPrompt(geminiApiKey, input, currentTimeIso),
       consensusIdenticalAggregation()
     )()
     .result();
@@ -60,9 +61,8 @@ export const askGeminiAdjudicateDispute = (
 };
 
 const buildPrompt =
-  (apiKey: string, input: DisputeAdjudicationInput) =>
+  (apiKey: string, input: DisputeAdjudicationInput, currentTime: string) =>
   (sendRequester: any): GeminiResolveResponse => {
-    const currentTime = new Date().toISOString();
     const payload = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       tools: [{ google_search: {} }],
@@ -93,6 +93,10 @@ DISPUTED_OUTCOME_SET: ${JSON.stringify(input.disputedOutcomes)}`
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey,
+      },
+      cacheSettings: {
+        store: true,
+        maxAge: "60s",
       },
     };
 
