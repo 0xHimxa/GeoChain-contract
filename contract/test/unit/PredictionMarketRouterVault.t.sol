@@ -2,6 +2,7 @@
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {PredictionMarketRouterVault} from "../../src/router/PredictionMarketRouterVault.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
@@ -73,13 +74,12 @@ contract PredictionMarketRouterVaultTest is Test {
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
         mockFactory = new MockMarketFactory();
-
-        router = new PredictionMarketRouterVault(
-            address(collateral),
-            forwarder,
-            owner,
-            marketFactory
+        PredictionMarketRouterVault routerImplementation = new PredictionMarketRouterVault();
+        bytes memory initData = abi.encodeCall(
+            PredictionMarketRouterVault.initialize, (address(collateral), forwarder, owner, marketFactory)
         );
+        ERC1967Proxy routerProxy = new ERC1967Proxy(address(routerImplementation), initData);
+        router = PredictionMarketRouterVault(payable(address(routerProxy)));
 
         PredictionMarket implementation = new PredictionMarket();
         marketDeployer = new MarketDeployer(address(implementation), address(mockFactory));
@@ -114,11 +114,7 @@ contract PredictionMarketRouterVaultTest is Test {
         router.depositCollateral(amount);
     }
 
-    function _getMockMarketTokens(address marketAddress)
-        internal
-        view
-        returns (address yesToken, address noToken)
-    {
+    function _getMockMarketTokens(address marketAddress) internal view returns (address yesToken, address noToken) {
         yesToken = IMockMarket(marketAddress).yesToken();
         noToken = IMockMarket(marketAddress).noToken();
     }
@@ -135,9 +131,12 @@ contract PredictionMarketRouterVaultTest is Test {
         router.setAgentPermission(agent, allActions, maxAmount, uint64(block.timestamp + 1 days));
     }
 
-    function testConstructorRevertZeroCollateral() external {
+    function testInitializeRevertZeroCollateral() external {
+        PredictionMarketRouterVault implementation = new PredictionMarketRouterVault();
+        bytes memory initData =
+            abi.encodeCall(PredictionMarketRouterVault.initialize, (address(0), forwarder, owner, marketFactory));
         vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
-        new PredictionMarketRouterVault(address(0), forwarder, owner, marketFactory);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
     function testConstructorSuccess() external view {
@@ -278,6 +277,8 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.warp(block.timestamp + 3 days);
         _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
 
+        // Refresh delegation after time warp; initial permission duration is 1 day.
+        _setAgentPermissionAll(alice, bob, 200e6);
         vm.prank(bob);
         router.redeemFor(alice, address(market), 1e6);
         assertGt(router.collateralCredits(alice), 0);
@@ -316,7 +317,8 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.prank(forwarder);
         router.onReport("", revokeReport);
 
-        (bool enabledAfter, uint64 expiresAt, uint128 maxAmount, uint32 actionMask) = router.agentPermissions(alice, bob);
+        (bool enabledAfter, uint64 expiresAt, uint128 maxAmount, uint32 actionMask) =
+            router.agentPermissions(alice, bob);
         assertFalse(enabledAfter);
         assertEq(expiresAt, 0);
         assertEq(maxAmount, 0);
@@ -406,11 +408,7 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.prank(alice);
         router.depositCollateral(100e6);
 
-        vm.mockCall(
-            fakeMarket,
-            abi.encodeWithSignature("i_collateral()"),
-            abi.encode(address(0))
-        );
+        vm.mockCall(fakeMarket, abi.encodeWithSignature("i_collateral()"), abi.encode(address(0)));
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSignature("Router__CollateralMismatch()"));
@@ -815,6 +813,47 @@ contract PredictionMarketRouterVaultTest is Test {
 
         assertTrue(success);
         assertEq(address(router).balance, ethAmount);
+    }
+
+    function testWithdrawEthByOwnerSuccess() external {
+        uint256 ethAmount = 5 ether;
+        uint256 withdrawAmount = 2 ether;
+
+        vm.deal(alice, ethAmount);
+        vm.prank(alice);
+        (bool funded,) = address(router).call{value: ethAmount}("");
+        assertTrue(funded);
+
+        uint256 ownerBalanceBefore = owner.balance;
+        vm.prank(owner);
+        router.withdrawEth(payable(owner), withdrawAmount);
+
+        assertEq(owner.balance, ownerBalanceBefore + withdrawAmount);
+        assertEq(address(router).balance, ethAmount - withdrawAmount);
+    }
+
+    function testWithdrawEthRevertUnauthorized() external {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", alice));
+        router.withdrawEth(payable(alice), 1 ether);
+    }
+
+    function testWithdrawEthRevertZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
+        router.withdrawEth(payable(address(0)), 1 ether);
+    }
+
+    function testWithdrawEthRevertInvalidAmount() external {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("Router__InvalidAmount()"));
+        router.withdrawEth(payable(owner), 0);
+    }
+
+    function testWithdrawEthRevertInsufficientBalance() external {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
+        router.withdrawEth(payable(owner), 1 ether);
     }
 }
 

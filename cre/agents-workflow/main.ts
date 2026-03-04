@@ -3,7 +3,6 @@ import { type Config } from "./Constant-variable/config";
 import { agentPlanTradeHttpHandler } from "./handlers/httpHandlers/httpAgentPlanTrade";
 import { agentSponsorTradeHttpHandler } from "./handlers/httpHandlers/httpAgentSponsorTrade";
 import { agentExecuteTradeHttpHandler } from "./handlers/httpHandlers/httpAgentExecuteTrade";
-import { agentGeminiAutoTradeHttpHandler } from "./handlers/httpHandlers/httpAgentGeminiAutoTrade";
 import { agentRevokeHttpHandler } from "./handlers/httpHandlers/httpAgentRevoke";
 
 export const initWorkflow = (config: Config): Workflow<Config> => {
@@ -25,10 +24,6 @@ export const initWorkflow = (config: Config): Workflow<Config> => {
         handler(
           http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }),
           agentExecuteTradeHttpHandler
-        ),
-        handler(
-          http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }),
-          agentGeminiAutoTradeHttpHandler
         ),
         handler(
           http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }),

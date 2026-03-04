@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ReceiverTemplate} from "../../script/interfaces/ReceiverTemplate.sol";
+import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
 import {MarketConstants} from "../libraries/MarketTypes.sol";
 
 /// @title IPredictionMarketLike
@@ -29,7 +31,12 @@ interface IPredictionMarketLike {
 /// @title PredictionMarketRouterVaultBase
 /// @notice Shared storage, events, and guard utilities for router vault modules.
 /// @dev Holds user-credit accounting and report action hashes used by operation modules.
-abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, ReentrancyGuard {
+abstract contract PredictionMarketRouterVaultBase is
+    Initializable,
+    ReceiverTemplateUpgradeable,
+    UUPSUpgradeable,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     error Router__ZeroAddress();
@@ -48,6 +55,7 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     error Router__AgentPermissionExpired();
     error Router__AgentActionNotAllowed();
     error Router__AgentAmountExceeded();
+    error Router__EthTransferFailed();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
     bytes32 internal constant HASHED_DEPOSIT_FOR = keccak256(abi.encode("routerDepositFor"));
@@ -63,8 +71,8 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     bytes32 internal constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
     bytes32 internal constant HASHED_REDEEM_WINNINGS = keccak256(abi.encode("routerRedeem"));
     bytes32 internal constant HASHED_DISPUTE = keccak256(abi.encode("routerDisputeProposedResolution"));
-  
-  //Agents
+
+    //Agents
     bytes32 internal constant HASHED_AGENT_MINT = keccak256(abi.encode("routerAgentMintCompleteSets"));
     bytes32 internal constant HASHED_AGENT_REDEEM = keccak256(abi.encode("routerAgentRedeemCompleteSets"));
     bytes32 internal constant HASHED_AGENT_SWAP_YES_FOR_NO = keccak256(abi.encode("routerAgentSwapYesForNo"));
@@ -91,9 +99,9 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
         uint32 actionMask;
     }
 
-    IERC20 public immutable collateralToken;
+    IERC20 public collateralToken;
     uint256 public totalCollateralCredits;
-    address public immutable marketFactory;
+    address public marketFactory;
 
     mapping(address => bool) public allowedMarkets;
 
@@ -110,15 +118,20 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     event Deposited(address indexed user, uint256 amount);
     event CollateralWithdrawn(address indexed user, uint256 amount);
     event OutcomeWithdrawn(address indexed user, address indexed token, uint256 amount);
-    event CompleteSetsMinted(address indexed user, address indexed market, uint256 collateralIn, uint256 yesOut, uint256 noOut);
+    event CompleteSetsMinted(
+        address indexed user, address indexed market, uint256 collateralIn, uint256 yesOut, uint256 noOut
+    );
     event CompleteSetsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
     event WinningsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
     event SwappedYesForNo(address indexed user, address indexed market, uint256 yesIn, uint256 noOut);
     event SwappedNoForYes(address indexed user, address indexed market, uint256 noIn, uint256 yesOut);
     event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
-    event LiquidityRemoved(address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut);
+    event LiquidityRemoved(
+        address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut
+    );
     event CollateralCreditedFromFiat(address indexed user, uint256 amount);
     event EthReceived(address indexed sender, uint256 amountWei);
+    event EthWithdrawn(address indexed recipient, uint256 amountWei);
     event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
     event RouterRiskExemptUpdated(address indexed account, bool exempt);
     event DisputeSubmitted(address indexed user, address indexed market, uint8 proposedOutcome);
@@ -133,17 +146,28 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
     event AgentPermissionRevoked(address indexed user, address indexed agent);
     event AgentActionExecuted(address indexed user, address indexed agent, string actionType, uint256 boundedAmount);
 
-    /// @notice Creates a router vault bound to one collateral token and market factory.
-    /// @param collateral Collateral token accepted by all markets reachable via this router.
-    /// @param forwarder Trusted forwarder used by `ReceiverTemplate`.
-    /// @param initialOwner Initial router owner.
-    /// @param _marketFactory Factory authorized to manage market allowlisting.
-    constructor(address collateral, address forwarder, address initialOwner, address _marketFactory)
-        ReceiverTemplate(forwarder, initialOwner)
-    {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// @dev Initializes base router dependencies and owner/forwarder wiring for proxy deployments.
+    function __PredictionMarketRouterVaultBase_init(
+        address collateral,
+        address forwarder,
+        address initialOwner,
+        address _marketFactory
+    ) internal onlyInitializing {
         if (collateral == address(0)) revert Router__ZeroAddress();
+        if (_marketFactory == address(0)) revert Router__ZeroAddress();
+        __ReceiverTemplateUpgradeable_init(forwarder, initialOwner);
         collateralToken = IERC20(collateral);
         marketFactory = _marketFactory;
+    }
+
+    /// @dev UUPS authorization hook.
+    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+        if (newImplementation == address(0)) revert Router__ZeroAddress();
     }
 
     /// @notice Emits a deposit event for native ETH transfers to support off-chain crediting flows.
@@ -185,4 +209,6 @@ abstract contract PredictionMarketRouterVaultBase is ReceiverTemplate, Reentranc
         uint256 increase = type(uint256).max - allowance;
         token.safeIncreaseAllowance(spender, increase);
     }
+
+    uint256[50] private __gap;
 }

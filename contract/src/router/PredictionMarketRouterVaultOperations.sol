@@ -11,18 +11,21 @@ import {PredictionMarketRouterVaultBase, IPredictionMarketLike} from "./Predicti
 abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRouterVaultBase {
     using SafeERC20 for IERC20;
 
+    // ============================================================
+    // External User/Admin Operations
+    // ============================================================
+
     /// @notice Grants or updates agent permissions for caller-owned credits.
-    function setAgentPermission(address agent, uint32 actionMask, uint128 maxAmountPerAction, uint64 expiresAt) external {
+    function setAgentPermission(address agent, uint32 actionMask, uint128 maxAmountPerAction, uint64 expiresAt)
+        external
+    {
         if (agent == address(0)) revert Router__ZeroAddress();
         if (expiresAt <= block.timestamp) revert Router__AgentPermissionExpired();
         if (actionMask == 0) revert Router__AgentActionNotAllowed();
         if (maxAmountPerAction == 0) revert Router__InvalidAmount();
 
         agentPermissions[msg.sender][agent] = AgentPermission({
-            enabled: true,
-            expiresAt: expiresAt,
-            maxAmountPerAction: maxAmountPerAction,
-            actionMask: actionMask
+            enabled: true, expiresAt: expiresAt, maxAmountPerAction: maxAmountPerAction, actionMask: actionMask
         });
 
         emit AgentPermissionUpdated(msg.sender, agent, true, actionMask, maxAmountPerAction, expiresAt);
@@ -49,6 +52,18 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         if (account == address(0)) revert Router__ZeroAddress();
         isRiskExempt[account] = exempt;
         emit RouterRiskExemptUpdated(account, exempt);
+    }
+
+    /// @notice Withdraws native ETH held by the router to a recipient.
+    /// @dev Owner-only emergency/admin path for ETH sent to the router (e.g. via receive()).
+    function withdrawEth(address payable recipient, uint256 amount) external onlyOwner nonReentrant {
+        if (recipient == address(0)) revert Router__ZeroAddress();
+        if (amount == 0) revert Router__InvalidAmount();
+        if (address(this).balance < amount) revert Router__InsufficientBalance();
+
+        (bool ok,) = recipient.call{value: amount}("");
+        if (!ok) revert Router__EthTransferFailed();
+        emit EthWithdrawn(recipient, amount);
     }
 
     /// @notice Deposits caller collateral and credits the caller.
@@ -98,12 +113,18 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @notice Adds liquidity using caller YES/NO credits and credits LP shares internally.
-    function addLiquidity(address market, uint256 yesAmount, uint256 noAmount, uint256 minShares) external nonReentrant {
+    function addLiquidity(address market, uint256 yesAmount, uint256 noAmount, uint256 minShares)
+        external
+        nonReentrant
+    {
         _addLiquidity(msg.sender, market, yesAmount, noAmount, minShares);
     }
 
     /// @notice Removes liquidity from internal LP shares and credits resulting YES/NO balances.
-    function removeLiquidity(address market, uint256 shares, uint256 minYesOut, uint256 minNoOut) external nonReentrant {
+    function removeLiquidity(address market, uint256 shares, uint256 minYesOut, uint256 minNoOut)
+        external
+        nonReentrant
+    {
         _removeLiquidity(msg.sender, market, shares, minYesOut, minNoOut);
     }
 
@@ -112,8 +133,9 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         _disputeProposedResolution(msg.sender, market, proposedOutcome);
     }
 
-    //Agent Actions that can be done for users
-
+    // ============================================================
+    // External Agent-Delegated Operations
+    // ============================================================
 
     /// @notice Agent execution path for mint complete sets on behalf of a user.
     function mintCompleteSetsFor(address user, address market, uint256 amount) external nonReentrant {
@@ -148,11 +170,10 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         external
         nonReentrant
     {
-        _authorizeAgent(user, msg.sender, AGENT_ACTION_ADD_LIQUIDITY, yesAmount > noAmount ? yesAmount : noAmount);
+        uint256 boundedAmount = _max(yesAmount, noAmount);
+        _authorizeAgent(user, msg.sender, AGENT_ACTION_ADD_LIQUIDITY, boundedAmount);
         _addLiquidity(user, market, yesAmount, noAmount, minShares);
-        emit AgentActionExecuted(
-            user, msg.sender, "routerAgentAddLiquidity", yesAmount > noAmount ? yesAmount : noAmount
-        );
+        emit AgentActionExecuted(user, msg.sender, "routerAgentAddLiquidity", boundedAmount);
     }
 
     /// @notice Agent execution path for remove liquidity on behalf of a user.
@@ -178,10 +199,10 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         _disputeProposedResolution(user, market, proposedOutcome);
         emit AgentActionExecuted(user, msg.sender, "routerAgentDisputeProposedResolution", 0);
     }
-//end of agent actions
 
-    
-
+    // ============================================================
+    // Internal Accounting + Market Operations
+    // ============================================================
 
     /// @dev Pulls collateral from payer and credits beneficiary in router accounting.
     function _depositCollateral(address payer, address beneficiary, uint256 amount) internal {
@@ -444,7 +465,10 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         emit DisputeSubmitted(user, market, proposedOutcome);
     }
 
-//agent permisions set by user
+    // ============================================================
+    // Internal Agent Permission Utilities
+    // ============================================================
+
     /// @dev Clears delegated agent permission for a specific user-agent pair.
     function _revokeAgentPermission(address user, address agent) internal {
         if (agent == address(0)) revert Router__ZeroAddress();
@@ -461,111 +485,175 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
         if (boundedAmount > permission.maxAmountPerAction) revert Router__AgentAmountExceeded();
     }
 
-    /// @dev Dispatches receiver reports by action hash into router operations.
-    /// Report shape is `(string actionType, bytes payload)`.
-    function _processReport(bytes calldata report) internal override nonReentrant {
-        (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
-        bytes32 actionTypeHash = keccak256(abi.encode(actionType));
+    // ============================================================
+    // Internal Report Dispatch
+    // ============================================================
 
+    /// @dev Returns max(a,b) as the bounded amount for add-liquidity authorization.
+    function _max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+
+    /// @dev Handles non-agent router action reports.
+    /// Payload shape depends on actionType and mirrors each internal operation signature.
+    function _dispatchRouterAction(bytes32 actionTypeHash, bytes memory payload) internal returns (bool) {
         if (actionTypeHash == HASHED_DEPOSIT_FOR) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
             _depositCollateral(user, user, amount);
-        } else if (actionTypeHash == HASHED_WITHDRAW_COLLATERAL) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_WITHDRAW_COLLATERAL) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
             _withdrawCollateral(user, amount);
-        } else if (actionTypeHash == HASHED_WITHDRAW_OUTCOME) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_WITHDRAW_OUTCOME) {
             (address user, address token, uint256 amount) = abi.decode(payload, (address, address, uint256));
             _withdrawOutcomeToken(user, token, amount);
-        } else if (actionTypeHash == HASHED_MINT) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_MINT) {
             (address user, address market, uint256 amount) = abi.decode(payload, (address, address, uint256));
             _mintCompleteSets(user, market, amount);
-        } else if (actionTypeHash == HASHED_REDEEM) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_REDEEM) {
             (address user, address market, uint256 amount) = abi.decode(payload, (address, address, uint256));
             _redeemCompleteSets(user, market, amount);
-        } else if (actionTypeHash == HASHED_SWAP_YES_FOR_NO) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_SWAP_YES_FOR_NO) {
             (address user, address market, uint256 yesIn, uint256 minNoOut) =
                 abi.decode(payload, (address, address, uint256, uint256));
             _swapYesForNo(user, market, yesIn, minNoOut);
-        } else if (actionTypeHash == HASHED_SWAP_NO_FOR_YES) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_SWAP_NO_FOR_YES) {
             (address user, address market, uint256 noIn, uint256 minYesOut) =
                 abi.decode(payload, (address, address, uint256, uint256));
             _swapNoForYes(user, market, noIn, minYesOut);
-        } else if (actionTypeHash == HASHED_ADD_LIQ) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_ADD_LIQ) {
             (address user, address market, uint256 yesAmount, uint256 noAmount, uint256 minShares) =
                 abi.decode(payload, (address, address, uint256, uint256, uint256));
             _addLiquidity(user, market, yesAmount, noAmount, minShares);
-        } else if (actionTypeHash == HASHED_REMOVE_LIQ) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_REMOVE_LIQ) {
             (address user, address market, uint256 shares, uint256 minYesOut, uint256 minNoOut) =
                 abi.decode(payload, (address, address, uint256, uint256, uint256));
             _removeLiquidity(user, market, shares, minYesOut, minNoOut);
-        } else if (actionTypeHash == HASHED_CREDIT_FROM_FIAT) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_CREDIT_FROM_FIAT) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));
             _creditCollateralFromFiat(user, amount);
-        } else if (actionTypeHash == HASHED_CREDIT_FROM_ETH) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_CREDIT_FROM_ETH) {
             (address user, uint256 amount, bytes32 depositId) = abi.decode(payload, (address, uint256, bytes32));
             _creditCollateralFromEth(user, amount, depositId);
-        } else if (actionTypeHash == HASHED_REDEEM_WINNINGS) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_REDEEM_WINNINGS) {
             (address user, address market, uint256 amount) = abi.decode(payload, (address, address, uint256));
             _redeem(user, market, amount);
-        } else if (actionTypeHash == HASHED_DISPUTE) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_DISPUTE) {
             (address user, address market, uint8 proposedOutcome) = abi.decode(payload, (address, address, uint8));
             _disputeProposedResolution(user, market, proposedOutcome);
+            return true;
         }
-        //agent actions type checks
-         else if (actionTypeHash == HASHED_AGENT_MINT) {
+        return false;
+    }
+
+    /// @dev Handles agent action reports and emits standardized `AgentActionExecuted`.
+    function _dispatchRouterAgentAction(bytes32 actionTypeHash, string memory actionType, bytes memory payload)
+        internal
+        returns (bool)
+    {
+        if (actionTypeHash == HASHED_AGENT_MINT) {
             (address user, address agent, address market, uint256 amount) =
                 abi.decode(payload, (address, address, address, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_MINT, amount);
             _mintCompleteSets(user, market, amount);
             emit AgentActionExecuted(user, agent, actionType, amount);
-        } else if (actionTypeHash == HASHED_AGENT_REDEEM) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_REDEEM) {
             (address user, address agent, address market, uint256 amount) =
                 abi.decode(payload, (address, address, address, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_REDEEM_COMPLETE_SETS, amount);
             _redeemCompleteSets(user, market, amount);
             emit AgentActionExecuted(user, agent, actionType, amount);
-        } else if (actionTypeHash == HASHED_AGENT_SWAP_YES_FOR_NO) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_SWAP_YES_FOR_NO) {
             (address user, address agent, address market, uint256 yesIn, uint256 minNoOut) =
                 abi.decode(payload, (address, address, address, uint256, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_SWAP_YES_FOR_NO, yesIn);
             _swapYesForNo(user, market, yesIn, minNoOut);
             emit AgentActionExecuted(user, agent, actionType, yesIn);
-        } else if (actionTypeHash == HASHED_AGENT_SWAP_NO_FOR_YES) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_SWAP_NO_FOR_YES) {
             (address user, address agent, address market, uint256 noIn, uint256 minYesOut) =
                 abi.decode(payload, (address, address, address, uint256, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_SWAP_NO_FOR_YES, noIn);
             _swapNoForYes(user, market, noIn, minYesOut);
             emit AgentActionExecuted(user, agent, actionType, noIn);
-        } else if (actionTypeHash == HASHED_AGENT_ADD_LIQ) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_ADD_LIQ) {
             (address user, address agent, address market, uint256 yesAmount, uint256 noAmount, uint256 minShares) =
                 abi.decode(payload, (address, address, address, uint256, uint256, uint256));
-            uint256 boundedAmount = yesAmount > noAmount ? yesAmount : noAmount;
+            uint256 boundedAmount = _max(yesAmount, noAmount);
             _authorizeAgent(user, agent, AGENT_ACTION_ADD_LIQUIDITY, boundedAmount);
             _addLiquidity(user, market, yesAmount, noAmount, minShares);
             emit AgentActionExecuted(user, agent, actionType, boundedAmount);
-        } else if (actionTypeHash == HASHED_AGENT_REMOVE_LIQ) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_REMOVE_LIQ) {
             (address user, address agent, address market, uint256 shares, uint256 minYesOut, uint256 minNoOut) =
                 abi.decode(payload, (address, address, address, uint256, uint256, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_REMOVE_LIQUIDITY, shares);
             _removeLiquidity(user, market, shares, minYesOut, minNoOut);
             emit AgentActionExecuted(user, agent, actionType, shares);
-        } else if (actionTypeHash == HASHED_AGENT_REDEEM_WINNINGS) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_REDEEM_WINNINGS) {
             (address user, address agent, address market, uint256 amount) =
                 abi.decode(payload, (address, address, address, uint256));
             _authorizeAgent(user, agent, AGENT_ACTION_REDEEM_WINNINGS, amount);
             _redeem(user, market, amount);
             emit AgentActionExecuted(user, agent, actionType, amount);
-        } else if (actionTypeHash == HASHED_AGENT_DISPUTE) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_DISPUTE) {
             (address user, address agent, address market, uint8 proposedOutcome) =
                 abi.decode(payload, (address, address, address, uint8));
             _authorizeAgent(user, agent, AGENT_ACTION_DISPUTE, 0);
             _disputeProposedResolution(user, market, proposedOutcome);
             emit AgentActionExecuted(user, agent, actionType, 0);
-        } else if (actionTypeHash == HASHED_AGENT_REVOKE_PERMISSION) {
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_REVOKE_PERMISSION) {
             (address user, address agent) = abi.decode(payload, (address, address));
             _revokeAgentPermission(user, agent);
-        } else {
-            revert Router__ActionNotRecognized();
+            return true;
         }
+        return false;
+    }
+
+    /// @dev Dispatches receiver reports by action hash into router operations.
+    /// Report shape is `(string actionType, bytes payload)`.
+    function _processReport(bytes calldata report) internal override nonReentrant {
+        (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
+        bytes32 actionTypeHash = keccak256(abi.encode(actionType));
+        if (_dispatchRouterAction(actionTypeHash, payload)) return;
+        if (_dispatchRouterAgentAction(actionTypeHash, actionType, payload)) return;
+        revert Router__ActionNotRecognized();
     }
 }

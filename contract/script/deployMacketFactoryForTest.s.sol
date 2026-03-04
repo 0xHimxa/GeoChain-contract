@@ -1,8 +1,7 @@
-
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {Script,console} from "forge-std/Script.sol";
+import {Script, console} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MarketFactory} from "../src/marketFactory/MarketFactory.sol";
@@ -10,7 +9,7 @@ import {OutcomeToken} from "../src/token/OutcomeToken.sol";
 import {MarketDeployer} from "../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {PredictionMarket} from "../src/predictionMarket/PredictionMarket.sol";
 import {PredictionMarketBridge} from "../src/Bridge/PredictionMarketBridge.sol";
-import{ PredictionMarketRouterVault} from "src/router/PredictionMarketRouterVault.sol";
+import {PredictionMarketRouterVault} from "src/router/PredictionMarketRouterVault.sol";
 
 /**
  * @title DeployMarketFactory
@@ -20,21 +19,17 @@ import{ PredictionMarketRouterVault} from "src/router/PredictionMarketRouterVaul
  *      Uses Anvil's default accounts (index 0 = owner, index 1 = forwarder placeholder).
  */
 contract DeployMarketFactory is Script {
-       address router = 0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165;
-address link =0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
-        OutcomeToken collateral;
-    
-    function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
+    address router = 0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165;
+    address link = 0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
+    OutcomeToken collateral;
 
+    function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
         // Anvil default account #1 used as workflow forwarder placeholder in tests.
         address forwarder = 0xD41263567DdfeAd91504199b8c6c87371e83ca5d;
 
-
         // Anvil default account #0 expected by test suite as factory owner/admin.
-        address initialOwner =  0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
+        address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
 
-       
-     
         vm.startBroadcast(initialOwner);
 
         // 1. Deploy a mock USDC token (OutcomeToken reused as a mintable ERC20) owned by initialOwner
@@ -44,13 +39,11 @@ address link =0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
         PredictionMarket marketImplementation = new PredictionMarket();
 
         // 3. Deploy the MarketDeployer helper that clones from marketImplementation
-        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation),initialOwner);
+        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation), initialOwner);
 
         // 4. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
         implementationAddress = address(implementation);
-
-
 
         //Mint collateral to self
 
@@ -65,13 +58,11 @@ address link =0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
 
-
         // deploy PredictionMarketBridge
-         PredictionMarketBridge bridge = new PredictionMarketBridge(initialOwner, address(collateral));
+        PredictionMarketBridge bridge = new PredictionMarketBridge(initialOwner, address(collateral));
         bridge.setCcipConfig(router, link);
         bridge.setMarketFactory(proxyAddress);
         bridge.setSupportedChainSelector(10344971235874465080, true);
-
 
         // 7. Transfer collateral token ownership to the factory proxy so it can mint testnet USDC
         collateral.transferOwnership(proxyAddress);
@@ -84,11 +75,15 @@ address link =0xb1D4538B4571d411F07960EF2838Ce337FE1E80E;
 
         marketDeployer.setNewOwner(proxyAddress);
 
-// router deployment 
-
-     PredictionMarketRouterVault routerVal = new  PredictionMarketRouterVault(address(collateral),forwarder,initialOwner,proxyAddress);
-  MarketFactory(proxyAddress).setPredictionMarketRouter(address(routerVal));
-console.log(address(routerVal));
+        // router deployment
+        PredictionMarketRouterVault routerImpl = new PredictionMarketRouterVault();
+        bytes memory routerInitData = abi.encodeCall(
+            PredictionMarketRouterVault.initialize, (address(collateral), forwarder, initialOwner, proxyAddress)
+        );
+        ERC1967Proxy routerProxy = new ERC1967Proxy(address(routerImpl), routerInitData);
+        PredictionMarketRouterVault routerVal = PredictionMarketRouterVault(payable(address(routerProxy)));
+        MarketFactory(proxyAddress).setPredictionMarketRouter(address(routerVal));
+        console.log(address(routerVal));
         vm.stopBroadcast();
 
         // Log deployed addresses for verification
@@ -101,26 +96,18 @@ console.log(address(routerVal));
     }
 }
 
-
-
-
-
 contract BaseDeployMarketFactory is Script {
-       address router =0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93;
-address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
-        OutcomeToken collateral;
-    
-    function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
+    address router = 0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93;
+    address link = 0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
+    OutcomeToken collateral;
 
+    function run() external returns (address proxyAddress, address implementationAddress, address collateralAddress) {
         // Anvil default account #1 used as workflow forwarder placeholder in tests.
         address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
 
-
         // Anvil default account #0 expected by test suite as factory owner/admin.
-        address initialOwner =  0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
+        address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
 
-       
-     
         vm.startBroadcast(initialOwner);
 
         // 1. Deploy a mock USDC token (OutcomeToken reused as a mintable ERC20) owned by initialOwner
@@ -130,13 +117,11 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         PredictionMarket marketImplementation = new PredictionMarket();
 
         // 3. Deploy the MarketDeployer helper that clones from marketImplementation
-        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation),initialOwner);
+        MarketDeployer marketDeployer = new MarketDeployer(address(marketImplementation), initialOwner);
 
         // 4. Deploy the MarketFactory implementation (logic contract, not used directly)
         MarketFactory implementation = new MarketFactory();
         implementationAddress = address(implementation);
-
-
 
         //Mint collateral to self
 
@@ -151,13 +136,11 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
         ERC1967Proxy proxy = new ERC1967Proxy(implementationAddress, initData);
         proxyAddress = address(proxy);
 
-
         // deploy PredictionMarketBridge
-         PredictionMarketBridge bridge = new PredictionMarketBridge(initialOwner, address(collateral));
+        PredictionMarketBridge bridge = new PredictionMarketBridge(initialOwner, address(collateral));
         bridge.setCcipConfig(router, link);
         bridge.setMarketFactory(proxyAddress);
         bridge.setSupportedChainSelector(3478487238524512106, true);
-
 
         // 7. Transfer collateral token ownership to the factory proxy so it can mint testnet USDC
         collateral.transferOwnership(proxyAddress);
@@ -170,11 +153,15 @@ address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
 
         marketDeployer.setNewOwner(proxyAddress);
 
-// router deployment 
-
-     PredictionMarketRouterVault routerVal = new  PredictionMarketRouterVault(address(collateral),forwarder,initialOwner,proxyAddress);
-  MarketFactory(proxyAddress).setPredictionMarketRouter(address(routerVal));
-console.log(address(routerVal));
+        // router deployment
+        PredictionMarketRouterVault routerImpl = new PredictionMarketRouterVault();
+        bytes memory routerInitData = abi.encodeCall(
+            PredictionMarketRouterVault.initialize, (address(collateral), forwarder, initialOwner, proxyAddress)
+        );
+        ERC1967Proxy routerProxy = new ERC1967Proxy(address(routerImpl), routerInitData);
+        PredictionMarketRouterVault routerVal = PredictionMarketRouterVault(payable(address(routerProxy)));
+        MarketFactory(proxyAddress).setPredictionMarketRouter(address(routerVal));
+        console.log(address(routerVal));
         vm.stopBroadcast();
 
         // Log deployed addresses for verification
@@ -187,33 +174,24 @@ console.log(address(routerVal));
     }
 }
 
-
-
-
 contract DeployRouter is Script {
+    address arbMarketFactory = 0xbC44067d3bbDC4cb4231fD91b2Fe3Bf7027E7c77;
+    address baseMarketFactory = 0xf2992507E9589307Ea5f02225C5439Ee451d13EC;
+    address arbCollateral = 0x9e96ad0e4044356918477A36b58bFcb98eAD4566;
+    address baseCollateral = 0x88e624252aF6Dc6AA5ca76f00458aa8Df39E2657;
+    address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
+    address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
 
-address arbMarketFactory = 0xbC44067d3bbDC4cb4231fD91b2Fe3Bf7027E7c77
-;
- address baseMarketFactory = 0xf2992507E9589307Ea5f02225C5439Ee451d13EC;
-address arbCollateral =   0x9e96ad0e4044356918477A36b58bFcb98eAD4566
-;
-address baseCollateral= 0x88e624252aF6Dc6AA5ca76f00458aa8Df39E2657 ;
-        address initialOwner =  0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
-        
+    function run() external {
+        vm.startBroadcast(initialOwner);
+        PredictionMarketRouterVault routerImpl = new PredictionMarketRouterVault();
+        bytes memory routerInitData = abi.encodeCall(
+            PredictionMarketRouterVault.initialize, (baseCollateral, forwarder, initialOwner, baseMarketFactory)
+        );
+        ERC1967Proxy routerProxy = new ERC1967Proxy(address(routerImpl), routerInitData);
+        PredictionMarketRouterVault routerVal = PredictionMarketRouterVault(payable(address(routerProxy)));
+        MarketFactory(baseMarketFactory).setPredictionMarketRouter(address(routerVal));
 
-
-    function  run() external{
-vm.startBroadcast(initialOwner);
-     PredictionMarketRouterVault routerVal = new  PredictionMarketRouterVault(baseCollateral,forwarder,initialOwner,baseMarketFactory);
-  MarketFactory(baseMarketFactory).setPredictionMarketRouter(address(routerVal));
-
-
-
-vm.stopBroadcast();
-    
-
-
-
+        vm.stopBroadcast();
     }
 }
