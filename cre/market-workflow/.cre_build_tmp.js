@@ -26254,7 +26254,10 @@ var initWorkflow = (config) => {
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
-  const cronWorkflows = [];
+  const cronWorkflows = [
+    handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
+    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice)
+  ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
       authorizedKeys: httpAuthorizedKeys

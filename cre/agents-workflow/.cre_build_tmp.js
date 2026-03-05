@@ -18898,23 +18898,6 @@ var createSessionDoc = (runtime2, idToken, session) => {
     return false;
   throw new Error(`failed to create session state (${response.statusCode})`);
 };
-var markSessionRevoked = (runtime2, idToken, sessionId, updateTime) => {
-  const projectId = getProjectId(runtime2);
-  const mask = "updateMask.fieldPaths=revoked&updateMask.fieldPaths=revokedAtUnix";
-  const precondition = `currentDocument.updateTime=${encodeURIComponent(updateTime)}`;
-  const url = `${baseUrl(projectId)}/${SESSIONS_COLLECTION}/${encodeURIComponent(sessionId)}?${mask}&${precondition}`;
-  const response = sendFirestoreRequest(runtime2, idToken, {
-    url,
-    method: "PATCH",
-    body: {
-      fields: {
-        revoked: { booleanValue: true },
-        revokedAtUnix: { integerValue: String(Math.floor(runtime2.now().getTime() / 1000)) }
-      }
-    }
-  });
-  return response.statusCode === 200;
-};
 var getFirestoreIdToken = (runtime2) => {
   const auth = signUpWorkFlow(runtime2);
   if (!auth?.idToken)
@@ -18949,26 +18932,6 @@ var upsertAndValidateSession = (runtime2, idToken, session) => {
   if (!sessionsEqual(session, stored)) {
     return { ok: false, reason: "session metadata mismatch" };
   }
-  return { ok: true };
-};
-var revokeSessionRecord = (runtime2, idToken, sessionId, owner, chainId) => {
-  const existing = getSessionDoc(runtime2, idToken, sessionId);
-  if (!existing)
-    return { ok: false, reason: "session not found" };
-  const stored = parseSessionDoc(existing);
-  if (!stored)
-    return { ok: false, reason: "stored session state is malformed" };
-  if (stored.owner.toLowerCase() !== owner.toLowerCase()) {
-    return { ok: false, reason: "session owner mismatch" };
-  }
-  if (stored.chainId !== chainId) {
-    return { ok: false, reason: "session chain mismatch" };
-  }
-  if (stored.revoked)
-    return { ok: true };
-  const revoked = markSessionRevoked(runtime2, idToken, sessionId, stored.updateTime);
-  if (!revoked)
-    return { ok: false, reason: "session revoke failed" };
   return { ok: true };
 };
 var reserveSessionNonce = (runtime2, idToken, sessionId, nonce, intentHash) => {
@@ -19134,6 +19097,7 @@ var SESSION_REVOKE_TYPES = {
   SessionRevoke: [
     { name: "sessionId", type: "string" },
     { name: "owner", type: "address" },
+    { name: "agent", type: "address" },
     { name: "chainId", type: "uint256" }
   ]
 };
@@ -19754,219 +19718,25 @@ var agentExecuteTradeHttpHandler = async (runtime2, payload) => {
     input: new TextEncoder().encode(JSON.stringify(executeRequest))
   });
 };
-var AUTO_EXEC_ACTIONS = new Set([
-  "mintCompleteSets",
-  "redeemCompleteSets",
-  "redeem",
-  "swapYesForNo",
-  "swapNoForYes"
-]);
-var SYSTEM_PROMPT = `You are a risk-constrained trading assistant for prediction markets.
-Return a single minified JSON object only.
-Schema: {"action":"mintCompleteSets"|"redeemCompleteSets"|"redeem"|"swapYesForNo"|"swapNoForYes"|"hold","amountUsdc":"<uint-string>","rationale":"<short>","confidenceBps":<0-10000 integer>}
-Rules:
-1) action must be one of ALLOWED_ACTIONS.
-2) amountUsdc must be a base-10 integer string and <= MAX_AMOUNT_USDC.
-3) If uncertain, output "hold" with amountUsdc "0".
-4) No markdown, no prose, no extra keys.`;
-var decodeInput = (payload) => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim())
-    throw new Error("empty payload");
-  return JSON.parse(raw);
-};
-var parseDecision = (raw) => {
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object")
-    throw new Error("invalid gemini response");
-  if (!("action" in parsed) || !("amountUsdc" in parsed))
-    throw new Error("gemini response missing fields");
-  return parsed;
-};
-var withInput = (base, obj) => ({
-  ...base,
-  input: new TextEncoder().encode(JSON.stringify(obj))
-});
-var makeInternalPayload = (obj) => ({
-  $typeName: "capabilities.networking.http.v1alpha.Payload",
-  input: new TextEncoder().encode(JSON.stringify(obj))
-});
-var askGeminiForTrade = (runtime2, userPrompt) => {
-  const apiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
-  const httpClient = new ClientCapability2;
-  const requester = (sender) => {
-    const data = {
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: userPrompt }] }]
-    };
-    const bodyBytes = new TextEncoder().encode(JSON.stringify(data));
-    const body = Buffer.from(bodyBytes).toString("base64");
-    const res = sender.sendRequest({
-      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      method: "POST",
-      body,
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      }
-    }).result();
-    if (!ok(res)) {
-      throw new Error(`gemini call failed (${res.statusCode})`);
-    }
-    const rawBody = new TextDecoder().decode(res.body);
-    const json = JSON.parse(rawBody);
-    const text = (json.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
-    if (!text)
-      throw new Error("empty gemini decision");
-    return parseDecision(text);
-  };
-  return httpClient.sendRequest(runtime2, requester, consensusIdenticalAggregation())().result();
-};
-var executeGeminiAutoTrade = async (runtime2, req, payloadFactory) => {
-  const requestIdFallback = `agent_gemini_${runtime2.now().toISOString()}`;
-  const policy = runtime2.config.agentPolicy;
-  if (!policy?.enabled) {
-    return {
-      requestId: requestIdFallback,
-      handled: false,
-      reason: "agent policy disabled"
-    };
-  }
-  const requestId = req.requestId || requestIdFallback;
-  const allowedActions = (req.allowedActions || policy.allowedActions || []).filter((a) => Boolean(AGENT_ACTION_TO_ROUTER_ACTION_TYPE[a])).filter((a) => AUTO_EXEC_ACTIONS.has(a));
-  if (allowedActions.length === 0) {
-    return {
-      requestId,
-      handled: false,
-      reason: "no auto-executable allowed actions provided"
-    };
-  }
-  const maxAmountUsdc = req.amountUsdc && /^\d+$/.test(req.amountUsdc) ? req.amountUsdc : policy.maxAmountUsdc;
-  const userPrompt = `REQUEST_ID=${requestId}
-ALLOWED_ACTIONS=${allowedActions.join(",")}
-MAX_AMOUNT_USDC=${maxAmountUsdc}
-CHAIN_ID=${String(req.chainId || "")}
-MARKET=${req.market || ""}
-QUESTION=${req.marketContext?.question || ""}
-YES_PRICE_BPS=${String(req.marketContext?.yesPriceBps ?? "")}
-NO_PRICE_BPS=${String(req.marketContext?.noPriceBps ?? "")}
-NOTE=${req.marketContext?.note || ""}`;
-  let decision;
-  try {
-    decision = askGeminiForTrade(runtime2, userPrompt);
-  } catch (error) {
-    return {
-      requestId,
-      handled: false,
-      reason: error instanceof Error ? error.message : "gemini decision failed"
-    };
-  }
-  if (decision.action === "hold") {
-    return {
-      requestId,
-      handled: true,
-      reason: "gemini decided to hold",
-      decision
-    };
-  }
-  if (!allowedActions.includes(decision.action)) {
-    return {
-      requestId,
-      handled: false,
-      reason: "gemini selected action outside allowed set",
-      decision
-    };
-  }
-  if (!/^\d+$/.test(decision.amountUsdc)) {
-    return {
-      requestId,
-      handled: false,
-      reason: "gemini returned invalid amountUsdc",
-      decision
-    };
-  }
-  const boundedAmount = BigInt(decision.amountUsdc) > BigInt(maxAmountUsdc) ? maxAmountUsdc : decision.amountUsdc;
-  const planReq = {
-    requestId,
-    chainId: req.chainId,
-    sender: req.sender || req.user,
-    user: req.user || req.sender,
-    agent: req.agent,
-    market: req.market,
-    action: decision.action,
-    amountUsdc: boundedAmount,
-    slippageBps: req.slippageBps,
-    session: req.session
-  };
-  const toPayload = payloadFactory || makeInternalPayload;
-  const planRaw = await agentPlanTradeHttpHandler(runtime2, toPayload(planReq));
-  const planJson = JSON.parse(planRaw);
-  if (!planJson.planned || !planJson.plan) {
-    return {
-      requestId,
-      handled: false,
-      reason: `plan rejected: ${planJson.reason || "unknown"}`,
-      decision
-    };
-  }
-  const sponsorRaw = await agentSponsorTradeHttpHandler(runtime2, toPayload(planJson.plan));
-  const sponsorJson = JSON.parse(sponsorRaw);
-  if (!sponsorJson.approved || !sponsorJson.approvalId) {
-    return {
-      requestId,
-      handled: false,
-      reason: `sponsor rejected: ${sponsorJson.reason || "unknown"}`,
-      decision,
-      sponsor: sponsorJson
-    };
-  }
-  const executeReq = {
-    ...planJson.plan,
-    requestId,
-    approvalId: sponsorJson.approvalId,
-    action: decision.action,
-    amountUsdc: boundedAmount
-  };
-  const executeRaw = await agentExecuteTradeHttpHandler(runtime2, toPayload(executeReq));
-  const executeJson = JSON.parse(executeRaw);
-  if (!executeJson.submitted) {
-    return {
-      requestId,
-      handled: false,
-      reason: `execute failed: ${executeJson.reason || "unknown"}`,
-      decision,
-      sponsor: sponsorJson,
-      execute: executeJson
-    };
-  }
-  return {
-    requestId,
-    handled: true,
-    reason: "gemini-selected trade executed",
-    decision: {
-      ...decision,
-      amountUsdc: boundedAmount
-    },
-    sponsor: sponsorJson,
-    execute: executeJson
-  };
-};
-var agentGeminiAutoTradeHttpHandler = async (runtime2, payload) => {
-  let req;
-  try {
-    req = decodeInput(payload);
-  } catch (error) {
-    return JSON.stringify({
-      requestId: `agent_gemini_${runtime2.now().toISOString()}`,
-      handled: false,
-      reason: error instanceof Error ? error.message : "invalid payload"
-    });
-  }
-  const result = await executeGeminiAutoTrade(runtime2, req, (obj) => withInput(payload, obj));
-  return JSON.stringify(result);
-};
 var HEX_ADDRESS_REGEX5 = /^0x[a-fA-F0-9]{40}$/;
 var HEX_BYTES_REGEX3 = /^0x([a-fA-F0-9]{2})*$/;
+var ROUTER_AGENT_REVOKE_ACTION_TYPE = "routerAgentRevokePermission";
+var toChainId2 = (chainName) => {
+  if (chainName.includes("arbitrum"))
+    return 421614;
+  if (chainName.includes("base"))
+    return 84532;
+  if (chainName === "ethereum-testnet-sepolia")
+    return 11155111;
+  return null;
+};
+var txExplorer2 = (chainName, txHash) => {
+  if (chainName.includes("arbitrum"))
+    return `https://sepolia.arbiscan.io/tx/${txHash}`;
+  if (chainName.includes("base"))
+    return `https://sepolia.basescan.org/tx/${txHash}`;
+  return `https://sepolia.etherscan.io/tx/${txHash}`;
+};
 var decodePayloadInput2 = (payload) => {
   return new TextDecoder().decode(payload.input);
 };
@@ -19982,12 +19752,11 @@ var makeResponse = (requestId, reason) => {
     reason
   });
 };
-var revokeSessionHttpHandler = async (runtime2, payload) => {
+var revokeAgentPermissionHttpHandler = async (runtime2, payload) => {
   const requestIdFallback = `revoke_${runtime2.now().toISOString()}`;
-  const authKeys = runtime2.config.httpTriggerAuthorizedKeys || [];
-  if (authKeys.length === 0) {
-    return makeResponse(requestIdFallback, "no authorized HTTP trigger keys configured");
-  }
+  const agentPolicy = runtime2.config.agentPolicy;
+  if (!agentPolicy?.enabled)
+    return makeResponse(requestIdFallback, "agent policy disabled");
   let request;
   try {
     request = parseRequest4(decodePayloadInput2(payload));
@@ -19997,6 +19766,7 @@ var revokeSessionHttpHandler = async (runtime2, payload) => {
   const requestId = request.requestId || requestIdFallback;
   const sessionId = (request.sessionId || "").trim();
   const owner = (request.owner || "").trim();
+  const agent = (request.agent || "").trim();
   const chainIdRaw = request.chainId;
   const revokeSignature = (request.revokeSignature || "").trim();
   if (!/^[a-zA-Z0-9_-]{12,100}$/.test(sessionId)) {
@@ -20005,10 +19775,16 @@ var revokeSessionHttpHandler = async (runtime2, payload) => {
   if (!HEX_ADDRESS_REGEX5.test(owner)) {
     return makeResponse(requestId, "invalid owner");
   }
+  if (!HEX_ADDRESS_REGEX5.test(agent)) {
+    return makeResponse(requestId, "invalid agent");
+  }
   if (typeof chainIdRaw !== "number" || !Number.isInteger(chainIdRaw) || chainIdRaw <= 0) {
     return makeResponse(requestId, "invalid chainId");
   }
   const chainId = chainIdRaw;
+  if (!agentPolicy.supportedChainIds.includes(chainId)) {
+    return makeResponse(requestId, "chain is not supported for agent revoke");
+  }
   if (!HEX_BYTES_REGEX3.test(revokeSignature) || revokeSignature === "0x") {
     return makeResponse(requestId, "invalid revokeSignature");
   }
@@ -20020,6 +19796,7 @@ var revokeSessionHttpHandler = async (runtime2, payload) => {
     message: {
       sessionId,
       owner,
+      agent,
       chainId: BigInt(chainId)
     },
     signature: revokeSignature
@@ -20027,16 +19804,56 @@ var revokeSessionHttpHandler = async (runtime2, payload) => {
   if (!sigOk) {
     return makeResponse(requestId, "invalid revoke signature");
   }
-  const firestoreToken = getFirestoreIdToken(runtime2);
-  const revokeResult = revokeSessionRecord(runtime2, firestoreToken, sessionId, owner, chainId);
-  if (!revokeResult.ok) {
-    return makeResponse(requestId, revokeResult.reason);
+  const evmConfig = runtime2.config.evms.find((evm) => toChainId2(evm.chainName) === chainId);
+  if (!evmConfig) {
+    return makeResponse(requestId, "chainId not mapped in config.evms");
   }
+  const receiver = (evmConfig.routerReceiverAddress || "").trim();
+  if (!HEX_ADDRESS_REGEX5.test(receiver)) {
+    return makeResponse(requestId, "invalid router receiver");
+  }
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: evmConfig.chainName,
+    isTestnet: true
+  });
+  if (!network248) {
+    return makeResponse(requestId, `unknown chain name: ${evmConfig.chainName}`);
+  }
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const payloadHex = encodeAbiParameters(parseAbiParameters("address user,address agent"), [
+    owner,
+    agent
+  ]);
+  const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
+    ROUTER_AGENT_REVOKE_ACTION_TYPE,
+    payloadHex
+  ]);
+  const report2 = runtime2.report({
+    ...prepareReportRequest(encodedReport)
+  }).result();
+  const writeReportResult = evmClient.writeReport(runtime2, {
+    receiver,
+    report: report2,
+    gasConfig: {
+      gasLimit: evmConfig.reportGasLimit
+    }
+  }).result();
+  if (writeReportResult.txStatus === TxStatus.REVERTED) {
+    return makeResponse(requestId, writeReportResult.errorMessage || "writeReport reverted");
+  }
+  const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
+  const explorerUrl = txExplorer2(evmConfig.chainName, txHash);
   return JSON.stringify({
     revoked: true,
-    requestId
+    requestId,
+    txHash,
+    chainName: evmConfig.chainName,
+    receiver,
+    explorerUrl
   });
 };
+var revokeSessionHttpHandler = revokeAgentPermissionHttpHandler;
 var agentRevokeHttpHandler = async (runtime2, payload) => {
   const agentPolicy = runtime2.config.agentPolicy;
   if (!agentPolicy?.enabled) {
@@ -20057,7 +19874,6 @@ var initWorkflow = (config) => {
     handler(http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }), agentPlanTradeHttpHandler),
     handler(http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }), agentSponsorTradeHttpHandler),
     handler(http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }), agentExecuteTradeHttpHandler),
-    handler(http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }), agentGeminiAutoTradeHttpHandler),
     handler(http.trigger({ authorizedKeys: httpAgentAuthorizedKeys }), agentRevokeHttpHandler)
   ] : [];
   return [...agentHttpWorkflows];

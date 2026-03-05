@@ -52,7 +52,8 @@ const marketStateTone: Record<MarketEvent["state"], string> = {
   resolved: "text-rose-400",
 };
 
-const isHexAddress = (value: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(value);
+const normalizeAddressInput = (value: string): string => value.trim();
+const isHexAddress = (value: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(normalizeAddressInput(value));
 const formatDateTime = (unix: number): string => new Date(unix * 1000).toLocaleString();
 
 const effectiveMarketState = (event: MarketEvent, nowUnix: number): MarketEvent["state"] => {
@@ -255,8 +256,10 @@ export function AgentApp() {
 
   const buildPhasePayloads = () => {
     if (!selectedEvent) throw new Error("Select an event first");
-    if (!isHexAddress(userAddress)) throw new Error("user address invalid");
-    if (!isHexAddress(agentAddress)) throw new Error("agent address invalid");
+    const normalizedUserAddress = normalizeAddressInput(userAddress);
+    const normalizedAgentAddress = normalizeAddressInput(agentAddress);
+    if (!isHexAddress(normalizedUserAddress)) throw new Error("user address invalid");
+    if (!isHexAddress(normalizedAgentAddress)) throw new Error("agent address invalid");
 
     const amountRaw = action === "disputeProposedResolution" ? "0" : toUsdcRaw(amountUsdcInput.trim());
     const slippage = Number(slippageBps);
@@ -266,9 +269,9 @@ export function AgentApp() {
     const plan = {
       requestId,
       chainId: selectedChain,
-      sender: userAddress,
-      user: userAddress,
-      agent: agentAddress,
+      sender: normalizedUserAddress,
+      user: normalizedUserAddress,
+      agent: normalizedAgentAddress,
       market: selectedEvent.marketAddress,
       action,
       amountUsdc: amountRaw,
@@ -458,8 +461,10 @@ export function AgentApp() {
   const onSetAgentPermission = async () => {
     setBusy(true);
     try {
-      if (!isHexAddress(userAddress)) throw new Error("user address invalid");
-      if (!isHexAddress(agentAddress)) throw new Error("agent address invalid");
+      const normalizedUserAddress = normalizeAddressInput(userAddress);
+      const normalizedAgentAddress = normalizeAddressInput(agentAddress);
+      if (!isHexAddress(normalizedUserAddress)) throw new Error("user address invalid");
+      if (!isHexAddress(normalizedAgentAddress)) throw new Error("agent address invalid");
       if (actionMask === 0) throw new Error("select at least one action bit");
 
       const maxAmountRaw = parseUnits(maxAmountPerAction || "0", 6);
@@ -475,7 +480,7 @@ export function AgentApp() {
       const signerAddress = await signer.getAddress();
 
       const router = new Contract(CHAIN_CONFIG[selectedChain].addresses.router, ROUTER_ABI, signer);
-      const tx = await router.setAgentPermission(agentAddress, actionMask, maxAmountRaw, expiresAt);
+      const tx = await router.setAgentPermission(normalizedAgentAddress, actionMask, maxAmountRaw, expiresAt);
       const receipt = await tx.wait();
 
       setLogLine(
@@ -484,7 +489,7 @@ export function AgentApp() {
             step: "setAgentPermission",
             chainId: selectedChain,
             signer: signerAddress,
-            user: userAddress,
+            user: normalizedUserAddress,
             router: CHAIN_CONFIG[selectedChain].addresses.router,
             txHash: tx.hash,
             receiptStatus: receipt?.status,
@@ -574,7 +579,8 @@ export function AgentApp() {
     setBusy(true);
     try {
       if (!lastSessionForRevoke) throw new Error("no session available to revoke. Run sponsor first.");
-      if (!isHexAddress(agentAddress)) throw new Error("agent address invalid");
+      const normalizedAgentAddress = normalizeAddressInput(agentAddress);
+      if (!isHexAddress(normalizedAgentAddress)) throw new Error("agent address invalid");
       const { sessionId, owner, chainId } = lastSessionForRevoke;
       const typedDomain = {
         name: SESSION_DOMAIN_NAME,
@@ -588,7 +594,7 @@ export function AgentApp() {
         revokeSignature = await localOwnerSigner.signTypedData(typedDomain, SESSION_REVOKE_TYPES, {
           sessionId,
           owner,
-          agent: agentAddress,
+          agent: normalizedAgentAddress,
           chainId,
         });
       } else {
@@ -601,7 +607,7 @@ export function AgentApp() {
         revokeSignature = await externalSigner.signTypedData(typedDomain, SESSION_REVOKE_TYPES, {
           sessionId,
           owner,
-          agent: agentAddress,
+          agent: normalizedAgentAddress,
           chainId,
         });
       }
@@ -611,7 +617,7 @@ export function AgentApp() {
         requestId,
         sessionId,
         owner,
-        agent: agentAddress,
+        agent: normalizedAgentAddress,
         chainId,
         revokeSignature,
       });

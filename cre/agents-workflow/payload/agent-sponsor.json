@@ -1,7 +1,7 @@
 {
   "phaseNumber": 2,
   "phase": "sponsor",
-  "requestId": "agent_req_1772604585815",
+  "requestId": "agent_req_1772726398732",
   "chainId": 421614,
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "action": "mintCompleteSets",
@@ -9,7 +9,7 @@
   "amountUsdc": "10000000",
   "slippageBps": 120,
   "session": {
-    "sessionId": "sess_A85926f9_1772604589425",
+    "sessionId": "sess_A85926f9_1772726413825",
     "owner": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
     "sessionPublicKey": "0x0414fb631d24183a71f7453c3e7aad488948c94de5cf62180d0e75f34352e7874045356d4f60f4bab4b53346fd33a01643acbb3aa8092b89e6950eb1ee15b4040d",
     "chainId": 421614,
@@ -24,10 +24,10 @@
       "disputeProposedResolution"
     ],
     "maxAmountUsdc": "10000000000",
-    "expiresAtUnix": 1772608189,
-    "grantSignature": "0x1cafa2ce49b3347e09dd0f86c3d061fcb2bd96db99ef6a122e10003283b44ee23a1e3c14ace26cb7169a5d044288656187d85366a63c11e546775fee3bbbc1c71b",
-    "requestNonce": "nonce_1772604589425_61vvjl69",
-    "requestSignature": "0xb4a74a047f66a57c6a3998ae376584019dc94aa61f10613b6d9c5631f43d65ca14dea5df71e33313bcdf8732ef329e7e30eec7639d3a75b513a028a76887f1d71b"
+    "expiresAtUnix": 1772730013,
+    "grantSignature": "0x62e98e30a58d81120ad399525e52e2c5465549c4092e340b0226329f4f6b5895280fdb5d3633979b9e9628073212fb3218a2d594180e7eb71e2559882abf52ad1c",
+    "requestNonce": "nonce_1772726413825_aebfnagi",
+    "requestSignature": "0x325e1218ff9893e9dac443d7ef6f98f9acd65a0749bd6497d82761e203957184441caf25c1df4bc862bfa7affc191e32b95ef4033a28a47be8a827eec47b71c31c"
   },
-  "createdAtUnix": 1772604596
+  "createdAtUnix": 1772726431
 }

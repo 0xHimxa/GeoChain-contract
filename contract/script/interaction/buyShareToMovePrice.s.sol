@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketBase.sol";
 import {Resolution} from "../../src/libraries/MarketTypes.sol";
+import {PredictionMarketRouterVaultOperations} from "../../src/router/PredictionMarketRouterVaultOperations.sol";
 
 /// @notice Test helper script to move market price by buying YES or NO exposure.
 /// @dev Direction:
@@ -30,8 +31,9 @@ contract BuyShareToMovePrice is Script {
         // _logMarketState(market);
 
          vm.startBroadcast(trader);
-     market.manualResolveMarket( Resolution.Yes , "http://localhost:3000");
-
+    // market.manualResolveMarket( Resolution.Yes , "http://localhost:3000");
+    IERC20(0x52539038C1d1C88AA12438e3c13ADC6778B966Fc).approve(0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe, 200e6);
+PredictionMarketRouterVaultOperations(payable(0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe)).depositCollateral(200e6);
         // // 1. Minting
         // IERC20(market.i_collateral()).approve(marketAddr, collateralIn);
         // market.mintCompleteSets(collateralIn);
