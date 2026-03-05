@@ -23847,7 +23847,7 @@ var resoloveEvent = (runtime2) => {
         resolutionTime
       });
       const outcome = toOutcomeCode(geminiResolve.result);
-      const proofUrl = geminiResolve.source_url || "";
+      const proofUrl = geminiResolve.source_url || `https://www.google.com/search?q=${question}`;
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
         outcome,
         proofUrl
@@ -24043,32 +24043,47 @@ var arbitrateUnsafeMarketHandler = (runtime2) => {
       throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
     }
     const evmClient = new ClientCapability(network248.chainSelector.selector);
-    const activeMarketResult = evmClient.callContract(runtime2, {
-      call: encodeCallMsg({
-        from: sender,
-        to: evmConfig.marketFactoryAddress,
-        data: activeMarketCallData
-      })
-    }).result();
-    const activeMarketList = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "getActiveEventList",
-      data: bytesToHex(activeMarketResult.data)
-    });
-    for (const marketAddress of activeMarketList) {
-      scannedMarkets += 1;
-      const deviationResult = evmClient.callContract(runtime2, {
+    let activeMarketList = [];
+    try {
+      const activeMarketResult = evmClient.callContract(runtime2, {
         call: encodeCallMsg({
           from: sender,
-          to: marketAddress,
-          data: getDeviationStatusCallData
+          to: evmConfig.marketFactoryAddress,
+          data: activeMarketCallData
         })
       }).result();
-      const [band, , , , allowYesForNo, allowNoForYes] = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "getDeviationStatus",
-        data: bytesToHex(deviationResult.data)
+      activeMarketList = decodeFunctionResult({
+        abi: MarketFactoryAbi,
+        functionName: "getActiveEventList",
+        data: bytesToHex(activeMarketResult.data)
       });
+    } catch (error) {
+      runtime2.log(`[${evmConfig.chainName}] failed to load active markets from ${evmConfig.marketFactoryAddress}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    for (const marketAddress of activeMarketList) {
+      scannedMarkets += 1;
+      let band;
+      let allowYesForNo;
+      let allowNoForYes;
+      try {
+        const deviationResult = evmClient.callContract(runtime2, {
+          call: encodeCallMsg({
+            from: sender,
+            to: marketAddress,
+            data: getDeviationStatusCallData
+          })
+        }).result();
+        const decoded = decodeFunctionResult({
+          abi: PredictionMarketAbi,
+          functionName: "getDeviationStatus",
+          data: bytesToHex(deviationResult.data)
+        });
+        [band, , , , allowYesForNo, allowNoForYes] = decoded;
+      } catch (error) {
+        runtime2.log(`[${evmConfig.chainName}] skipping ${marketAddress}: getDeviationStatus reverted (${error instanceof Error ? error.message : String(error)})`);
+        continue;
+      }
       if (Number(band) !== 2) {
         continue;
       }
@@ -24118,6 +24133,81 @@ var arbitrateUnsafeMarketHandler = (runtime2) => {
     }
   }
   return `Arbitrage scan complete: scanned=${scannedMarkets}, unsafe=${unsafeMarkets}, corrected=${correctedMarkets}`;
+};
+var systemPrompt2 = `SYSTEM_ROLE:
+You are a deterministic, adversarial-resistant dispute adjudication engine for prediction markets.
+Your job is to independently re-research an event and decide the correct outcome.
+
+CRITICAL RULES:
+1) Ignore the previously proposed market resolution. Treat it as untrusted.
+2) Re-run research from scratch using web search evidence.
+3) Use only objective evidence that is relevant to the market question and resolution time.
+4) If evidence is insufficient, contradictory, or not yet final, return INCONCLUSIVE.
+
+OUTPUT FORMAT (STRICT):
+Return exactly one minified JSON object, no markdown and no extra text.
+JSON schema:
+{"result":"YES"|"NO"|"INCONCLUSIVE","confidence":number,"source_url":string}
+
+If uncertain, return:
+{"result":"INCONCLUSIVE","confidence":0,"source_url":""}`;
+var userPrompt2 = `You are adjudicating a disputed prediction market.
+
+Re-evaluate the question independently.
+Ignore prior proposed resolution and disputed opinions as decision authority.
+They are context only.
+
+Return only the JSON schema requested in system prompt.
+`;
+var askGeminiAdjudicateDispute = (runtime2, input) => {
+  const geminiApiKey = runtime2.getSecret({ id: "AI_KEY" }).result().value;
+  const currentTimeIso = runtime2.now().toISOString();
+  const httpClient = new ClientCapability2;
+  const result = httpClient.sendRequest(runtime2, buildPrompt(geminiApiKey, input, currentTimeIso), consensusIdenticalAggregation())().result();
+  return result;
+};
+var buildPrompt = (apiKey, input, currentTime) => (sendRequester) => {
+  const payload = {
+    system_instruction: { parts: [{ text: systemPrompt2 }] },
+    tools: [{ google_search: {} }],
+    contents: [
+      {
+        parts: [
+          {
+            text: `${userPrompt2}
+MARKET_QUESTION: ${input.question}
+RESOLUTION_TIME_UNIX: ${input.resolutionTime}
+CURRENT_TIME_ISO: ${currentTime}
+ORIGINAL_PROPOSED_OUTCOME: ${input.originalProposedOutcome}
+DISPUTED_OUTCOME_SET: ${JSON.stringify(input.disputedOutcomes)}`
+          }
+        ]
+      }
+    ]
+  };
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
+  const body = Buffer.from(bodyBytes).toString("base64");
+  const req = {
+    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    method: "POST",
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    },
+    cacheSettings: {
+      store: true,
+      maxAge: "60s"
+    }
+  };
+  const res = sendRequester.sendRequest(req).result();
+  if (!ok(res)) {
+    throw new Error(`Http request failed with status ${res.statusCode}`);
+  }
+  const rawData = new TextDecoder().decode(res.body);
+  const parsed = JSON.parse(rawData);
+  const aiResponseString = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return JSON.parse(aiResponseString);
 };
 var ACTION_FINALIZE = "FinalizeResolutionAfterDisputeWindow";
 var ACTION_ADJUDICATE = "AdjudicateDisputedResolution";
@@ -24270,8 +24360,14 @@ var adjudicateExpiredDisputeWindows = (runtime2) => {
         continue;
       }
       const outcomes = uniqueOutcomesRaw.map((outcome) => toOutcomeLabel(Number(outcome))).filter((label) => label !== "UNSET");
+      const gemini = askGeminiAdjudicateDispute(runtime2, {
+        question,
+        resolutionTime: resolutionTime.toString(),
+        originalProposedOutcome: toOutcomeLabel(proposedResolution),
+        disputedOutcomes: outcomes
+      });
       const adjudicatedOutcome = toOutcomeCode2("YES");
-      const proofUrl = adjudicatedOutcome === 3 ? "" : "https://google.com";
+      const proofUrl = adjudicatedOutcome === 3 ? `https://www.google.com/search?q=${question}` : gemini.source_url || `https://www.google.com/search?q=${question}`;
       const adjudicatePayload = encodeAbiParameters(parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"), [adjudicatedOutcome, proofUrl]);
       const txHash = sendMarketReport(runtime2, evmClient, market, ACTION_ADJUDICATE, adjudicatePayload);
       adjudicatedCount++;
@@ -24510,7 +24606,7 @@ var getFirestoreList = (runtime2, idToken) => {
   const rawDocs = response.documents || [];
   return rawDocs.map((doc) => flattenFirestore(doc));
 };
-var systemPrompt2 = `
+var systemPrompt3 = `
 ROLE:You are a Senior Prediction Market Analyst, Event Architect, and Deterministic Settlement Engine for a decentralized prediction market platform.
 
 You operate in THREE mandatory phases:
@@ -24707,7 +24803,7 @@ Required JSON structure:
 "trending_reason": "Why this topic is currently trending"
 }
 `;
-var userPrompt2 = `
+var userPrompt3 = `
 Generate exactly ONE unique prediction event that satisfies ALL rules.
 Return ONLY valid raw JSON.
 `;
@@ -24720,11 +24816,11 @@ var askGemeni = (runtime2, previousEvents) => {
 };
 var prompt2 = (apikey, previousEvents) => (sendRequester) => {
   const dataToSend = {
-    system_instruction: { parts: [{ text: systemPrompt2 }] },
+    system_instruction: { parts: [{ text: systemPrompt3 }] },
     tools: [{ google_search: {} }],
     contents: [
       {
-        parts: [{ text: userPrompt2 + `Previous events list:` + JSON.stringify(previousEvents) }]
+        parts: [{ text: userPrompt3 + `Previous events list:` + JSON.stringify(previousEvents) }]
       }
     ]
   };
@@ -24809,10 +24905,10 @@ var createPredictionMarketEvent = (runtime2) => {
   const eventInfo = askGemeni(runtime2, filteredEvent);
   const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
   const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
-  runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db`);
-  writeToFirestore(runtime2, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
+  runtime2.log(`returned data:  ${documents.length}, ${54}, Data from db, question: ${eventInfo.description}`);
+  writeToFirestore(runtime2, authInfo.idToken, eventInfo.description, resolutionTime.toString(), "");
   const marketFactoryCall = runtime2.config.evms.map((evmConfig) => {
-    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.event_name, closeTime, resolutionTime]);
+    const createPayload = encodeAbiParameters(parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"), [eventInfo.description, closeTime, resolutionTime]);
     sendActionReport(runtime2, evmConfig, "createMarket", createPayload);
     return `[${evmConfig.chainName}] ok`;
   });
@@ -26158,11 +26254,7 @@ var initWorkflow = (config) => {
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
-  const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
-    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
-    handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler)
-  ];
+  const cronWorkflows = [];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
       authorizedKeys: httpAuthorizedKeys

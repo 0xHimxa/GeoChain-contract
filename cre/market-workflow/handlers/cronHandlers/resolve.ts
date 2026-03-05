@@ -165,7 +165,7 @@ runtime.log(`Active Events: ${JSON.stringify( activeEventList)}`);
         resolutionTime,
       });
       const outcome = toOutcomeCode(geminiResolve.result);
-      const proofUrl = geminiResolve.source_url || "";
+      const proofUrl = geminiResolve.source_url || `https://www.google.com/search?q=${question}`;
 
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
         outcome,

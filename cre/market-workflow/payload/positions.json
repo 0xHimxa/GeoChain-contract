@@ -1,5 +1,5 @@
 {
-  "updatedAtUnix": 1772669502,
+  "updatedAtUnix": 1772678333,
   "wallets": [
     {
       "wallet": "0xbc57f2803e03be11bf298174889b27865ea2eb59",
@@ -36,15 +36,15 @@
           "yesToken": "0x89417aF97670385e8ca3b6c279bBd90737900c79",
           "noToken": "0x69c97D8A137dce0a2E24bb754cF94c01748d7531",
           "firstSeenAtUnix": 1772668062,
-          "lastSeenAtUnix": 1772668810
+          "lastSeenAtUnix": 1772677956
         }
       ],
       "positions": [
         {
           "eventId": "421614:1",
-          "yesShares": "9999937",
+          "yesShares": "0",
           "noShares": "199201",
-          "completeSetsMinted": "199201",
+          "completeSetsMinted": "0",
           "redeemableUsdc": "0"
         }
       ]

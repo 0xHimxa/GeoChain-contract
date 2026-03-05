@@ -223,16 +223,16 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
         .map((outcome) => toOutcomeLabel(Number(outcome)))
         .filter((label) => label !== "UNSET");
 
-      // const gemini = askGeminiAdjudicateDispute(runtime, {
-      //   question,
-      //   resolutionTime: resolutionTime.toString(),
-      //   originalProposedOutcome: toOutcomeLabel(proposedResolution),
-      //   disputedOutcomes: outcomes,
-      // });
+       const gemini = askGeminiAdjudicateDispute(runtime, {
+         question,
+         resolutionTime: resolutionTime.toString(),
+        originalProposedOutcome: toOutcomeLabel(proposedResolution),
+        disputedOutcomes: outcomes,
+       });
 //gemini.result|| "INCONCLUSIVE"
       const adjudicatedOutcome = toOutcomeCode( "YES");
-      //gemini.source_url || ""
-      const proofUrl = adjudicatedOutcome === 3 ? "" : ("https://google.com");
+      //
+      const proofUrl = adjudicatedOutcome === 3 ?  `https://www.google.com/search?q=${question}` : (gemini.source_url ||  `https://www.google.com/search?q=${question}`);
       const adjudicatePayload = encodeAbiParameters(
         parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"),
         [adjudicatedOutcome, proofUrl]

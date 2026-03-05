@@ -82,40 +82,63 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
 
     const evmClient = new EVMClient(network.chainSelector.selector);
 
-    const activeMarketResult = evmClient
-      .callContract(runtime, {
-        call: encodeCallMsg({
-          from: sender,
-          to: evmConfig.marketFactoryAddress as `0x${string}`,
-          data: activeMarketCallData,
-        }),
-      })
-      .result();
-
-    const activeMarketList = decodeFunctionResult({
-      abi: MarketFactoryAbi,
-      functionName: "getActiveEventList",
-      data: bytesToHex(activeMarketResult.data),
-    }) as `0x${string}`[];
-
-    for (const marketAddress of activeMarketList) {
-      scannedMarkets += 1;
-
-      const deviationResult = evmClient
+    let activeMarketList: `0x${string}`[] = [];
+    try {
+      const activeMarketResult = evmClient
         .callContract(runtime, {
           call: encodeCallMsg({
             from: sender,
-            to: marketAddress,
-            data: getDeviationStatusCallData,
+            to: evmConfig.marketFactoryAddress as `0x${string}`,
+            data: activeMarketCallData,
           }),
         })
         .result();
 
-      const [band, , , , allowYesForNo, allowNoForYes] = decodeFunctionResult({
-        abi: PredictionMarketAbi,
-        functionName: "getDeviationStatus",
-        data: bytesToHex(deviationResult.data),
-      }) as readonly [number, bigint, bigint, bigint, boolean, boolean];
+      activeMarketList = decodeFunctionResult({
+        abi: MarketFactoryAbi,
+        functionName: "getActiveEventList",
+        data: bytesToHex(activeMarketResult.data),
+      }) as `0x${string}`[];
+    } catch (error) {
+      runtime.log(
+        `[${evmConfig.chainName}] failed to load active markets from ${evmConfig.marketFactoryAddress}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      continue;
+    }
+
+    for (const marketAddress of activeMarketList) {
+      scannedMarkets += 1;
+
+      let band: number;
+      let allowYesForNo: boolean;
+      let allowNoForYes: boolean;
+      try {
+        const deviationResult = evmClient
+          .callContract(runtime, {
+            call: encodeCallMsg({
+              from: sender,
+              to: marketAddress,
+              data: getDeviationStatusCallData,
+            }),
+          })
+          .result();
+
+        const decoded = decodeFunctionResult({
+          abi: PredictionMarketAbi,
+          functionName: "getDeviationStatus",
+          data: bytesToHex(deviationResult.data),
+        }) as readonly [number, bigint, bigint, bigint, boolean, boolean];
+        [band, , , , allowYesForNo, allowNoForYes] = decoded;
+      } catch (error) {
+        runtime.log(
+          `[${evmConfig.chainName}] skipping ${marketAddress}: getDeviationStatus reverted (${
+            error instanceof Error ? error.message : String(error)
+          })`
+        );
+        continue;
+      }
 
       if (Number(band) !== 2) {
         continue;

@@ -101,13 +101,13 @@ export const createPredictionMarketEvent = (runtime: Runtime<Config>): string =>
   const closeTime = BigInt(Math.floor(new Date(eventInfo.closing_date).getTime() / 1000));
   const resolutionTime = BigInt(Math.floor(new Date(eventInfo.resolution_date).getTime() / 1000));
 
-  runtime.log(`returned data:  ${documents.length}, ${54}, Data from db`);
- writeToFirestore(runtime, authInfo.idToken, eventInfo.event_name, resolutionTime.toString(), "");
+  runtime.log(`returned data:  ${documents.length}, ${54}, Data from db, question: ${eventInfo.description}`);
+ writeToFirestore(runtime, authInfo.idToken, eventInfo.description, resolutionTime.toString(), "");
 
   const marketFactoryCall = runtime.config.evms.map((evmConfig) => {
     const createPayload = encodeAbiParameters(
       parseAbiParameters("string question, uint256 closeTime, uint256 resolutionTime"),
-      [eventInfo.event_name, closeTime, resolutionTime]
+      [eventInfo.description, closeTime, resolutionTime]
     );
 
    sendActionReport(runtime, evmConfig, "createMarket", createPayload);

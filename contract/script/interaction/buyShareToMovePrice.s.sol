@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketBase.sol";
+import {Resolution} from "../../src/libraries/MarketTypes.sol";
 
 /// @notice Test helper script to move market price by buying YES or NO exposure.
 /// @dev Direction:
@@ -15,32 +16,34 @@ contract BuyShareToMovePrice is Script {
     function run() external {
         // --- Configuration ---
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddr = 0xBC6a8F9B7Cc3C30a17267fF8475e8B87dDb1B762;
-        bool isBuyYes = false; // Set to false for NO
+        address marketAddr = 0x7a8543E460348FB74Bf617f01E01797906BcA028;
+        bool isBuyYes = true; // Set to false for NO
         
-        uint256 targetSwapIn = isBuyYes ? 100_000_000 : 100_000_000;
+        uint256 targetSwapIn = isBuyYes ? 1700_000_000 : 2100_000_000;
         uint256 collateralIn = vm.envOr("COLLATERAL_IN", (targetSwapIn * 10_000) / 9_700);
 
         PredictionMarket market = PredictionMarket(marketAddr);
 
+
         // --- Pre-Trade Logs ---
-        console2.log("--- BEFORE ---");
-        _logMarketState(market);
+        // console2.log("--- BEFORE ---");
+        // _logMarketState(market);
 
-        vm.startBroadcast(trader);
+         vm.startBroadcast(trader);
+     market.manualResolveMarket( Resolution.Yes , "http://localhost:3000");
 
-        // 1. Minting
-        IERC20(market.i_collateral()).approve(marketAddr, collateralIn);
-        market.mintCompleteSets(collateralIn);
+        // // 1. Minting
+        // IERC20(market.i_collateral()).approve(marketAddr, collateralIn);
+        // market.mintCompleteSets(collateralIn);
 
-        // 2. Swapping
-        if (isBuyYes) {
-            IERC20(market.noToken()).approve(marketAddr, targetSwapIn);
-            market.swapNoForYes(targetSwapIn, 0);
-        } else {
-            IERC20(market.yesToken()).approve(marketAddr, targetSwapIn);
-            market.swapYesForNo(targetSwapIn, 0);
-        }
+        // // 2. Swapping
+        // if (isBuyYes) {
+        //     IERC20(market.noToken()).approve(marketAddr, targetSwapIn);
+        //     market.swapNoForYes(targetSwapIn, 0);
+        // } else {
+        //     IERC20(market.yesToken()).approve(marketAddr, targetSwapIn);
+        //     market.swapYesForNo(targetSwapIn, 0);
+        // }
 
         vm.stopBroadcast();
 
