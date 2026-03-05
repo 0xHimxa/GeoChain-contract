@@ -21502,7 +21502,7 @@ var MarketFactoryAbi = [
   }
 ];
 var sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";
-var ARB_MAX_SPEND_COLLATERAL = 200000000n;
+var ARB_MAX_SPEND_COLLATERAL = 500000000n;
 var ARB_MIN_DEVIATION_IMPROVEMENT_BPS = 10n;
 var PROCESS_PENDING_WITHDRAWALS_ACTION = "processPendingWithdrawals";
 var WITHDRAW_BATCH_SIZE = 20n;
@@ -23799,6 +23799,7 @@ var resoloveEvent = (runtime2) => {
     functionName: "getActiveEventList",
     data: bytesToHex(callResult.data)
   });
+  runtime2.log(`Active Events: ${JSON.stringify(activeEventList)}`);
   if (activeEventList.length === 0) {
     return "No Active Events";
   }
@@ -26157,7 +26158,11 @@ var initWorkflow = (config) => {
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
-  const cronWorkflows = [];
+  const cronWorkflows = [
+    handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+    handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler)
+  ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
       authorizedKeys: httpAuthorizedKeys

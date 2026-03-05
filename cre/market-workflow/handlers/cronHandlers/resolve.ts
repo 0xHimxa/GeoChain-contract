@@ -108,7 +108,7 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
     functionName: "getActiveEventList",
     data: bytesToHex(callResult.data),
   }) as `0x${string}`[];
-
+runtime.log(`Active Events: ${JSON.stringify( activeEventList)}`);
   if (activeEventList.length === 0) {
     return "No Active Events";
   }

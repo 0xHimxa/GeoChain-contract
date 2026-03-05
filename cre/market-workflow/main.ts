@@ -54,14 +54,14 @@ const initWorkflow = (config: Config) => {
    * Periodic automation handlers executed on the configured cron schedule.
    */
   const cronWorkflows: Workflow<Config> = [
-  // handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
+   handler(cron.trigger({ schedule: config.schedule }), resoloveEvent),
  // handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     
     //handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
     //ABove reveiwed
     // handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler),
-    // handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
-    // handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
+     handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
+     handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
     // handler(cron.trigger({ schedule: config.schedule }), adjudicateExpiredDisputeWindows),
    //  handler(cron.trigger({ schedule: config.schedule }), syncManualReviewMarketsToFirebase),
     
@@ -104,6 +104,7 @@ const initWorkflow = (config: Config) => {
   /**
    * Fiat credit endpoint for approved off-chain payment-to-router credit flows.
    */
+  //fiat test working as planed 
   const fiatCreditHttpWorkflows: Workflow<Config> = hasHttpFiatCreditKeys
     ? [
         handler(
@@ -118,6 +119,7 @@ const initWorkflow = (config: Config) => {
   /**
    * Log-driven ETH credit handlers bound per configured router receiver address.
    */
+  //Log reviewed working as planned
   const ethCreditLogWorkflows: Workflow<Config> = hasEthCredit
     ? config.evms
         .filter((evm) => {

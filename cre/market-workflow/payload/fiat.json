@@ -1,8 +1,8 @@
 {
-  "requestId": "fiat_req_1772501812276",
-  "paymentId": "pay_1772501812276",
+  "requestId": "fiat_req_1772667775264",
+  "paymentId": "pay_1772667775264",
   "chainId": 421614,
-  "user": "0xbc57f2803e03bE11bf298174889b27865Ea2EB59",
+  "user": "0x076373b0B75f6EfCc8f9687Fc54FA028d2Af6Fb5",
   "amountUsdc": "150000000",
-  "provider": "google_pay"
+  "provider": "card"
 }

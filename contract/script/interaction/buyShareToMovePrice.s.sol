@@ -15,10 +15,10 @@ contract BuyShareToMovePrice is Script {
     function run() external {
         // --- Configuration ---
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddr = 0xbb17e48A88c8c5A2e4C335eA9E1bD364Cc71B9b1;
-        bool isBuyYes = true; // Set to false for NO
+        address marketAddr = 0xBC6a8F9B7Cc3C30a17267fF8475e8B87dDb1B762;
+        bool isBuyYes = false; // Set to false for NO
         
-        uint256 targetSwapIn = isBuyYes ? 50_000_000 : 50_000_000;
+        uint256 targetSwapIn = isBuyYes ? 100_000_000 : 100_000_000;
         uint256 collateralIn = vm.envOr("COLLATERAL_IN", (targetSwapIn * 10_000) / 9_700);
 
         PredictionMarket market = PredictionMarket(marketAddr);

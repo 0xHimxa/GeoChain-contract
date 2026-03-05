@@ -1,15 +1,15 @@
 {
-  "requestId": "ui_1772508029497",
+  "requestId": "ui_1772668810578",
   "chainId": 421614,
-  "action": "redeem",
-  "actionType": "routerRedeem",
-  "amountUsdc": "19000000",
-  "sender": "0xbc57f2803e03bE11bf298174889b27865Ea2EB59",
+  "action": "redeemCompleteSets",
+  "actionType": "routerRedeemCompleteSets",
+  "amountUsdc": "14000000",
+  "sender": "0x076373b0B75f6EfCc8f9687Fc54FA028d2Af6Fb5",
   "slippageBps": 120,
   "session": {
-    "sessionId": "session_bc57f280_1772508029505",
-    "owner": "0xbc57f2803e03bE11bf298174889b27865Ea2EB59",
-    "sessionPublicKey": "0x044fd3fe59b2d683ecbba68c7ebc089ffc53fe357286189fcd343e433423be277d68ba05ab43c8182332a9ffc2db0f08d2427ffa199f4e5fdc1ac2eaaf518d910f",
+    "sessionId": "session_076373b0_1772668810581",
+    "owner": "0x076373b0B75f6EfCc8f9687Fc54FA028d2Af6Fb5",
+    "sessionPublicKey": "0x0425a00b412886625ea13cfb9c243615200ee89df54adbe9e2a67744e6c5ac47aefe00c4fbd32a8197e0c9ea028ab66845bab2c99707ad0f106361df9786664ea3",
     "chainId": 421614,
     "allowedActions": [
       "mintCompleteSets",
@@ -20,9 +20,9 @@
       "disputeProposedResolution"
     ],
     "maxAmountUsdc": "10000000000",
-    "expiresAtUnix": 1772511628,
-    "grantSignature": "0x66e22a644d321d9070b9e0acc742a3c9225249e79f481a4d0376d6aa4cd64551722b3fe8d72aeae9b56ae4b160501882f16c321ddebe81a076bc947d22757d7d1c",
-    "requestNonce": "nonce_1772508029505_8ap8b1c3",
-    "requestSignature": "0xa341653ec7ec9c28de52520d369f02ffcd42bf4c015143e76ced1f1c689a5bb529856e3c50faa4a62eb0e9332c4964806a9b71e35f32103b9e95c7487b1ab2571b"
+    "expiresAtUnix": 1772672409,
+    "grantSignature": "0xa59254d9231f7d7360c0ddab5205db98407eff3158c1d7fffa43d8051d8c64323a5d5c75c1e3a36a5f2cfc60657e686ddf1788800671918cdaab464a04d720e81c",
+    "requestNonce": "nonce_1772668810581_ekq53rfy",
+    "requestSignature": "0x5982cfc57fa96d314d3e73c24df31a13fd452a951cc2365ae6f14d3ce3f3531a170bf3af0d887bfc25e29ce57e57acab59f94e9c8f8e60baa1dcf3eee2ba8c4e1c"
   }
 }

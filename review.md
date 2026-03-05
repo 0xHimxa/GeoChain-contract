@@ -3,3 +3,7 @@
  1) reviewd event creation successfull
  2) reviewd marketFactoryTopUp successfully
  3) reviewd evm eth send fund user
+ 4) fiat paymemt tested wroking as planned
+ 5) tested sponsor and execute for user operation all working good
+ 6) price syc tested working fine
+ 
