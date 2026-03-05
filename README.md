@@ -95,7 +95,7 @@ GeoChain doesn't just automate resolution — it automates the **entire market l
 | **Market Creation** | `createEventHelper` | Cron — Gemini generates unique event ideas, deploys on-chain |
 | **Market Resolution** | `resolveEvent` | Cron — detects markets past resolution time, calls Gemini |
 | **Liquidity Top-Up** | `marketFactoryBalanceTopUp` | Cron — monitors factory balance, auto-replenishes |
-| **Price Sync** | `syncCanonicalPrice` | Cron — broadcasts hub prices to spoke chains via CCIP |
+| **Price Sync** | `syncCanonicalPrice` | Cron — CRE reads hub prices and writes canonical sync reports directly to spoke factories |
 | **Unsafe Market Arbitrage** | `arbitrateUnsafeMarketHandler` | Cron — corrects price deviations across chains |
 | **Dispute Adjudication** | `adjudicateExpiredDisputeWindows` | Cron — auto-finalizes undisputed resolutions |
 | **Withdrawal Processing** | `processPendingWithdrawalsHandler` | Cron — batch-processes queued LP withdrawals |
@@ -176,11 +176,11 @@ GeoChain doesn't bolt agent support onto the market automation workflow — it r
 │ • Cron: market creation     │ • HTTP: agentPlanTrade            │
 │ • Cron: resolution via AI   │ • HTTP: agentSponsorTrade         │
 │ • Cron: liquidity top-up    │ • HTTP: agentExecuteTrade         │
-│ • Cron: price sync (CCIP)   │ • HTTP: agentGeminiAutoTrade      │
-│ • Cron: dispute adjudication│ • HTTP: agentRevoke               │
+│ • Cron: price sync (CRE direct) │ • HTTP: agentRevoke               │
+│ • Cron: dispute adjudication│                                   │
 │ • HTTP: sponsor/execute     │                                   │
-│ • HTTP: fiat credit         │ Gemini 2.5 Flash for autonomous   │
-│ • Log: ETH deposit credit   │ trade decisions with risk caps    │
+│ • HTTP: fiat credit         │                                   │
+│ • Log: ETH deposit credit   │                                   │
 └─────────────────────────────┴───────────────────────────────────┘
 ```
 
@@ -190,57 +190,14 @@ GeoChain doesn't bolt agent support onto the market automation workflow — it r
 - Isolated failure domains — an agent workflow misconfiguration can't break market resolution
 - Separate config policies (`agentPolicy` vs `sponsorPolicy` vs `executePolicy`)
 
-#### The 5 Agent Handlers
+#### The 4 Agent Handlers
 
 | Handler | Purpose | What It Does |
 |---|---|---|
 | **`agentPlanTrade`** | Intent validation | Validates action, chain, addresses, amount against `agentPolicy` (allowed actions, max amount, max slippage, supported chains). Produces a deterministic plan object. Rejects ambiguous or out-of-policy requests before any state is created. |
 | **`agentSponsorTrade`** | Authorization bridge | Converts the agent plan into the standard sponsor format and routes it through `sponsorUserOpPolicyHandler` — reusing the same session-signature, nonce replay, and approval creation logic used by human-initiated trades. No second security path. |
 | **`agentExecuteTrade`** | Payload encoding + submission | Maps the agent action to its `routerAgent...` action type, ABI-encodes the payload via `buildAgentPayloadHex`, and delegates to `executeReportHttpHandler` which consumes the one-time approval and submits the on-chain report. |
-| **`agentGeminiAutoTrade`** | AI-driven one-shot trading | The autonomous mode — sends market context (question, YES/NO prices, note) to **Gemini 2.5 Flash** and asks it to decide: which action, how much, and why. Then automatically runs `plan → sponsor → execute` in sequence. Gemini can also decide to `hold` (do nothing). |
 | **`agentRevoke`** | Session termination | Delegates to the canonical session-revoke handler, ensuring a single revocation validation path that prevents policy drift between agent and non-agent revocation. |
-
-#### Gemini Auto-Trade: How AI Agents Make Decisions
-
-The `agentGeminiAutoTrade` handler is the most novel piece — it enables **fully autonomous AI-driven prediction market trading**:
-
-```
-                    ┌─────────────────────┐
-                    │  Incoming Request    │
-                    │  (market context,    │
-                    │   allowed actions,   │
-                    │   budget, slippage)  │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │   Gemini 2.5 Flash  │
-                    │   "What should I    │
-                    │    trade here?"     │
-                    └──────────┬──────────┘
-                               │
-                  ┌────────────▼────────────┐
-                  │  Decision JSON:          │
-                  │  {action, amountUsdc,    │
-                  │   rationale,             │
-                  │   confidenceBps}         │
-                  └────────────┬────────────┘
-                               │
-              ┌────────────────▼─────────────────────┐
-              │  action == "hold"?                    │
-              │  YES → return (no trade)              │
-              │  NO  → validate action in allowed set │
-              │      → cap amount to policy max       │
-              │      → Plan → Sponsor → Execute       │
-              └──────────────────────────────────────┘
-```
-
-Gemini is constrained by:
-- **Action allowlist**: can only pick from actions the user/config permits
-- **Amount cap**: output amount is bounded to `min(gemini_decision, policy_max, request_max)`
-- **Structured output**: must return minified JSON with exactly `{action, amountUsdc, rationale, confidenceBps}` — no prose, no markdown
-- **Hold option**: if uncertain, Gemini returns `"hold"` and no trade executes
-
-Even after Gemini decides, the decision still passes through all 6 security layers — plan validation, sponsor policy, approval creation, execute policy, on-chain `_authorizeAgent()`, and router balance checks.
 
 #### Agent Frontend (`AgentApp.tsx`)
 

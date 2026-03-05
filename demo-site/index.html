@@ -564,7 +564,7 @@
   <section id="architecture">
     <div class="section-label"><span class="line"></span> Diagram 01</div>
     <h2>System Architecture</h2>
-    <p class="subtitle">End-to-end view: users, frontends, CRE workflows, external services, and multi-chain smart contracts connected via CCIP.</p>
+    <p class="subtitle">End-to-end view: users, frontends, CRE workflows, external services, and multi-chain smart contracts connected via CRE reports + CCIP.</p>
 
     <div class="diagram-card">
       <div class="card-header">
@@ -613,13 +613,12 @@ graph TB
     APP -->|Sponsor + Execute| MW
     AGENT_APP -->|Plan + Sponsor + Execute| AW
     MW -->|AI Calls| GEMINI
-    AW -->|Trade Decisions| GEMINI
     MW -->|Audit Trail| FIRE
     MW -->|onReport| MF_A
     MW -->|onReport| PM_A
     AW -->|onReport| RV_A
     MF_A --> PM_A
-    MF_A ===|"CCIP — Price + Resolution Sync"| MF_B
+    MF_A ===|"CRE Report — Canonical Price Sync"| MF_B
     BR_A ===|"CCIP — Claim Bridge"| BR_B
     MF_B --> PM_B
 
@@ -724,7 +723,7 @@ flowchart LR
           <li><span class="trigger-type bg-amber">CRON</span> resolveEvent — AI-powered resolution</li>
           <li><span class="trigger-type bg-amber">CRON</span> createEventHelper — AI market creation</li>
           <li><span class="trigger-type bg-amber">CRON</span> marketFactoryBalanceTopUp</li>
-          <li><span class="trigger-type bg-amber">CRON</span> syncCanonicalPrice — CCIP broadcast</li>
+          <li><span class="trigger-type bg-amber">CRON</span> syncCanonicalPrice — CRE direct report sync</li>
           <li><span class="trigger-type bg-amber">CRON</span> arbitrateUnsafeMarket</li>
           <li><span class="trigger-type bg-amber">CRON</span> adjudicateExpiredDisputes</li>
           <li><span class="trigger-type bg-cyan">HTTP</span> sponsorUserOpPolicy</li>
@@ -746,13 +745,7 @@ flowchart LR
           <li><span class="trigger-type bg-cyan">HTTP</span> agentPlanTrade — validate intent</li>
           <li><span class="trigger-type bg-cyan">HTTP</span> agentSponsorTrade — session auth</li>
           <li><span class="trigger-type bg-cyan">HTTP</span> agentExecuteTrade — payload + submit</li>
-          <li><span class="trigger-type bg-cyan">HTTP</span> agentGeminiAutoTrade — AI one-shot</li>
           <li><span class="trigger-type bg-cyan">HTTP</span> agentRevoke — terminate session</li>
-          <li style="border:none;padding-top:1.5rem;color:var(--text-dim);font-size:0.75rem">
-            Gemini 2.5 Flash decides action + amount.<br/>
-            Bounded by policy caps.<br/>
-            Routed through full security pipeline.
-          </li>
         </ul>
       </div>
     </div>
@@ -797,7 +790,7 @@ flowchart LR
   <section id="agent-pipeline">
     <div class="section-label"><span class="line"></span> Diagram 04</div>
     <h2>Agent Trading Pipeline</h2>
-    <p class="subtitle">Non-custodial AI agent delegation with a plan→sponsor→execute pipeline and optional Gemini autonomous mode.</p>
+    <p class="subtitle">Non-custodial AI agent delegation with a plan→sponsor→execute pipeline and on-chain scoped permissions.</p>
 
     <div class="diagram-card" style="margin-bottom:2rem">
       <div class="card-header">
@@ -811,7 +804,6 @@ sequenceDiagram
     participant Chain as ⛓️ Router (On-Chain)
     participant Agent as 🤖 AI Agent
     participant CRE as ⛓️ agents-workflow
-    participant Gemini as ☁️ Gemini AI
 
     Note over User,Chain: One-Time Setup
     User->>Chain: setAgentPermission(agent, mask, maxAmt, expiry)
@@ -828,16 +820,6 @@ sequenceDiagram
         CRE-->>Agent: ✅ txHash
     end
 
-    rect rgb(50, 20, 50)
-        Note right of Agent: Gemini Auto-Trade
-        Agent->>CRE: POST /geminiAutoTrade
-        CRE->>Gemini: market context + budget
-        Gemini-->>CRE: {action, amount, rationale}
-        Note over CRE: Plan → Sponsor → Execute
-        CRE->>Chain: onReport(routerAgent...)
-        Chain->>Chain: _authorizeAgent() ✅
-        CRE-->>Agent: ✅ executed
-    end
         </pre>
       </div>
       <div class="card-footer">💡 Funds never leave the RouterVault — the agent is an executor with scoped permission, not a custodian</div>
@@ -845,17 +827,14 @@ sequenceDiagram
 
     <div class="diagram-card">
       <div class="card-header">
-        <h3>🧠 Gemini Auto-Trade Decision Flow</h3>
-        <span class="tag">AI Pipeline</span>
+        <h3>🧠 Agent Execution Flow</h3>
+        <span class="tag">Pipeline</span>
       </div>
       <div class="card-body">
         <pre class="mermaid">
 flowchart TB
     REQ["Incoming Request<br/>market context + allowed actions + budget"]
-    REQ --> GEM["Gemini 2.5 Flash<br/>risk-constrained trading assistant"]
-    GEM --> DEC{"Decision"}
-    DEC -->|"hold"| HOLD["No trade executed<br/>rationale logged"]
-    DEC -->|"trade"| VAL["Validate action in allowed set"]
+    REQ --> VAL["Validate action in allowed set"]
     VAL --> CAP["Cap amount to policy max"]
     CAP --> PLAN["agentPlanTrade ✅"]
     PLAN --> SPON["agentSponsorTrade ✅"]
@@ -863,8 +842,7 @@ flowchart TB
     EXEC --> ONCHAIN["On-chain _authorizeAgent() ✅"]
     ONCHAIN --> DONE["✅ Trade Confirmed"]
 
-    style GEM fill:#174EA6,color:#fff
-    style HOLD fill:#694d1b,color:#fff
+    style VAL fill:#174EA6,color:#fff
     style DONE fill:#1b692d,color:#fff
         </pre>
       </div>
@@ -937,12 +915,12 @@ flowchart TB
   <section id="cross-chain">
     <div class="section-label"><span class="line"></span> Diagram 06</div>
     <h2>Cross-Chain Hub-Spoke</h2>
-    <p class="subtitle">Hub factory is the source of truth. Spoke factories follow canonical prices and resolutions via CCIP. The Bridge enables cross-chain claim portability.</p>
+    <p class="subtitle">Hub factory is the source of truth. Spoke factories follow canonical prices via CRE report sync and resolutions via CCIP. The Bridge enables cross-chain claim portability.</p>
 
     <div class="diagram-card" style="margin-bottom:2rem">
       <div class="card-header">
         <h3>🌐 Hub-Spoke Topology</h3>
-        <span class="tag">CCIP</span>
+        <span class="tag">CRE + CCIP</span>
       </div>
       <div class="card-body">
         <pre class="mermaid">
@@ -963,7 +941,7 @@ graph TB
         SF --> SP
     end
 
-    HF ==>|"CCIP: CanonicalPriceSync"| SF
+    HF ==>|"CRE Report: syncSpokeCanonicalPrice"| SF
     HF ==>|"CCIP: ResolutionSync"| SF
     HB ==>|"CCIP: Lock → Mint Claims"| SB
     SB ==>|"CCIP: Burn → Unlock Claims"| HB
