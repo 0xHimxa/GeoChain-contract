@@ -19,6 +19,9 @@ import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTempl
 abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, PausableUpgradeable, ReceiverTemplateUpgradeable {
     using SafeERC20 for IERC20;
 
+    /// @notice Single dispute submission captured during a review window.
+    /// @dev Stored so off-chain adjudication can inspect who objected, which outcome they proposed,
+    /// and when that objection was recorded.
     struct DisputeSubmission {
         address disputer;
         Resolution proposedOutcome;
@@ -222,21 +225,25 @@ abstract contract PredictionMarketBase is Initializable, ReentrancyGuard, Pausab
         noToken = OutcomeToken(noTokenAddress);
     }
 
+    /// @dev Ensures the market is still tradable and not paused/reviewing/resolved.
     modifier marketOpen() {
         _marketOpen();
         _;
     }
 
+    /// @dev Ensures one-time initial liquidity has already been seeded.
     modifier seededOnly() {
         _seededOnly();
         _;
     }
 
+    /// @dev Rejects zero-valued user inputs before executing stateful logic.
     modifier zeroAmountCheck(uint256 amount) {
         _zeroAmountCheck(amount);
         _;
     }
 
+    /// @dev Restricts access to the hub/factory controller that owns spoke sync authority.
     modifier onlyCrossChainController() {
         _onlyCrossChainController();
         _;

@@ -358,6 +358,8 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
     }
 
     /// @notice Returns all markets currently awaiting manual review.
+    /// @dev These are markets removed from the normal active list because a human or off-chain
+    /// adjudication step is still required before final settlement.
     function getManualReviewEventList() external view returns (address[] memory) {
         return manualReviewMarkets;
     }

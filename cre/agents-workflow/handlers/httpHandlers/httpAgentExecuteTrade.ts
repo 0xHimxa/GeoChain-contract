@@ -25,8 +25,9 @@ type AgentExecuteRequest = {
 };
 
 /**
- * Builds agent-specific router payloads and submits them through the same execute
- * handler used by regular sponsored actions.
+ * Builds an agent-specific router payload, maps the high-level agent action to the canonical
+ * router `actionType`, and forwards the request into the shared execute handler.
+ * This keeps agent execution on the same approval-consumption path as regular sponsored actions.
  */
 export const agentExecuteTradeHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `agent_execute_${runtime.now().toISOString()}`;

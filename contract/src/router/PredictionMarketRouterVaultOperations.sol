@@ -232,6 +232,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Verifies enough untracked collateral exists to issue new credits safely.
+    /// This prevents the router from minting accounting credits against collateral that is already
+    /// backing user balances tracked in `totalCollateralCredits`.
     function _creditFromUntrackedCollateral(address user, uint256 amount) internal view {
         if (user == address(0)) revert Router__ZeroAddress();
         if (amount == 0) revert Router__InvalidAmount();
@@ -360,6 +362,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Swaps internal YES balance into NO balance through market swap.
+    /// User balances are debited before the external call and re-credited from the observed delta,
+    /// so router accounting always reflects what the market actually returned.
     function _swapYesForNo(address user, address market, uint256 yesIn, uint256 minNoOut) internal {
         _validateMarket(market);
         address yes = IPredictionMarketLike(market).yesToken();
@@ -382,6 +386,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Swaps internal NO balance into YES balance through market swap.
+    /// Like `_swapYesForNo`, output is derived from post-call balance delta rather than trusting
+    /// any quoted amount.
     function _swapNoForYes(address user, address market, uint256 noIn, uint256 minYesOut) internal {
         _validateMarket(market);
         address yes = IPredictionMarketLike(market).yesToken();
@@ -404,6 +410,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Adds liquidity using internal balances and credits resulting LP shares.
+    /// LP ownership stays inside the router and is mirrored through `lpShareCredits`, which keeps
+    /// the sponsored/gasless flow custody-safe for end users.
     function _addLiquidity(address user, address market, uint256 yesAmount, uint256 noAmount, uint256 minShares)
         internal
     {
@@ -431,6 +439,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Removes liquidity from internal LP shares and credits withdrawn YES/NO balances.
+    /// The router burns the user's internal LP credits first, then reconstructs the actual YES/NO
+    /// proceeds from token balance deltas after the market call.
     function _removeLiquidity(address user, address market, uint256 shares, uint256 minYesOut, uint256 minNoOut)
         internal
     {
@@ -477,6 +487,10 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
     }
 
     /// @dev Verifies delegated agent permissions configured by user.
+    /// The `boundedAmount` is action-specific:
+    /// - direct trade amount for swaps/mints/redeems,
+    /// - max(yes,no) for add-liquidity,
+    /// - zero for disputes.
     function _authorizeAgent(address user, address agent, uint32 actionBit, uint256 boundedAmount) internal view {
         AgentPermission memory permission = agentPermissions[user][agent];
         if (!permission.enabled) revert Router__AgentNotAuthorized();
@@ -496,6 +510,8 @@ abstract contract PredictionMarketRouterVaultOperations is PredictionMarketRoute
 
     /// @dev Handles non-agent router action reports.
     /// Payload shape depends on actionType and mirrors each internal operation signature.
+    /// Returns `true` when the hash matched a known router action so the caller can continue
+    /// dispatching agent-only actions only when needed.
     function _dispatchRouterAction(bytes32 actionTypeHash, bytes memory payload) internal returns (bool) {
         if (actionTypeHash == HASHED_DEPOSIT_FOR) {
             (address user, uint256 amount) = abi.decode(payload, (address, uint256));

@@ -5,6 +5,11 @@ import { agentSponsorTradeHttpHandler } from "./handlers/httpHandlers/httpAgentS
 import { agentExecuteTradeHttpHandler } from "./handlers/httpHandlers/httpAgentExecuteTrade";
 import { agentRevokeHttpHandler } from "./handlers/httpHandlers/httpAgentRevoke";
 
+/**
+ * Builds the dedicated agent workflow graph.
+ * Agent endpoints intentionally use a separate authorized-key set so trading automation can be
+ * isolated from the broader market-operations workflow.
+ */
 export const initWorkflow = (config: Config): Workflow<Config> => {
   const http = new HTTPCapability();
   const httpAuthorizedKeys = config.httpTriggerAuthorizedKeys || [];

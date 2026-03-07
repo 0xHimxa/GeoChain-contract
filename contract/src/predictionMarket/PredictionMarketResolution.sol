@@ -110,6 +110,12 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _finalizeResolutionAfterDisputeWindow();
     }
 
+    /// @dev Completes the happy-path resolution flow after the challenge window expires.
+    /// This only succeeds when:
+    /// - the market is in `Review`,
+    /// - a proposal exists,
+    /// - nobody disputed it, and
+    /// - manual review was not requested.
     function _finalizeResolutionAfterDisputeWindow() internal {
         if (state != State.Review || proposedResolution == Resolution.Unset) {
             revert MarketErrors.PredictionMarket__NoPendingResolution();
@@ -131,6 +137,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
     }
 
+    /// @dev Resolves a disputed proposal after off-chain review.
+    /// A Yes/No adjudication finalizes immediately; an inconclusive adjudication keeps the market
+    /// in manual review so it cannot be forced into a binary outcome without sufficient evidence.
     function _adjudicateDisputedResolution(Resolution adjudicatedOutcome, string memory proofUrl) internal {
         _revertIfLocalResolutionDisabled();
 
@@ -269,8 +278,12 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         emit MarketEvents.SyncCanonicalPrice(yesPriceE6, noPriceE6, validUntil, nonce);
     }
 
-    /// @dev Receiver-side report dispatcher for local resolve automation.
-    /// Expected report action is exactly `ResolveMarket`; other actions are rejected.
+    /// @dev Receiver-side report dispatcher for resolution automation.
+    /// Supported report actions are:
+    /// - `ResolveMarket`
+    /// - `FinalizeResolutionAfterDisputeWindow`
+    /// - `AdjudicateDisputedResolution`
+    /// Any other action string is rejected so only explicit resolution flows can execute.
     function _processReport(bytes calldata report) internal override {
         (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
         bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
@@ -305,11 +318,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     function getDisputeSubmissionsCount() external view returns (uint256) {
         return disputeSubmissions.length;
     }
-
-
-
-
     /// @notice Returns dispute-resolution snapshot used by automation in one call.
+    /// @dev Materializes the compact internal fixed-size outcome set into a dynamic array so
+    /// CRE handlers can consume all dispute metadata without making multiple contract calls.
     function getDisputeResolutionSnapshot()
         external
         view

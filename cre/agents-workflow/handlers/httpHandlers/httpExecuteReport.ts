@@ -47,6 +47,10 @@ const ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
   "routerAgentDisputeProposedResolution",
 ]);
 
+/**
+ * Parses decimal-string USDC amounts into bigint without allowing floats, signs, or formatting.
+ * The handler uses this to keep approval matching deterministic across HTTP payloads and Firestore.
+ */
 const toBigIntAmount = (value?: string): bigint => {
   if (!value) return 0n;
   if (!/^\d+$/.test(value)) {
@@ -55,6 +59,9 @@ const toBigIntAmount = (value?: string): bigint => {
   return BigInt(value);
 };
 
+/**
+ * Normalizes CRE config chain names into app-level numeric chain IDs used by policy checks.
+ */
 const toChainId = (chainName: string): number | null => {
   if (chainName.includes("arbitrum")) return 421614;
   if (chainName.includes("base")) return 84532;
@@ -62,18 +69,27 @@ const toChainId = (chainName: string): number | null => {
   return null;
 };
 
+/**
+ * Produces the correct testnet explorer URL for the transaction that `writeReport` submitted.
+ */
 const txExplorer = (chainName: string, txHash: string): string => {
   if (chainName.includes("arbitrum")) return `https://sepolia.arbiscan.io/tx/${txHash}`;
   if (chainName.includes("base")) return `https://sepolia.basescan.org/tx/${txHash}`;
   return `https://sepolia.etherscan.io/tx/${txHash}`;
 };
 
+/**
+ * Decodes raw HTTP request bytes as JSON execute payload.
+ */
 const parseRequest = (payload: HTTPPayload): ExecuteRequest => {
   const raw = new TextDecoder().decode(payload.input);
   if (!raw.trim()) throw new Error("empty payload");
   return JSON.parse(raw) as ExecuteRequest;
 };
 
+/**
+ * Accepts legacy field aliases from older clients and collapses them into one canonical shape.
+ */
 const normalizeExecuteRequest = (req: ExecuteRequest): ExecuteRequest => {
   const nested = req.creDecision || {};
   const approvalId = String(
@@ -99,9 +115,11 @@ const normalizeExecuteRequest = (req: ExecuteRequest): ExecuteRequest => {
 };
 
 /**
- * Executes an approved sponsored action by validating the incoming execute payload,
- * consuming the corresponding Firestore approval exactly once, selecting router or
- * factory receiver based on action type, and submitting the final on-chain report.
+ * Executes an approved sponsored action by:
+ * 1. validating and normalizing the execute payload,
+ * 2. consuming the matching Firestore approval exactly once,
+ * 3. selecting the router or factory receiver based on action type, and
+ * 4. submitting the final report on-chain through CRE.
  */
 export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload: HTTPPayload): Promise<string> => {
   const requestIdFallback = `req_${runtime.now().toISOString()}`;

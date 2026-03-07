@@ -35,8 +35,11 @@ const toChainId = (chainName: string): number | null => {
 const hexToBase64 = (hex: string): string => Buffer.from(hex.replace(/^0x/, ""), "hex").toString("base64");
 
 /**
- * Builds the full workflow graph by composing cron, HTTP, and EVM log triggers.
- * Each trigger group is enabled only when its required config keys/policies are present.
+ * Creates the market-operations workflow graph from runtime config.
+ * The graph is intentionally feature-flagged: trigger groups are only registered when the
+ * corresponding authorized keys or policies are configured, which keeps staging/prod deploys
+ * from exposing partially configured endpoints.
+ * It composes cron, HTTP, and EVM log triggers into one workflow graph for the runner.
  */
 const initWorkflow = (config: Config) => {
   const cron = new CronCapability();
@@ -104,7 +107,6 @@ handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
   /**
    * Fiat credit endpoint for approved off-chain payment-to-router credit flows.
    */
-  //fiat test working as planed 
   const fiatCreditHttpWorkflows: Workflow<Config> = hasHttpFiatCreditKeys
     ? [
         handler(
@@ -119,7 +121,6 @@ handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
   /**
    * Log-driven ETH credit handlers bound per configured router receiver address.
    */
-  //Log reviewed working as planned
   const ethCreditLogWorkflows: Workflow<Config> = hasEthCredit
     ? config.evms
         .filter((evm) => {
@@ -171,6 +172,7 @@ export async function main() {
   const runner = await Runner.newRunner<Config>();
   await runner.run(initWorkflow);
 }
+
 export {
   authWorkflow,
   createEventHelper,
