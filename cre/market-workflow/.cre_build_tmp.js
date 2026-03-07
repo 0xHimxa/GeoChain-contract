@@ -26255,8 +26255,7 @@ var initWorkflow = (config) => {
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
   const cronWorkflows = [
-    handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
-    handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice)
+    handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent)
   ];
   const sponsorHttpWorkflows = hasHttpTriggerKeys ? [
     handler(http.trigger({
