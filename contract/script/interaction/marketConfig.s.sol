@@ -8,7 +8,7 @@ import {PredictionMarketBridge} from "../../src/Bridge/PredictionMarketBridge.so
 
 contract SetCCIPconfig is Script {
 address owner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-address router = :0x2bE604A2052a6C5e246094151d8962B2E98D8f7c ;
+address router = 0x2bE604A2052a6C5e246094151d8962B2E98D8f7c ;
 address link =0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
 
 function run() external{
