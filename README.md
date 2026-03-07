@@ -326,146 +326,274 @@ frontend/minimal-sponsor-ui/
 
 ---
 
-## Getting Started
+
+
+## 7) Complete Setup & Run Guide
 
 ### Prerequisites
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) (Forge, Anvil)
-- Solidity ^0.8.33
-- Node.js ≥ 18 / Bun
-- [Chainlink CRE CLI](https://docs.chain.link/cre)
+| Tool | Version | Install |
+|---|---|---|
+| **Foundry** (Forge, Anvil, Cast) | Latest | [getfoundry.sh](https://book.getfoundry.sh/getting-started/installation) |
+| **Bun** | ≥ 1.0 | [bun.sh](https://bun.sh) |
+| **Node.js** | ≥ 18 | [nodejs.org](https://nodejs.org) |
+| **Chainlink CRE CLI** | Latest | [docs.chain.link/cre](https://docs.chain.link/cre) |
+| **Git** | Latest | System package manager |
 
-### Build & Test
+### Environment Variables & Secret Keys
+
+GeoChain requires several secret keys depending on which part of the stack you're running:
+
+#### Smart Contracts (Foundry)
+
+For deploying to live testnets (not needed for local Anvil):
 
 ```bash
-# Clone
+# Create a .env in the contract/ directory
+PRIVATE_KEY=<your-deployer-wallet-private-key>
+RPC_URL=<arbitrum-sepolia-or-base-sepolia-rpc-url>
+ETHERSCAN_API_KEY=<optional-for-verification>
+```
+
+> **Note**: The deployment scripts (`deployMarketFactory.s.sol`, `deployRouterVault.s.sol`) use hardcoded Anvil accounts by default for local testing. For testnet deployment, update the `initialOwner` and `forwarder` addresses in the scripts to your own addresses.
+
+#### CRE Workflows (Chainlink Runtime Environment)
+
+CRE workflows use `runtime.getSecret()` to access secrets configured in the CRE platform. The following secrets must be registered:
+
+| Secret ID | Description | Where to Get It |
+|---|---|---|
+| `AI_KEY` | Google Gemini API key for AI resolution, market creation, and dispute adjudication | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `FIREBASE_API_KEY` | Firebase Web API key for Firestore authentication | Firebase Console → Project Settings → General |
+| `FIREBASE_PROJECT_ID` | Firebase project ID for Firestore read/write | Firebase Console → Project Settings → General |
+
+These are registered via the CRE CLI when deploying workflows:
+```bash
+cre secrets set AI_KEY <your-gemini-api-key>
+cre secrets set FIREBASE_API_KEY <your-firebase-api-key>
+cre secrets set FIREBASE_PROJECT_ID <your-firebase-project-id>
+```
+
+#### CRE Workflow Configuration
+
+Each workflow has a `config.staging.json` that defines:
+
+| Config Key | Purpose |
+|---|---|
+| `schedule` | Cron schedule for automated handlers (default: `*/30 * * * * *` = every 30 seconds) |
+| `httpTriggerAuthorizedKeys` | ECDSA public keys authorized to call sponsor/revoke HTTP endpoints |
+| `httpExecutionAuthorizedKeys` | ECDSA public keys authorized to call execute HTTP endpoints |
+| `httpFiatCreditAuthorizedKeys` | ECDSA public keys authorized to call fiat credit endpoints |
+| `httpAgentAuthorizedKeys` | (agents-workflow only) ECDSA public keys for agent trading endpoints |
+| `sponsorPolicy` | Controls allowed actions, max amounts, slippage, session duration for sponsored operations |
+| `executePolicy` | Whitelist of allowed action types for on-chain report execution |
+| `agentPolicy` | Agent-specific policy: allowed actions, max amount, slippage defaults |
+| `ethCreditPolicy` | Controls which chains support ETH deposit → USDC credit conversion |
+| `fiatCreditPolicy` | Controls allowed fiat payment providers and supported chains |
+| `evms[]` | Per-chain config: `marketFactoryAddress`, `routerReceiverAddress`, `collateralTokenAddress`, `chainName`, `reportGasLimit` |
+
+To customize, edit `cre/market-workflow/config.staging.json` and `cre/agents-workflow/config.staging.json` with your deployed contract addresses and authorized keys.
+
+#### Firebase Setup
+
+1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
+2. Enable **Firestore Database** (start in test mode for development)
+3. Enable **Anonymous Authentication** (used by CRE workflows for Firestore access)
+4. Copy your **Web API Key** and **Project ID** from Project Settings
+
+#### Frontend
+
+The frontend uses a `VITE_API_BASE_URL` environment variable (defaults to `http://localhost:5173`):
+
+```bash
+# Optional: create frontend/minimal-sponsor-ui/.env
+VITE_API_BASE_URL=http://localhost:5173
+```
+
+Contract addresses are hardcoded in `frontend/minimal-sponsor-ui/src/chain.ts` — update these if you deploy your own contracts.
+
+---
+
+### Step-by-Step: Build & Run Locally
+
+#### 1. Clone the Repository
+
+```bash
 git clone https://github.com/0xHimxa/GeoChain-contrat.git
+cd GeoChain-contrat
+```
+
+#### 2. Build & Test Smart Contracts
+
+```bash
 cd contract
 
-# Install dependencies
+# Install Foundry dependencies (OpenZeppelin, forge-std)
 forge install
 
-# Build
+# Build contracts (uses via_ir + optimizer with 200 runs)
 forge build
 
-# Run tests
-forge test              # unit + fuzz
-forge test -vv          # with console logs
-forge test --gas-report # gas profiling
-forge coverage          # coverage report
+# Run the full test suite
+forge test              # unit + fuzz + invariant tests
+forge test -vv          # with verbose console logs
+forge test --gas-report # with gas profiling
+
+# Generate coverage report
+forge coverage
 ```
 
-### Deploy
+#### 3. Deploy Smart Contracts (Local Anvil)
 
 ```bash
-# Copy environment template
-cp .env.example .env
-# Fill in PRIVATE_KEY, RPC_URL, COLLATERAL_TOKEN_ADDRESS, etc.
+# Terminal 1: Start a local Anvil chain
+anvil
 
-# Deploy MarketFactory (UUPS proxy)
-forge script script/deployMarketFactory.s.sol --rpc-url $RPC_URL --broadcast
+# Terminal 2: Deploy MarketFactory (creates mock USDC, deploys factory behind UUPS proxy)
+forge script script/deployMarketFactory.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
-# Deploy RouterVault
-forge script script/deployRouterVault.s.sol --rpc-url $RPC_URL --broadcast
+# Deploy RouterVault (update addresses in script to match your deployment)
+forge script script/deployRouterVault.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
-# Deploy Bridge
-forge script script/deployBridge.sol --rpc-url $RPC_URL --broadcast
+# Deploy Bridge (update addresses in script to match your deployment)
+forge script script/deployBridge.sol --rpc-url http://127.0.0.1:8545 --broadcast
 ```
 
-### Run CRE Workflows
+> **Important**: The deploy scripts use hardcoded Anvil default accounts:
+> - Account #0 (`0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`) = factory owner
+> - Account #1 (`0x70997970C51812dc3A010C7d01b50e0d17dc79C8`) = workflow forwarder placeholder
+>
+> For testnet deployment, update these addresses and use `--private-key` or `--account` flags.
+
+#### 4. Deploy Smart Contracts (Testnet)
+
+```bash
+# Deploy to Arbitrum Sepolia
+forge script script/deployMarketFactory.s.sol \
+  --rpc-url https://sepolia-rollup.arbitrum.io/rpc \
+  --private-key $PRIVATE_KEY \
+  --broadcast \
+  --verify
+
+# Deploy to Base Sepolia
+forge script script/deployMarketFactory.s.sol \
+  --rpc-url https://sepolia.base.org \
+  --private-key $PRIVATE_KEY \
+  --broadcast \
+  --verify
+```
+
+#### 5. Set Up & Deploy CRE Market Workflow
 
 ```bash
 cd cre/market-workflow
 
-# Install workflow dependencies
+# Install dependencies (runs cre-setup postinstall hook automatically)
 bun install
 
-# Deploy to staging
-cre workflow deploy --target staging-settings
+# Edit config.staging.json with your deployed contract addresses
+# Update: marketFactoryAddress, routerReceiverAddress, collateralTokenAddress per chain
+# Update: httpTriggerAuthorizedKeys with your ECDSA public key
 
-# Deploy agents workflow
-cd ../agents-workflow
-bun install
+# Register secrets with CRE
+cre secrets set AI_KEY <your-gemini-api-key>
+cre secrets set FIREBASE_API_KEY <your-firebase-api-key>
+cre secrets set FIREBASE_PROJECT_ID <your-firebase-project-id>
+
+# Simulate workflow locally (test specific trigger by index)
+cre workflow simulate ./  --target staging-settings --non-interactive --broadcast
+
+# Simulate sponsor HTTP handler (trigger index 1)
+cre workflow simulate ./ \
+  --target staging-settings \
+  --non-interactive \
+  --trigger-index 1 \
+  --http-payload "$(cat payload/sponsor.json)" \
+  --broadcast
+
+# Simulate execute HTTP handler (trigger index 3)
+cre workflow simulate ./ \
+  --target staging-settings \
+  --non-interactive \
+  --trigger-index 3 \
+  --http-payload "$(cat payload/execute.json)" \
+  --broadcast
+
+# Deploy to CRE staging
 cre workflow deploy --target staging-settings
 ```
 
-### Run Frontend
+#### 6. Set Up & Deploy CRE Agents Workflow
+
+```bash
+cd cre/agents-workflow
+
+# Install dependencies
+bun install
+
+# Edit config.staging.json with your addresses
+# Make sure httpAgentAuthorizedKeys is set for agent HTTP endpoints
+
+# Deploy to CRE staging
+cre workflow deploy --target staging-settings
+```
+
+#### 7. Run the Frontend (User Trading UI)
 
 ```bash
 cd frontend/minimal-sponsor-ui
+
+# Install dependencies
 bun install
+
+# Terminal 1: Start the backend server (mock API on port 5173)
 bun run dev
+
+# Terminal 2: Start the Vite frontend dev server (port 5174)
+bun run frontend:dev
+
+# Open http://localhost:5174 in your browser
 ```
 
----
-
-## On-Chain Flow
-
-```
-1. MarketFactory.createMarket(question, closeTime, resolutionTime)
-   └── MarketDeployer clones PredictionMarket
-   └── Factory transfers collateral → market seeds AMM with YES/NO tokens
-
-2. Users interact via RouterVault (gasless) or directly:
-   ├── mintCompleteSets() → deposit USDC, receive YES + NO tokens
-   ├── swapYesForNo() / swapNoForYes() → AMM trades with CPMM pricing
-   ├── addLiquidity() / removeLiquidity() → LP operations
-   └── redeem() → burn winning tokens for USDC after resolution
-
-3. Resolution paths:
-   ├── CRE Automation → Gemini AI evaluation → signed report → dispute window → finalize
-   ├── Owner direct → resolve() with proof URL → dispute window → finalize
-   └── Cross-chain → Hub broadcasts via CCIP → spoke accepts canonical resolution
-
-4. Dispute mechanism:
-   ├── Any user can dispute during window → propose alternative outcome
-   ├── If disputed → owner/CRE adjudicates with evidence
-   └── If inconclusive → enters manual Review state
-
-5. Cross-chain pricing:
-   ├── Hub computes canonical YES/NO prices from AMM reserves
-   ├── Broadcasts via CCIP to all spoke factories
-   └── Spokes enforce deviation bands → progressive restrictions → circuit breaker
-```
-
----
-
-## Security Model
-
-| Control | Implementation |
-|---|---|
-| **Reentrancy** | OpenZeppelin `ReentrancyGuard` on all state-changing functions |
-| **Access Control** | `onlyOwner`, `onlyCrossChainController`, `paused` modifiers |
-| **Risk Exposure Caps** | Per-address `userRiskExposure` capped at `MAX_RISK_EXPOSURE` (10k USDC) |
-| **Deviation Protection** | Multi-band system with direction restrictions, fee surcharges, output caps, and circuit breaker |
-| **Agent Delegation** | On-chain permission struct with `actionMask`, `maxAmountPerAction`, `expiresAt` |
-| **Session Authorization** | EIP-712 typed data signatures with nonce replay protection |
-| **CCIP Security** | `trustedRemoteBySelector`, `processedCcipMessages`, and monotonic nonces |
-| **AI Resolution Safety** | Adversarial-resistant prompting, source URL requirement, `INCONCLUSIVE` fallback |
-| **Upgradability** | UUPS proxy pattern — factory and router are upgradeable |
-
----
-
-## Testing
-
-The test suite covers three tiers:
-
-```
-test/
-├── unit/             # Core function behavior, edge cases, access control
-├── statelessFuzz/    # Property-based fuzzing with random inputs
-└── statefullFuzz/    # Invariant testing across multi-step sequences
-```
+#### 8. Run the Frontend (Agent Trading UI)
 
 ```bash
-forge test                    # Run all
-forge test --match-path test/unit/*       # Unit only
-forge test --match-path test/statelessFuzz/*  # Fuzz only
+cd frontend/minimal-sponsor-ui
+
+# Terminal 1: Start the agent backend server
+bun run dev:agent
+
+# Terminal 2: Start the Vite frontend for agent UI
+bun run frontend:dev:agent
+
+# Opens http://localhost:5174/agent.html automatically
 ```
 
 ---
 
-## Tech Stack
+### Deployed Contract Addresses
+
+#### Arbitrum Sepolia (Hub)
+
+| Contract | Address |
+|---|---|
+| MarketFactory | `0x1dAf6Ecab082971aCF99E50B517cf297B51B6e5C` |
+| RouterVault | `0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe` |
+| Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
+| Collateral (USDC) | `0x52539038C1d1C88AA12438e3c13ADC6778B966Fc` |
+
+#### Base Sepolia (Spoke)
+
+| Contract | Address |
+|---|---|
+| MarketFactory | `0x73f6A1a5B211E39AcE6F6AF108d7c6e0F77e3B92` |
+| RouterVault | `0x2bE604A2052a6C5e246094151d8962B2E98D8f7c` |
+| Bridge | `0x915E3Ee1A09b08038e216B0eCbe736164a246aA3` |
+| Collateral (USDC) | `0xB17Ede44C636887ce980D9359A176a088DC46c2f` |
+
+---
+
+### Tech Stack Summary
 
 | Layer | Technology |
 |---|---|
@@ -475,19 +603,64 @@ forge test --match-path test/statelessFuzz/*  # Fuzz only
 | Automation | Chainlink CRE (Cron, HTTP, Log triggers) |
 | AI Resolution | Google Gemini 2.5 Flash with Search Grounding |
 | State & Audit | Firebase Firestore |
-| Frontend | React + TypeScript + ethers.js |
-| Deployment | Arbitrum Sepolia, Base Sepolia |
+| Frontend | React + TypeScript + ethers.js + Vite |
+| Styling | TailwindCSS 3 |
+| Deployment | Arbitrum Sepolia (hub), Base Sepolia (spoke) |
+| Runtime | Bun |
 
 ---
 
-## Further Reading
+### Project Structure
 
-| Document | Description |
-|---|---|
-| [SECURITY.md](contract/SECURITY.md) | Threat model, attack vectors, and responsible disclosure |
-| [Test README](contract/test/README.md) | Testing patterns, naming conventions, CI notes |
-| [Agentic Mode](cre/market-workflow/README-agentic-mode.md) | Full agent delegation architecture walkthrough |
-| [Agentic Setup](cre/market-workflow/README-agentic-setup.md) | Step-by-step agent setup guide with code examples |
+```
+GeoChain-contrat/
+├── contract/                          # Smart contracts (Foundry)
+│   ├── src/
+│   │   ├── predictionMarket/          # Market modules (Base, Liquidity, Resolution)
+│   │   ├── marketFactory/             # Factory modules (Base, CCIP, Operations)
+│   │   ├── router/                    # RouterVault (user credits, agent permissions)
+│   │   ├── Bridge/                    # CCIP cross-chain claim bridge
+│   │   ├── libraries/                 # AMMLib, FeeLib, MarketTypes
+│   │   ├── modules/                   # CanonicalPricingModule
+│   │   └── token/                     # OutcomeToken (ERC-20 YES/NO)
+│   ├── script/                        # Foundry deployment scripts
+│   ├── test/                          # unit/, statelessFuzz/, statefullFuzz/
+│   └── foundry.toml                   # Foundry config (via_ir, optimizer, remappings)
+├── cre/
+│   ├── market-workflow/               # Core automation CRE workflow
+│   │   ├── main.ts                    # Workflow graph entry point
+│   │   ├── handlers/
+│   │   │   ├── cronHandlers/          # resolve, create, topUp, sync, arbitrage, disputes
+│   │   │   ├── httpHandlers/          # sponsor, execute, revoke, fiatCredit
+│   │   │   └── eventsHandler/         # ETH deposit log → credit
+│   │   ├── gemini/                    # AI: resolveEvent, uniqueEvent, adjudicate
+│   │   ├── firebase/                  # Firestore: auth, read/write, sessions
+│   │   ├── payload/                   # JSON payloads for CRE simulation
+│   │   ├── config.staging.json        # Staging config (addresses, policies, keys)
+│   │   └── Constant-variable/config.ts # TypeScript config types
+│   └── agents-workflow/               # Dedicated agent trading CRE workflow
+│       ├── main.ts                    # HTTP triggers: plan, sponsor, execute, revoke
+│       ├── handlers/httpHandlers/     # Agent request handlers
+│       ├── firebase/                  # Agent session/approval store
+│       └── config.staging.json        # Agent workflow config
+├── frontend/
+│   └── minimal-sponsor-ui/
+│       ├── src/
+│       │   ├── App.tsx                # User trading UI
+│       │   ├── AgentApp.tsx           # Agent delegation UI
+│       │   ├── chain.ts              # Multi-chain config, ABIs, market loading
+│       │   ├── api.ts                # CRE HTTP endpoint wrappers
+│       │   ├── api-agent.ts          # Agent API calls
+│       │   └── keyVault.ts           # Browser-local session key management
+│       ├── server.ts                  # Backend API server (Bun)
+│       ├── server-agent.ts           # Agent backend server (Bun)
+│       ├── vite.config.ts            # Vite config (port 5174)
+│       └── vite.agent.config.ts      # Vite config for agent UI
+├── demo-site/                         # Static demo landing page
+├── README.md                          # Full technical README
+└── HACKATHON_SUBMISSION_README.md     # This file
+```
+
 
 ---
 
