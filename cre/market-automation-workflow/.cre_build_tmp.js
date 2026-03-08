@@ -20717,14 +20717,6 @@ var toIsoUtc = (unixSeconds) => {
   return new Date(Number(unixSeconds) * 1000).toISOString();
 };
 var resoloveEvent = (runtime2) => {
-  const geminiResolve = askGemeniResolve(runtime2, {
-    question: "Will the official OpenAI status page (https://status.openai.com) publish a timestamped incident or degraded performance update for API Services between 2026-03-05 13:11 UTC and 2026-03-05 13:41 UTC? Settlement is based on the official incident history on https://status.openai.com. If at least one qualifying official update for API Services is timestamped within that window, resolve Yes. Otherwise resolve No. If the official source is unavailable or does not provide enough timestamp detail to determine whether an update fell within the window, resolve Inconclusive.",
-    resolutionTimeUnix: "1772718960",
-    resolutionTimeIso: "2026-03-05T13:56:00.000Z"
-  });
-  const outcome = toOutcomeCode(geminiResolve.result);
-  const proofUrl = geminiResolve.source_url || `https://www.google.com/search?q=${0}`;
-  return `outcome: ${outcome}; confidence: ${geminiResolve.confidence}; proofUrl: ${proofUrl}`;
   const marketFactoryCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList"
@@ -20803,16 +20795,16 @@ var resoloveEvent = (runtime2) => {
       const question = snapshot[5] || "";
       const resolutionTimeUnix = snapshot[4].toString();
       const resolutionTimeIso = toIsoUtc(snapshot[4]);
-      const geminiResolve2 = askGemeniResolve(runtime2, {
+      const geminiResolve = askGemeniResolve(runtime2, {
         question,
         resolutionTimeUnix,
         resolutionTimeIso
       });
-      const outcome2 = toOutcomeCode(geminiResolve2.result);
-      const proofUrl2 = geminiResolve2.source_url || `https://www.google.com/search?q=${question}`;
+      const outcome = toOutcomeCode(geminiResolve.result);
+      const proofUrl = geminiResolve.source_url || `https://www.google.com/search?q=${question}`;
       const resolvePayload = encodeAbiParameters(parseAbiParameters("uint8 outcome, string proofUrl"), [
-        outcome2,
-        proofUrl2
+        outcome,
+        proofUrl
       ]);
       const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
         "ResolveMarket",
@@ -20834,7 +20826,7 @@ var resoloveEvent = (runtime2) => {
         throw new Error(`ResolveMarket failed on ${sepoConfig.chainName}: ${writeReportResult.errorMessage}`);
       }
       const txHash = bytesToHex(writeReportResult.txHash || new Uint8Array(32));
-      runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}; result=${geminiResolve2.result}; confidence=${geminiResolve2.confidence}; proofUrl=${proofUrl2}`);
+      runtime2.log(`ResolveMarket tx succeeded for ${eventAddress}: ${txHash}; result=${geminiResolve.result}; confidence=${geminiResolve.confidence}; proofUrl=${proofUrl}`);
       runtime2.log(`View transaction at https://sepolia.arbiscan.io/tx/${txHash}`);
     }
     runtime2.log(`ready to be resolve ${readyForResolve}`);
@@ -20932,7 +20924,7 @@ var syncCanonicalPrice = (runtime2) => {
       functionName: "getSyncSnapshot",
       data: bytesToHex(syncSnapshotResult.data)
     });
-    if (marketState !== MARKET_STATE_OPEN) {
+    if (Number(marketState) !== MARKET_STATE_OPEN) {
       runtime2.log(`Skipping ${marketAddress}: market is no longer open (state=${marketState})`);
       continue;
     }

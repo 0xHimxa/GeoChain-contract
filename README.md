@@ -4,20 +4,63 @@
     <strong>AI-Powered · Cross-Chain · Agent-Native Prediction Markets built on Chainlink CRE</strong>
   </p>
   <p align="center">
-    <a href="#the-problem">Problem</a> ·
-    <a href="#how-it-was-done-before">Prior Art</a> ·
-    <a href="#how-geochain-changes-everything">Our Approach</a> ·
+    <a href="#tl-dr">TL;DR</a> ·
+    <a href="#demo">Demo</a> ·
+    <a href="#chainlink-services-used">Chainlink Usage</a> ·
     <a href="#architecture">Architecture</a> ·
     <a href="#getting-started">Getting Started</a> ·
     <a href="#deployed-contracts">Contracts</a>
   </p>
 </p>
 
-> **Submitted to [Convergence: A Chainlink Hackathon](https://chain.link/hackathon) — February 6 – March 8, 2026**
+> Built for [Convergence: A Chainlink Hackathon](https://chain.link/hackathon) (2026)
 >
 > Tracks: **Prediction Markets · DeFi · AI Agents**
 
 ---
+
+## TL;DR
+
+GeoChain is a prediction market protocol that uses **Chainlink CRE** to automate market creation, resolution, dispute handling, liquidity operations, and gasless user execution. It uses **Chainlink CCIP** to keep hub-spoke markets synchronized across chains and to bridge resolved outcome claims. The result is a market stack that is autonomous, cross-chain, and safe for agent-delegated trading without giving agents custody of user funds.
+
+### What makes GeoChain different
+
+- **Autonomous market lifecycle**: markets can be created, monitored, resolved, disputed, and maintained by CRE workflows
+- **Cross-chain consistency**: canonical prices and resolutions propagate through CCIP between hub and spoke factories
+- **Agent-native execution**: users can grant bounded on-chain permissions to trading agents instead of handing over keys
+- **Gasless UX**: signed user actions are validated in CRE and submitted on-chain through sponsored flows
+
+## Demo
+
+| Item | Link |
+|---|---|
+| Video walkthrough | `TODO: add submission video link` |
+| Repo | [GeoChain source code](./) |
+| User UI | [`frontend/minimal-sponsor-ui`](./frontend/minimal-sponsor-ui) |
+| Agent UI | [`frontend/minimal-sponsor-ui/src/AgentApp.tsx`](./frontend/minimal-sponsor-ui/src/AgentApp.tsx) |
+| Contracts | [Deployed contract addresses](#deployed-contracts) |
+
+### Judge Walkthrough
+
+1. Open the user UI and inspect market creation, deposits, swaps, and withdrawals.
+2. Open the agent UI and set bounded permissions for an agent session.
+3. Review the CRE workflow entrypoints for automation, user operations, and agents.
+4. Review the CCIP contracts for hub-spoke synchronization and claim bridging.
+
+## Chainlink Services Used
+
+| Chainlink Service | What it does in GeoChain | Code links |
+|---|---|---|
+| **CRE Runtime Environment** | Runs cron, HTTP, and log-triggered workflows for market automation, user operations, and agent execution | [`cre/market-automation-workflow/main.ts`](./cre/market-automation-workflow/main.ts), [`cre/market-users-workflow/main.ts`](./cre/market-users-workflow/main.ts), [`cre/agents-workflow/main.ts`](./cre/agents-workflow/main.ts) |
+| **CRE Cron triggers** | Resolves markets, creates new markets, tops up balances, syncs prices, adjudicates disputes, and processes withdrawals | [`cre/market-automation-workflow/main.ts`](./cre/market-automation-workflow/main.ts), [`cre/market-automation-workflow/handlers/cronHandlers/resolve.ts`](./cre/market-automation-workflow/handlers/cronHandlers/resolve.ts), [`cre/market-automation-workflow/handlers/cronHandlers/syncPrice.ts`](./cre/market-automation-workflow/handlers/cronHandlers/syncPrice.ts) |
+| **CRE HTTP triggers** | Powers sponsor/execute/revoke flows for gasless user actions and dedicated agent trade flows | [`cre/market-users-workflow/handlers/httpHandlers/httpSponsorPolicy.ts`](./cre/market-users-workflow/handlers/httpHandlers/httpSponsorPolicy.ts), [`cre/market-users-workflow/handlers/httpHandlers/httpExecuteReport.ts`](./cre/market-users-workflow/handlers/httpHandlers/httpExecuteReport.ts), [`cre/agents-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts`](./cre/agents-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts), [`cre/agents-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts`](./cre/agents-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts) |
+| **CRE EVM Log triggers** | Credits router balances from observed on-chain deposits | [`cre/market-users-workflow/handlers/eventsHandler/ethCreditFromLogs.ts`](./cre/market-users-workflow/handlers/eventsHandler/ethCreditFromLogs.ts) |
+| **Chainlink CCIP** | Synchronizes canonical prices and resolution data between hub and spoke factories and bridges winning claims cross-chain | [`contract/src/marketFactory/MarketFactoryCcip.sol`](./contract/src/marketFactory/MarketFactoryCcip.sol), [`contract/src/Bridge/PredictionMarketBridge.sol`](./contract/src/Bridge/PredictionMarketBridge.sol) |
+| **Chainlink ReceiverTemplateUpgradeable** | Verifies and receives CRE-delivered reports on-chain in core contracts | [`contract/script/interfaces/ReceiverTemplateUpgradeable.sol`](./contract/script/interfaces/ReceiverTemplateUpgradeable.sol), [`contract/src/marketFactory/MarketFactoryBase.sol`](./contract/src/marketFactory/MarketFactoryBase.sol), [`contract/src/predictionMarket/PredictionMarketBase.sol`](./contract/src/predictionMarket/PredictionMarketBase.sol), [`contract/src/router/PredictionMarketRouterVaultBase.sol`](./contract/src/router/PredictionMarketRouterVaultBase.sol) |
+
+## Why Now
+
+Prediction markets still rely on manual operators, single-chain liquidity, and fragile resolution paths. GeoChain combines autonomous workflows, cross-chain messaging, and bounded agent permissions so markets can run with less operational trust and better multi-chain access.
 
 ## The Problem
 
@@ -335,7 +378,17 @@ frontend/minimal-sponsor-ui/
 
 
 
-## 7) Complete Setup & Run Guide
+## Getting Started
+
+### Quick Start
+
+If you want to review the project quickly:
+
+1. Read the [Chainlink Services Used](#chainlink-services-used) section for direct code references.
+2. Review the deployed addresses in [Deployed Contracts](#deployed-contracts).
+3. Run the contracts and frontend locally using the steps below.
+
+### Complete Setup & Run Guide
 
 ### Prerequisites
 
@@ -691,8 +744,7 @@ GeoChain-contrat/
 │       ├── vite.config.ts            # Vite config (port 5174)
 │       └── vite.agent.config.ts      # Vite config for agent UI
 ├── demo-site/                         # Static demo landing page
-├── README.md                          # Full technical README
-└── HACKATHON_SUBMISSION_README.md     # This file
+└── README.md                          # Hackathon and technical overview
 ```
 
 
