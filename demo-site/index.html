@@ -564,7 +564,7 @@
   <section id="architecture">
     <div class="section-label"><span class="line"></span> Diagram 01</div>
     <h2>System Architecture</h2>
-    <p class="subtitle">End-to-end view: users, frontends, CRE workflows, external services, and multi-chain smart contracts connected via CRE reports + CCIP.</p>
+    <p class="subtitle">End-to-end view: users, frontends, three CRE workflows, external services, and multi-chain smart contracts connected via CRE reports + CCIP.</p>
 
     <div class="diagram-card">
       <div class="card-header">
@@ -585,7 +585,8 @@ graph TB
     end
 
     subgraph CRE["⛓️ Chainlink CRE"]
-        MW["market-workflow"]
+        MAW["market-automation-workflow"]
+        MUW["market-users-workflow"]
         AW["agents-workflow"]
     end
 
@@ -610,12 +611,14 @@ graph TB
 
     U1 --> APP
     AI_Agent --> AGENT_APP
-    APP -->|Sponsor + Execute| MW
+    APP -->|Sponsor + Execute| MUW
     AGENT_APP -->|Plan + Sponsor + Execute| AW
-    MW -->|AI Calls| GEMINI
-    MW -->|Audit Trail| FIRE
-    MW -->|onReport| MF_A
-    MW -->|onReport| PM_A
+    MAW -->|AI Calls| GEMINI
+    MAW -->|Audit Trail| FIRE
+    MAW -->|onReport| MF_A
+    MAW -->|onReport| PM_A
+    MUW -->|Approval + Session Store| FIRE
+    MUW -->|onReport| RV_A
     AW -->|onReport| RV_A
     MF_A --> PM_A
     MF_A ===|"CRE Report — Canonical Price Sync"| MF_B
@@ -628,7 +631,7 @@ graph TB
     style External fill:#174EA6,color:#fff
         </pre>
       </div>
-      <div class="card-footer">💡 Two independent CRE deployments orchestrate all automation and agent trading</div>
+      <div class="card-footer">💡 Three isolated CRE deployments separate automation, user operations, and agent trading</div>
     </div>
   </section>
 
@@ -654,7 +657,7 @@ graph TB
       <div class="flow-card border-accent">
         <div class="step-num bg-accent">3</div>
         <h4>📈 Active Trading</h4>
-        <p>Users mint complete sets, swap YES↔NO via AMM, and add/remove liquidity. Agents trade via the agents-workflow.</p>
+        <p>Users mint complete sets, swap YES↔NO via AMM, and add/remove liquidity through the market-users-workflow. Agents trade through the agents-workflow.</p>
       </div>
       <div class="flow-card border-amber">
         <div class="step-num bg-amber">4</div>
@@ -681,9 +684,11 @@ graph TB
       <div class="card-body">
         <pre class="mermaid">
 flowchart LR
-    A["🤖 Gemini AI<br/>generates event"] --> B["CRE handler<br/>createEventHelper"]
+    A["🤖 Gemini AI<br/>generates event"] --> B["CRE handler<br/>createPredictionMarketEvent"]
     B -->|onReport| C["MarketFactory<br/>createMarket()"]
     C --> D["Market Live<br/>AMM Trading"]
+    D --> D1["Users trade via<br/>market-users-workflow"]
+    D --> D2["Agents trade via<br/>agents-workflow"]
     D --> E["Close Time<br/>Reached"]
     E --> F["CRE handler<br/>resolveEvent"]
     F --> G["Gemini AI<br/>evaluates"]
@@ -704,32 +709,47 @@ flowchart LR
 
   <div class="divider"></div>
 
-  <!-- ═══════ 3. TWO-WORKFLOW CRE ═══════ -->
+  <!-- ═══════ 3. THREE-WORKFLOW CRE ═══════ -->
   <section id="workflows">
     <div class="section-label"><span class="line"></span> Diagram 03</div>
-    <h2>Two-Workflow CRE Architecture</h2>
-    <p class="subtitle">Operational automation and agent trading are architected as isolated CRE deployments — independent keys, configs, and failure domains.</p>
+    <h2>Three-Workflow CRE Architecture</h2>
+    <p class="subtitle">Operational automation, human user operations, and agent trading are isolated CRE deployments with separate keys, configs, and failure domains.</p>
 
     <div class="workflow-compare">
       <div class="workflow-box">
         <div class="wf-header">
           <div class="wf-icon" style="background:rgba(52,211,153,0.15)">⚙️</div>
           <div>
-            <h3>market-workflow</h3>
+            <h3>market-automation-workflow</h3>
             <span class="wf-tag bg-green">Operational Automation</span>
           </div>
         </div>
         <ul>
           <li><span class="trigger-type bg-amber">CRON</span> resolveEvent — AI-powered resolution</li>
-          <li><span class="trigger-type bg-amber">CRON</span> createEventHelper — AI market creation</li>
+          <li><span class="trigger-type bg-amber">CRON</span> createPredictionMarketEvent — AI market creation</li>
           <li><span class="trigger-type bg-amber">CRON</span> marketFactoryBalanceTopUp</li>
           <li><span class="trigger-type bg-amber">CRON</span> syncCanonicalPrice — CRE direct report sync</li>
           <li><span class="trigger-type bg-amber">CRON</span> arbitrateUnsafeMarket</li>
           <li><span class="trigger-type bg-amber">CRON</span> adjudicateExpiredDisputes</li>
-          <li><span class="trigger-type bg-cyan">HTTP</span> sponsorUserOpPolicy</li>
-          <li><span class="trigger-type bg-cyan">HTTP</span> executeReport</li>
-          <li><span class="trigger-type bg-cyan">HTTP</span> fiatCredit</li>
-          <li><span class="trigger-type bg-purple">LOG</span> ethCreditFromLogs</li>
+          <li><span class="trigger-type bg-amber">CRON</span> processPendingWithdrawals</li>
+          <li><span class="trigger-type bg-amber">CRON</span> syncManualReviewMarkets</li>
+        </ul>
+      </div>
+
+      <div class="workflow-box">
+        <div class="wf-header">
+          <div class="wf-icon" style="background:rgba(34,211,238,0.15)">👤</div>
+          <div>
+            <h3>market-users-workflow</h3>
+            <span class="wf-tag bg-cyan">User Ops + Credits</span>
+          </div>
+        </div>
+        <ul>
+          <li><span class="trigger-type bg-cyan">HTTP</span> sponsorUserOpPolicy — create approvals</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> executeReport — submit user actions</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> revokeSession — terminate session</li>
+          <li><span class="trigger-type bg-cyan">HTTP</span> fiatCredit — off-chain payment credit</li>
+          <li><span class="trigger-type bg-purple">LOG</span> ethCreditFromLogs — ETH deposit credit</li>
         </ul>
       </div>
 
@@ -753,7 +773,7 @@ flowchart LR
     <div style="margin-top:2rem;">
       <div class="diagram-card">
         <div class="card-header">
-          <h3>🔀 Why Two Workflows?</h3>
+          <h3>🔀 Why Three Workflows?</h3>
           <span class="tag">Architecture Decision</span>
         </div>
         <div class="card-body" style="flex-direction:column;gap:1rem;align-items:stretch;padding:1.5rem">
@@ -761,22 +781,22 @@ flowchart LR
             <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
               <div style="font-size:1.2rem;margin-bottom:0.4rem">🔑</div>
               <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Separate Auth Keys</h4>
-              <p style="font-size:0.72rem;color:var(--text-dim)">Market ops keys can't trigger agent trades and vice versa</p>
+              <p style="font-size:0.72rem;color:var(--text-dim)">Automation, user HTTP, and agent keys are scoped independently</p>
             </div>
             <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
               <div style="font-size:1.2rem;margin-bottom:0.4rem">🧱</div>
               <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Isolated Failures</h4>
-              <p style="font-size:0.72rem;color:var(--text-dim)">Agent misconfiguration can't break market resolution</p>
+              <p style="font-size:0.72rem;color:var(--text-dim)">A sponsor or crediting issue can't break cron-based market automation</p>
             </div>
             <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
               <div style="font-size:1.2rem;margin-bottom:0.4rem">🚀</div>
               <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Independent Deploys</h4>
-              <p style="font-size:0.72rem;color:var(--text-dim)">Upgrade agent logic without touching market automation</p>
+              <p style="font-size:0.72rem;color:var(--text-dim)">Upgrade user flows, automation, or agent logic without coupling releases</p>
             </div>
             <div style="background:var(--surface-2);border-radius:10px;padding:1rem">
               <div style="font-size:1.2rem;margin-bottom:0.4rem">📋</div>
               <h4 style="font-size:0.82rem;margin-bottom:0.25rem">Separate Policies</h4>
-              <p style="font-size:0.72rem;color:var(--text-dim)">agentPolicy vs sponsorPolicy vs executePolicy — each scoped</p>
+              <p style="font-size:0.72rem;color:var(--text-dim)">`agentPolicy`, `sponsorPolicy`, `executePolicy`, and credit policies stay scoped</p>
             </div>
           </div>
         </div>

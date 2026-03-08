@@ -90,17 +90,18 @@ Event ends → CRE cron detects resolution time → Gemini AI evaluates with sea
 
 GeoChain doesn't just automate resolution — it automates the **entire market lifecycle** through CRE workflows:
 
-| Automated Action | Handler | Trigger |
-|---|---|---|
-| **Market Creation** | `createEventHelper` | Cron — Gemini generates unique event ideas, deploys on-chain |
-| **Market Resolution** | `resolveEvent` | Cron — detects markets past resolution time, calls Gemini |
-| **Liquidity Top-Up** | `marketFactoryBalanceTopUp` | Cron — monitors factory balance, auto-replenishes |
-| **Price Sync** | `syncCanonicalPrice` | Cron — CRE reads hub prices and writes canonical sync reports directly to spoke factories |
-| **Unsafe Market Arbitrage** | `arbitrateUnsafeMarketHandler` | Cron — corrects price deviations across chains |
-| **Dispute Adjudication** | `adjudicateExpiredDisputeWindows` | Cron — auto-finalizes undisputed resolutions |
-| **Withdrawal Processing** | `processPendingWithdrawalsHandler` | Cron — batch-processes queued LP withdrawals |
-| **Fiat Credit Onboarding** | `fiatCreditHttpHandler` | HTTP — credits user balances from off-chain payments |
-| **ETH Deposit Credit** | `ethCreditFromLogsHandler` | EVM Log — detects ETH deposits, credits router balances |
+| Automated Action | Workflow | Handler | Trigger |
+|---|---|---|---|
+| **Market Creation** | `market-automation-workflow` | `createPredictionMarketEvent` | Cron — Gemini generates unique event ideas, deploys on-chain |
+| **Market Resolution** | `market-automation-workflow` | `resoloveEvent` | Cron — detects markets past resolution time, calls Gemini |
+| **Liquidity Top-Up** | `market-automation-workflow` | `marketFactoryBalanceTopUp` | Cron — monitors factory balance, auto-replenishes |
+| **Price Sync** | `market-automation-workflow` | `syncCanonicalPrice` | Cron — CRE reads hub prices and writes canonical sync reports directly to spoke factories |
+| **Unsafe Market Arbitrage** | `market-automation-workflow` | `arbitrateUnsafeMarketHandler` | Cron — corrects price deviations across chains |
+| **Dispute Adjudication** | `market-automation-workflow` | `adjudicateExpiredDisputeWindows` | Cron — auto-finalizes undisputed resolutions |
+| **Withdrawal Processing** | `market-automation-workflow` | `processPendingWithdrawalsHandler` | Cron — batch-processes queued LP withdrawals |
+| **Gasless User Operations** | `market-users-workflow` | `sponsorUserOpPolicyHandler` + `executeReportHttpHandler` | HTTP — validates signatures, creates approvals, and submits user actions |
+| **Fiat Credit Onboarding** | `market-users-workflow` | `fiatCreditHttpHandler` | HTTP — credits user balances from off-chain payments |
+| **ETH Deposit Credit** | `market-users-workflow` | `ethCreditFromLogsHandler` | EVM Log — detects ETH deposits, credits router balances |
 
 Every operation previously requiring a human operator is now an autonomous CRE workflow.
 
@@ -162,33 +163,33 @@ POST /agent/execute  →  Consume approval, encode payload, submit on-chain
 POST /agent/revoke   →  Terminate agent session
 ```
 
-### ✦ The Agents Workflow — A Dedicated CRE Deployment for AI Trading
+### ✦ Three Dedicated CRE Workflows
 
-GeoChain doesn't bolt agent support onto the market automation workflow — it runs a **dedicated, independently deployed CRE workflow** (`agents-workflow`) purpose-built for agent trading. This is a first-class architectural separation:
+GeoChain now runs **three independently deployed CRE workflows** so operational automation, human user operations, and AI agent trading are isolated by trigger type, key set, and policy scope:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     CRE WORKFLOW DEPLOYMENTS                    │
-├─────────────────────────────┬───────────────────────────────────┤
-│      market-workflow        │        agents-workflow            │
-│  (Operational Automation)   │     (Agent Trading Engine)        │
-├─────────────────────────────┼───────────────────────────────────┤
-│ • Cron: market creation     │ • HTTP: agentPlanTrade            │
-│ • Cron: resolution via AI   │ • HTTP: agentSponsorTrade         │
-│ • Cron: liquidity top-up    │ • HTTP: agentExecuteTrade         │
-│ • Cron: price sync (CRE direct) │ • HTTP: agentRevoke               │
-│ • Cron: dispute adjudication│                                   │
-│ • HTTP: sponsor/execute     │                                   │
-│ • HTTP: fiat credit         │                                   │
-│ • Log: ETH deposit credit   │                                   │
-└─────────────────────────────┴───────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 CRE WORKFLOW DEPLOYMENTS                                 │
+├────────────────────────────┬────────────────────────────┬────────────────────────────────┤
+│ market-automation-workflow │   market-users-workflow    │        agents-workflow         │
+│  (Operational Automation)  │   (User Ops + Credits)     │     (Agent Trading Engine)     │
+├────────────────────────────┼────────────────────────────┼────────────────────────────────┤
+│ • Cron: market creation    │ • HTTP: sponsorUserOpPolicy│ • HTTP: agentPlanTrade         │
+│ • Cron: resolution via AI  │ • HTTP: executeReport      │ • HTTP: agentSponsorTrade      │
+│ • Cron: liquidity top-up   │ • HTTP: revokeSession      │ • HTTP: agentExecuteTrade      │
+│ • Cron: price sync         │ • HTTP: fiatCredit         │ • HTTP: agentRevoke            │
+│ • Cron: arbitrage          │ • Log: ethCreditFromLogs   │                                │
+│ • Cron: dispute adjudicate │                            │                                │
+│ • Cron: withdrawal process │                            │                                │
+│ • Cron: manual review sync │                            │                                │
+└────────────────────────────┴────────────────────────────┴────────────────────────────────┘
 ```
 
-**Why two workflows?** Operational automation (creating markets, resolving them, syncing prices) has different risk profiles, schedules, and authorized keys than agent-initiated trading. Separating them means:
+**Why three workflows?** These responsibilities now have materially different risk profiles and trigger surfaces:
 - Independent deployment and upgrade cycles
-- Different authorized key sets — market ops keys can't trigger agent trades and vice versa
-- Isolated failure domains — an agent workflow misconfiguration can't break market resolution
-- Separate config policies (`agentPolicy` vs `sponsorPolicy` vs `executePolicy`)
+- Different authorized key sets — automation keys, user-op keys, and agent keys are scoped separately
+- Isolated failure domains — an HTTP/signature issue can't break cron-based market automation
+- Clearer policy separation (`sponsorPolicy`, `executePolicy`, `fiatCreditPolicy`, `ethCreditPolicy`, `agentPolicy`)
 
 #### The 4 Agent Handlers
 
@@ -264,15 +265,21 @@ contract/src/
 
 ```
 cre/
-├── market-workflow/                  # Core automation workflow
-│   ├── main.ts                       # Workflow graph: cron + HTTP + log triggers
+├── market-automation-workflow/       # Cron automation workflow
+│   ├── main.ts                       # Workflow graph: market lifecycle cron triggers
 │   ├── handlers/
-│   │   ├── cronHandlers/             # resolve, create, topUp, syncPrice, arbitrage, disputes
-│   │   ├── httpHandlers/             # sponsor, execute, fiatCredit, revokeSession
-│   │   └── eventsHandler/            # ETH deposit log → credit
+│   │   └── cronHandlers/             # resolve, create, topUp, syncPrice, arbitrage, disputes
 │   ├── gemini/                       # AI integration: resolveEvent, uniqueEvent, adjudicate
 │   ├── firebase/                     # Firestore read/write for state & audit
 │   └── payload/                      # ABI encoding for on-chain report payloads
+│
+├── market-users-workflow/            # User HTTP + deposit-credit workflow
+│   ├── main.ts                       # Workflow graph: sponsor, execute, revoke, fiat, log credit
+│   ├── handlers/
+│   │   ├── httpHandlers/             # sponsor, execute, revokeSession, fiatCredit
+│   │   └── eventsHandler/            # ETH deposit log → credit
+│   ├── firebase/                     # Firestore auth and approval/session storage
+│   └── payload/                      # JSON payloads for CRE simulation
 │
 └── agents-workflow/                  # Dedicated agent trading workflow
     ├── main.ts                       # HTTP triggers: plan, sponsor, execute, revoke
@@ -310,19 +317,19 @@ frontend/minimal-sponsor-ui/
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x1dAf6Ecab082971aCF99E50B517cf297B51B6e5C` |
-| RouterVault | `0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe` |
+| MarketFactory | `0xA33Ac22e58d34712928d1D1E4CD5201349DCD023` |
+| RouterVault | `0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5` |
 | Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
-| Collateral (USDC) | `0x52539038C1d1C88AA12438e3c13ADC6778B966Fc` |
+| Collateral (USDC) | `0xe34742D957708d2c91CA8827F758b3843d681b3e` |
 
 ### Base Sepolia
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x73f6A1a5B211E39AcE6F6AF108d7c6e0F77e3B92` |
-| RouterVault | `0x2bE604A2052a6C5e246094151d8962B2E98D8f7c` |
+| MarketFactory | `0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3` |
+| RouterVault | `0xef21B5c764186B9D3faD4D610564816fA7e461d4` |
 | Bridge | `0x915E3Ee1A09b08038e216B0eCbe736164a246aA3` |
-| Collateral (USDC) | `0xB17Ede44C636887ce980D9359A176a088DC46c2f` |
+| Collateral (USDC) | `0x57e91c594f77Fca0cb6760267586772E3A3f054F` |
 
 ---
 
@@ -392,7 +399,7 @@ Each workflow has a `config.staging.json` that defines:
 | `fiatCreditPolicy` | Controls allowed fiat payment providers and supported chains |
 | `evms[]` | Per-chain config: `marketFactoryAddress`, `routerReceiverAddress`, `collateralTokenAddress`, `chainName`, `reportGasLimit` |
 
-To customize, edit `cre/market-workflow/config.staging.json` and `cre/agents-workflow/config.staging.json` with your deployed contract addresses and authorized keys.
+To customize, edit `cre/market-automation-workflow/config.staging.json`, `cre/market-users-workflow/config.staging.json`, and `cre/agents-workflow/config.staging.json` with your deployed contract addresses and authorized keys.
 
 #### Firebase Setup
 
@@ -483,10 +490,10 @@ forge script script/deployMarketFactory.s.sol \
   --verify
 ```
 
-#### 5. Set Up & Deploy CRE Market Workflow
+#### 5. Set Up & Deploy CRE Market Automation Workflow
 
 ```bash
-cd cre/market-workflow
+cd cre/market-automation-workflow
 
 # Install dependencies (runs cre-setup postinstall hook automatically)
 bun install
@@ -523,7 +530,30 @@ cre workflow simulate ./ \
 cre workflow deploy --target staging-settings
 ```
 
-#### 6. Set Up & Deploy CRE Agents Workflow
+#### 6. Set Up & Deploy CRE User Workflow
+
+```bash
+cd cre/market-users-workflow
+
+# Install dependencies
+bun install
+
+# Edit config.staging.json with your deployed contract addresses
+# Update: httpTriggerAuthorizedKeys, httpExecutionAuthorizedKeys, and httpFiatCreditAuthorizedKeys
+
+# Simulate sponsor HTTP handler
+cre workflow simulate ./ \
+  --target staging-settings \
+  --non-interactive \
+  --trigger-index 0 \
+  --http-payload "$(cat payload/sponser.json)" \
+  --broadcast
+
+# Deploy to CRE staging
+cre workflow deploy --target staging-settings
+```
+
+#### 7. Set Up & Deploy CRE Agents Workflow
 
 ```bash
 cd cre/agents-workflow
@@ -538,7 +568,7 @@ bun install
 cre workflow deploy --target staging-settings
 ```
 
-#### 7. Run the Frontend (User Trading UI)
+#### 8. Run the Frontend (User Trading UI)
 
 ```bash
 cd frontend/minimal-sponsor-ui
@@ -555,7 +585,7 @@ bun run frontend:dev
 # Open http://localhost:5174 in your browser
 ```
 
-#### 8. Run the Frontend (Agent Trading UI)
+#### 9. Run the Frontend (Agent Trading UI)
 
 ```bash
 cd frontend/minimal-sponsor-ui
@@ -577,19 +607,19 @@ bun run frontend:dev:agent
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x1dAf6Ecab082971aCF99E50B517cf297B51B6e5C` |
-| RouterVault | `0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe` |
+| MarketFactory | `0xA33Ac22e58d34712928d1D1E4CD5201349DCD023` |
+| RouterVault | `0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5` |
 | Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
-| Collateral (USDC) | `0x52539038C1d1C88AA12438e3c13ADC6778B966Fc` |
+| Collateral (USDC) | `0xe34742D957708d2c91CA8827F758b3843d681b3e` |
 
 #### Base Sepolia (Spoke)
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x73f6A1a5B211E39AcE6F6AF108d7c6e0F77e3B92` |
-| RouterVault | `0x2bE604A2052a6C5e246094151d8962B2E98D8f7c` |
+| MarketFactory | `0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3` |
+| RouterVault | `0xef21B5c764186B9D3faD4D610564816fA7e461d4` |
 | Bridge | `0x915E3Ee1A09b08038e216B0eCbe736164a246aA3` |
-| Collateral (USDC) | `0xB17Ede44C636887ce980D9359A176a088DC46c2f` |
+| Collateral (USDC) | `0x57e91c594f77Fca0cb6760267586772E3A3f054F` |
 
 ---
 
@@ -627,17 +657,21 @@ GeoChain-contrat/
 │   ├── test/                          # unit/, statelessFuzz/, statefullFuzz/
 │   └── foundry.toml                   # Foundry config (via_ir, optimizer, remappings)
 ├── cre/
-│   ├── market-workflow/               # Core automation CRE workflow
+│   ├── market-automation-workflow/    # Cron automation CRE workflow
 │   │   ├── main.ts                    # Workflow graph entry point
-│   │   ├── handlers/
-│   │   │   ├── cronHandlers/          # resolve, create, topUp, sync, arbitrage, disputes
-│   │   │   ├── httpHandlers/          # sponsor, execute, revoke, fiatCredit
-│   │   │   └── eventsHandler/         # ETH deposit log → credit
+│   │   ├── handlers/cronHandlers/     # resolve, create, topUp, sync, arbitrage, disputes
 │   │   ├── gemini/                    # AI: resolveEvent, uniqueEvent, adjudicate
-│   │   ├── firebase/                  # Firestore: auth, read/write, sessions
+│   │   ├── firebase/                  # Firestore: auth, read/write, review sync
 │   │   ├── payload/                   # JSON payloads for CRE simulation
 │   │   ├── config.staging.json        # Staging config (addresses, policies, keys)
 │   │   └── Constant-variable/config.ts # TypeScript config types
+│   ├── market-users-workflow/         # User HTTP/log CRE workflow
+│   │   ├── main.ts                    # Sponsor, execute, revoke, fiat, ETH-credit graph
+│   │   ├── handlers/
+│   │   │   ├── httpHandlers/          # sponsor, execute, revoke, fiatCredit
+│   │   │   └── eventsHandler/         # ETH deposit log → credit
+│   │   ├── firebase/                  # Firestore: auth and approvals/session store
+│   │   └── config.staging.json        # User workflow config
 │   └── agents-workflow/               # Dedicated agent trading CRE workflow
 │       ├── main.ts                    # HTTP triggers: plan, sponsor, execute, revoke
 │       ├── handlers/httpHandlers/     # Agent request handlers

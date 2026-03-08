@@ -18,12 +18,6 @@
       "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
     }
   ],
-  "httpAgentAuthorizedKeys": [
-    {
-      "type": "KEY_TYPE_ECDSA_EVM",
-      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
-    }
-  ],
   "sponsorPolicy": {
     "enabled": true,
     "supportedChainIds": [
@@ -76,7 +70,6 @@
       "routerAgentAddLiquidity",
       "routerAgentRemoveLiquidity",
       "routerAgentDisputeProposedResolution",
-      "routerAgentRevokePermission",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]

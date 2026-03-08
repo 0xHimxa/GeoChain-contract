@@ -128,21 +128,26 @@ type TrackedMarket = {
 
 const FALLBACK_CHAIN_CONFIG: Record<number, { executeReceiverAddress: string; collateralTokenAddress: string }> = {
   421614: {
-    executeReceiverAddress: "0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe",
-    collateralTokenAddress: "0x52539038C1d1C88AA12438e3c13ADC6778B966Fc ",
+    executeReceiverAddress: "0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5",
+    collateralTokenAddress: "0xe34742D957708d2c91CA8827F758b3843d681b3e ",
   },
   84532: {
-    executeReceiverAddress: ":0x2bE604A2052a6C5e246094151d8962B2E98D8f7c ",
-    collateralTokenAddress: "0xB17Ede44C636887ce980D9359A176a088DC46c2f ",
+    executeReceiverAddress: ":0xef21B5c764186B9D3faD4D610564816fA7e461d4 ",
+    collateralTokenAddress: "0x57e91c594f77Fca0cb6760267586772E3A3f054F ",
   },
 };
 
-const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow","payload" ,"sponsor.json");
-const CRE_SPONSER_JSON_COMPAT_PATH = join(import.meta.dir, "..", "..", "cre", "market-workflow","payload" ,"sponser.json");
-const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","execute.json");
-const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload","fiat.json");
-const CRE_DISPUTE_JSON_PATH = process.env.CRE_DISPUTE_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload", "dispute.json");
-const CRE_POSITIONS_JSON_PATH = process.env.CRE_POSITIONS_JSON_PATH || join(import.meta.dir, "..", "..", "cre", "market-workflow", "payload", "positions.json");
+const CRE_USER_PAYLOAD_DIR =
+  process.env.CRE_USER_PAYLOAD_DIR ||
+  process.env.CRE_HTTPLOG_PAYLOAD_DIR ||
+  join(import.meta.dir, "..", "..", "cre", "market-users-workflow", "payload");
+const CRE_SPONSOR_JSON_PATH = process.env.CRE_SPONSOR_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "sponsor.json");
+const CRE_SPONSER_JSON_COMPAT_PATH = join(CRE_USER_PAYLOAD_DIR, "sponser.json");
+const CRE_EXECUTE_JSON_PATH = process.env.CRE_EXECUTE_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "execute.json");
+const CRE_FIAT_JSON_PATH = process.env.CRE_FIAT_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "fiat.json");
+const CRE_REVOKE_JSON_PATH = process.env.CRE_REVOKE_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "revoke.json");
+const CRE_DISPUTE_JSON_PATH = process.env.CRE_DISPUTE_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "dispute.json");
+const CRE_POSITIONS_JSON_PATH = process.env.CRE_POSITIONS_JSON_PATH || join(CRE_USER_PAYLOAD_DIR, "positions.json");
 
 const ACTION_TO_REPORT_ACTION_TYPE: Record<string, string> = {
   addLiquidity: "routerAddLiquidity",
@@ -280,6 +285,10 @@ const writeCreExecuteRequestJson = (payload: Record<string, unknown>): void => {
 
 const writeCreFiatRequestJson = (payload: Record<string, unknown>): void => {
   writeJsonFile(CRE_FIAT_JSON_PATH, payload);
+};
+
+const writeCreRevokeRequestJson = (payload: Record<string, unknown>): void => {
+  writeJsonFile(CRE_REVOKE_JSON_PATH, payload);
 };
 
 const writeCreDisputeRequestJson = (payload: Record<string, unknown>): void => {
@@ -1165,7 +1174,9 @@ const handleSessionRevoke = async (req: Request): Promise<Response> => {
     chainId: body.chainId,
     revokeSignature: body.revokeSignature,
   };
+  writeCreRevokeRequestJson(revokePayload);
   console.log("[MOCK_CRE_REVOKE] payload=", JSON.stringify(revokePayload));
+  console.log("[MOCK_CRE_REVOKE] wrote revoke request json:", CRE_REVOKE_JSON_PATH);
 
   for (const [token, session] of sessions.entries()) {
     if (session.sessionAuth.sessionId === body.sessionId) {
@@ -1177,6 +1188,7 @@ const handleSessionRevoke = async (req: Request): Promise<Response> => {
     revoked: true,
     requestId: revokePayload.requestId,
     reason: "mocked revoke accepted",
+    revokeJsonPath: CRE_REVOKE_JSON_PATH,
   });
 };
 

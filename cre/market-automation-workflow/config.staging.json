@@ -1,0 +1,13 @@
+{
+  "schedule": "*/30 * * * * *",
+  "evms": [
+    {
+      "marketFactoryAddress": "0xA33Ac22e58d34712928d1D1E4CD5201349DCD023",
+      "chainName": "ethereum-testnet-sepolia-arbitrum-1"
+    },
+    {
+      "marketFactoryAddress": "0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3",
+      "chainName": "ethereum-testnet-sepolia-base-1"
+    }
+  ]
+}

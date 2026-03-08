@@ -495,19 +495,19 @@ fail_on_revert = true
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x1dAf6Ecab082971aCF99E50B517cf297B51B6e5C` |
-| RouterVault | `0x0d9498795752AeDF56FF3C2579Dd0E91994CadCe` |
+| MarketFactory | `0xA33Ac22e58d34712928d1D1E4CD5201349DCD023` |
+| RouterVault | `0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5` |
 | Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
-| Collateral (USDC) | `0x52539038C1d1C88AA12438e3c13ADC6778B966Fc` |
+| Collateral (USDC) | `0xe34742D957708d2c91CA8827F758b3843d681b3e` |
 
 ### Base Sepolia (Spoke)
 
 | Contract | Address |
 |---|---|
-| MarketFactory | `0x73f6A1a5B211E39AcE6F6AF108d7c6e0F77e3B92` |
-| RouterVault | `0x2bE604A2052a6C5e246094151d8962B2E98D8f7c` |
+| MarketFactory | `0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3` |
+| RouterVault | `0xef21B5c764186B9D3faD4D610564816fA7e461d4` |
 | Bridge | `0x915E3Ee1A09b08038e216B0eCbe736164a246aA3` |
-| Collateral (USDC) | `0xB17Ede44C636887ce980D9359A176a088DC46c2f` |
+| Collateral (USDC) | `0x57e91c594f77Fca0cb6760267586772E3A3f054F` |
 
 ---
 

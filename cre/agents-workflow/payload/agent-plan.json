@@ -1,15 +1,15 @@
 {
   "phaseNumber": 1,
   "phase": "plan",
-  "requestId": "agent_req_1772726285611",
+  "requestId": "agent_req_1772987555280",
   "chainId": 421614,
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "user": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "agent": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "market": "0xbcbb5227a44e2ac853959e381c8ede7592594b8f",
+  "agent": "0x56712BE589F479596D20acc05F263Dc8D22297C7",
+  "market": "0x00a6f82d7775f64843908b595bfc38de5b960cee",
   "action": "mintCompleteSets",
   "actionType": "routerAgentMintCompleteSets",
-  "amountUsdc": "10000000",
+  "amountUsdc": "20000000",
   "slippageBps": 120,
-  "createdAtUnix": 1772726285
+  "createdAtUnix": 1772987555
 }

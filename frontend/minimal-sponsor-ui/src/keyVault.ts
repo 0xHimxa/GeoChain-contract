@@ -24,9 +24,18 @@ const fromHex = (hex: string): Uint8Array => {
   return out;
 };
 
+const getCryptoOrThrow = (): Crypto => {
+  const webCrypto = globalThis.crypto;
+  if (!webCrypto?.subtle) {
+    throw new Error("Web Crypto API unavailable. Open the frontend in a modern browser over http://localhost or HTTPS.");
+  }
+  return webCrypto;
+};
+
 const deriveKey = async (password: string, salt: Uint8Array): Promise<CryptoKey> => {
-  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey(
+  const webCrypto = getCryptoOrThrow();
+  const base = await webCrypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return webCrypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: salt as unknown as BufferSource,
@@ -44,10 +53,11 @@ const deriveKey = async (password: string, salt: Uint8Array): Promise<CryptoKey>
 };
 
 const encryptPrivateKey = async (privateKey: string, password: string) => {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const webCrypto = getCryptoOrThrow();
+  const salt = webCrypto.getRandomValues(new Uint8Array(16));
+  const iv = webCrypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
-  const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(privateKey));
+  const cipher = await webCrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(privateKey));
   return {
     cipherHex: toHex(new Uint8Array(cipher)),
     ivHex: toHex(iv),
@@ -56,10 +66,11 @@ const encryptPrivateKey = async (privateKey: string, password: string) => {
 };
 
 const decryptPrivateKey = async (payload: StoredWalletPayload, password: string): Promise<string> => {
+  const webCrypto = getCryptoOrThrow();
   const key = await deriveKey(password, fromHex(payload.saltHex));
   const iv = fromHex(payload.ivHex) as unknown as BufferSource;
   const cipher = fromHex(payload.cipherHex) as unknown as BufferSource;
-  const plain = await crypto.subtle.decrypt(
+  const plain = await webCrypto.subtle.decrypt(
     { name: "AES-GCM", iv },
     key,
     cipher

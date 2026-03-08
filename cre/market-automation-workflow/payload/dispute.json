@@ -1,0 +1,18 @@
+{
+  "requestId": "ui_1772506576280",
+  "chainId": 421614,
+  "action": "disputeProposedResolution",
+  "actionType": "routerDisputeProposedResolution",
+  "sender": "0xbc57f2803e03bE11bf298174889b27865Ea2EB59",
+  "amountUsdc": "0",
+  "payloadHex": "0x000000000000000000000000bc57f2803e03be11bf298174889b27865ea2eb590000000000000000000000002c0a9da959d66f1612c0f16a7be88f6e4efa25000000000000000000000000000000000000000000000000000000000000000001",
+  "market": {
+    "chainId": 421614,
+    "marketAddress": "0x2c0a9da959d66f1612c0f16a7be88f6e4efa2500",
+    "marketId": "1",
+    "question": "Will BTC price be above $3,000 in 1 hour?",
+    "yesToken": "0x3f94BFFCC9C9a99B239a83e63C94D9960909D336",
+    "noToken": "0x63dDa417882612cE06371ca9777C6ad75f07B65f"
+  },
+  "createdAtUnix": 1772506576
+}

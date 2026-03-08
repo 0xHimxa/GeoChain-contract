@@ -175,10 +175,10 @@ contract BaseDeployMarketFactory is Script {
 }
 
 contract DeployRouter is Script {
-    address arbMarketFactory = 0x1dAf6Ecab082971aCF99E50B517cf297B51B6e5C;
-    address baseMarketFactory = 0x73f6A1a5B211E39AcE6F6AF108d7c6e0F77e3B92;
-    address arbCollateral = 0x52539038C1d1C88AA12438e3c13ADC6778B966Fc ;
-    address baseCollateral = 0xB17Ede44C636887ce980D9359A176a088DC46c2f;
+    address arbMarketFactory = 0xA33Ac22e58d34712928d1D1E4CD5201349DCD023;
+    address baseMarketFactory = 0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3;
+    address arbCollateral = 0xe34742D957708d2c91CA8827F758b3843d681b3e ;
+    address baseCollateral = 0x57e91c594f77Fca0cb6760267586772E3A3f054F;
     address initialOwner = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
     address forwarder = 0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5;
 

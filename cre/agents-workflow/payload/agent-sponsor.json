@@ -1,15 +1,15 @@
 {
   "phaseNumber": 2,
   "phase": "sponsor",
-  "requestId": "agent_req_1772726398732",
+  "requestId": "agent_req_1772988119528",
   "chainId": 421614,
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "action": "mintCompleteSets",
-  "actionType": "routerAgentMintCompleteSets",
+  "action": "swapYesForNo",
+  "actionType": "routerAgentSwapYesForNo",
   "amountUsdc": "10000000",
   "slippageBps": 120,
   "session": {
-    "sessionId": "sess_A85926f9_1772726413825",
+    "sessionId": "sess_A85926f9_1772988126863",
     "owner": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
     "sessionPublicKey": "0x0414fb631d24183a71f7453c3e7aad488948c94de5cf62180d0e75f34352e7874045356d4f60f4bab4b53346fd33a01643acbb3aa8092b89e6950eb1ee15b4040d",
     "chainId": 421614,
@@ -24,10 +24,10 @@
       "disputeProposedResolution"
     ],
     "maxAmountUsdc": "10000000000",
-    "expiresAtUnix": 1772730013,
-    "grantSignature": "0x62e98e30a58d81120ad399525e52e2c5465549c4092e340b0226329f4f6b5895280fdb5d3633979b9e9628073212fb3218a2d594180e7eb71e2559882abf52ad1c",
-    "requestNonce": "nonce_1772726413825_aebfnagi",
-    "requestSignature": "0x325e1218ff9893e9dac443d7ef6f98f9acd65a0749bd6497d82761e203957184441caf25c1df4bc862bfa7affc191e32b95ef4033a28a47be8a827eec47b71c31c"
+    "expiresAtUnix": 1772991726,
+    "grantSignature": "0xfeff400b650a52b0ea00904cef960b3c2ec048e3e971640946764c826b789d7e2c99454781dc64febba6fc2b3290b024074703d3d7645958e589660bfdddc9b31c",
+    "requestNonce": "nonce_1772988126863_duuna8hg",
+    "requestSignature": "0x8002010d4997efd6d035c55521aa9d711954ce644f1905df8d5ea5c6758d01e23c8bb455b23e31fd95073bd2da2742db1682f106d518da07513cde6b1619657b1c"
   },
-  "createdAtUnix": 1772726431
+  "createdAtUnix": 1772988137
 }

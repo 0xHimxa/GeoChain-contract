@@ -94,6 +94,7 @@ contract PredictionMarket is PredictionMarketResolution {
     function getDeviationStatus()
         external
         view
+       
         returns (
             DeviationBand band,
             uint256 deviationBps,
@@ -186,6 +187,23 @@ contract PredictionMarket is PredictionMarketResolution {
 
         uint256 yesProbability = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
         return MarketConstants.PRICE_PRECISION - yesProbability;
+    }
+
+    /// @notice Returns market state and both probabilities in one read for automation consumers.
+    function getSyncSnapshot() external view returns (State marketState, uint256 yesPriceE6, uint256 noPriceE6) {
+        if (!seeded) {
+            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        }
+
+        marketState = state;
+
+        if (_isCanonicalPricingMode()) {
+            _ensureCanonicalPriceFresh();
+            return (marketState, canonicalYesPriceE6, canonicalNoPriceE6);
+        }
+
+        yesPriceE6 = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+        noPriceE6 = MarketConstants.PRICE_PRECISION - yesPriceE6;
     }
 
     /// @notice Pauses user actions guarded by `whenNotPaused` / `marketOpen`.
