@@ -63,6 +63,8 @@ const toOutcomeCode = (value: string): number => {
   return 3;
 };
 
+const toIsoUtc = (unixSeconds: bigint): string => new Date(Number(unixSeconds) * 1000).toISOString();
+
 type DisputeResolutionSnapshot = readonly [
   number,
   number,
@@ -223,16 +225,19 @@ export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): strin
         .map((outcome) => toOutcomeLabel(Number(outcome)))
         .filter((label) => label !== "UNSET");
 
-       const gemini = askGeminiAdjudicateDispute(runtime, {
-         question,
-         resolutionTime: resolutionTime.toString(),
+      const gemini = askGeminiAdjudicateDispute(runtime, {
+        question,
+        resolutionTimeUnix: resolutionTime.toString(),
+        resolutionTimeIso: toIsoUtc(resolutionTime),
         originalProposedOutcome: toOutcomeLabel(proposedResolution),
         disputedOutcomes: outcomes,
-       });
-//gemini.result|| "INCONCLUSIVE"
-      const adjudicatedOutcome = toOutcomeCode( "YES");
-      //
-      const proofUrl = adjudicatedOutcome === 3 ?  `https://www.google.com/search?q=${question}` : (gemini.source_url ||  `https://www.google.com/search?q=${question}`);
+      });
+
+      const adjudicatedOutcome = toOutcomeCode(gemini.result || "INCONCLUSIVE");
+      const proofUrl =
+        adjudicatedOutcome === 3
+          ? `https://www.google.com/search?q=${question}`
+          : (gemini.source_url || `https://www.google.com/search?q=${question}`);
       const adjudicatePayload = encodeAbiParameters(
         parseAbiParameters("uint8 adjudicatedOutcome, string proofUrl"),
         [adjudicatedOutcome, proofUrl]

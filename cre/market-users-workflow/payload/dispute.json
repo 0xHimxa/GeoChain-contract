@@ -1,18 +1,18 @@
 {
-  "requestId": "ui_1772506576280",
+  "requestId": "ui_1773007646095",
   "chainId": 421614,
   "action": "disputeProposedResolution",
   "actionType": "routerDisputeProposedResolution",
-  "sender": "0xbc57f2803e03bE11bf298174889b27865Ea2EB59",
+  "sender": "0x2De856163308221EB58C1280fFeA2C0eDABb7818",
   "amountUsdc": "0",
-  "payloadHex": "0x000000000000000000000000bc57f2803e03be11bf298174889b27865ea2eb590000000000000000000000002c0a9da959d66f1612c0f16a7be88f6e4efa25000000000000000000000000000000000000000000000000000000000000000001",
+  "payloadHex": "0x0000000000000000000000002de856163308221eb58c1280ffea2c0edabb78180000000000000000000000009a9a72e6138181b74fb03541d406966835fda80f0000000000000000000000000000000000000000000000000000000000000002",
   "market": {
     "chainId": 421614,
-    "marketAddress": "0x2c0a9da959d66f1612c0f16a7be88f6e4efa2500",
-    "marketId": "1",
-    "question": "Will BTC price be above $3,000 in 1 hour?",
-    "yesToken": "0x3f94BFFCC9C9a99B239a83e63C94D9960909D336",
-    "noToken": "0x63dDa417882612cE06371ca9777C6ad75f07B65f"
+    "marketAddress": "0x9a9a72e6138181b74fb03541d406966835fda80f",
+    "marketId": "4",
+    "question": "Will the official Mozilla Firefox Release Notes page (https://www.mozilla.org/en-US/firefox/releases/) explicitly list \"Firefox 140.0\" as a released version at any point between event_start 2026-03-08 21:15 UTC and the closing_date 2026-03-08 21:45 UTC? The 30-minute event window is defined. Settlement will be based on whether \"Firefox 140.0\" appears on the specified official release notes page within the event window. If the version is listed, the market resolves 'Yes'. Otherwise, it resolves 'No'. No data occurring after closing_date 2026-03-08 21:45 UTC may influence settlement. The event starts at 2026-03-08 21:15 UTC.",
+    "yesToken": "0x992cbb16f6fE297cC340633C2550CEE27C913b6f",
+    "noToken": "0x68b9E82b8025C02eD49e9caf2aB9BB33c2F905E7"
   },
-  "createdAtUnix": 1772506576
+  "createdAtUnix": 1773007646
 }

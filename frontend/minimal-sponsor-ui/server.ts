@@ -975,6 +975,7 @@ const handleSponsor = async (req: Request): Promise<Response> => {
   console.log("[MOCK_CRE_EXECUTE] wrote execute request json:", CRE_EXECUTE_JSON_PATH);
 
   if (actionType === "routerDisputeProposedResolution") {
+    const normalizedSession = normalizeSponsorSession(body.session);
     const disputePayload = {
       requestId: policyPayload.requestId,
       chainId: body.chainId,
@@ -982,7 +983,9 @@ const handleSponsor = async (req: Request): Promise<Response> => {
       actionType,
       sender: body.sender,
       amountUsdc: body.amountUsdc,
+      slippageBps: body.slippageBps,
       payloadHex: executePayload.payloadHex,
+      ...(normalizedSession ? { session: normalizedSession } : {}),
       market: body.market || null,
       createdAtUnix: nowUnix(),
     };

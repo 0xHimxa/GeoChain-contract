@@ -34,7 +34,7 @@ GeoChain is a prediction market protocol that uses **Chainlink CRE** to automate
 
 | Item | Link |
 |---|---|
-| Video walkthrough | `TODO: add submission video link` |
+| Video walkthrough |https://youtu.be/usd_6u_leKE?si=2_bofLCQuyVJtOHE |
 | Repo | [GeoChain source code](./) |
 | User UI | [`frontend/minimal-sponsor-ui`](./frontend/minimal-sponsor-ui) |
 | Agent UI | [`frontend/minimal-sponsor-ui/src/AgentApp.tsx`](./frontend/minimal-sponsor-ui/src/AgentApp.tsx) |

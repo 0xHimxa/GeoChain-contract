@@ -18,7 +18,7 @@ contract BuyShareToMovePrice is Script {
     function run() external {
         // --- Configuration ---
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddr =  0x00a6f82d7775f64843908b595BFc38dE5b960cee;
+        address marketAddr = 0x9A9A72e6138181B74Fb03541d406966835FdA80f;
         bool isBuyYes = true; // Set to false for NO
     Resolution outcome;
 
@@ -36,7 +36,7 @@ contract BuyShareToMovePrice is Script {
          vm.startBroadcast(trader);
     // market.manualResolveMarket( Resolution.Yes , "http://localhost:3000");
    // IERC20(0xe34742D957708d2c91CA8827F758b3843d681b3e).approve(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5, 800e6);
-    PredictionMarketResolution(marketAddr). manualResolveMarket( Resolution.No , "http://localhost:3000");
+    PredictionMarketResolution(marketAddr).setDisputeWindow(10 minutes);
   //  PredictionMarketResolution(marketAddr).proposedResolution( );
 
 //PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5)).depositCollateral(200e6);

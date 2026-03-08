@@ -1,5 +1,5 @@
 {
-  "updatedAtUnix": 1772994958,
+  "updatedAtUnix": 1773008421,
   "wallets": [
     {
       "wallet": "0xbc57f2803e03be11bf298174889b27865ea2eb59",
@@ -105,6 +105,16 @@
           "noToken": "0x88fe2a78b994D8504f7bD9Dbd75975ba93e40F8f",
           "firstSeenAtUnix": 1772988868,
           "lastSeenAtUnix": 1772988868
+        },
+        {
+          "chainId": 421614,
+          "marketAddress": "0x9a9a72e6138181b74fb03541d406966835fda80f",
+          "marketId": "4",
+          "question": "Will the official Mozilla Firefox Release Notes page (https://www.mozilla.org/en-US/firefox/releases/) explicitly list \"Firefox 140.0\" as a released version at any point between event_start 2026-03-08 21:15 UTC and the closing_date 2026-03-08 21:45 UTC? The 30-minute event window is defined. Settlement will be based on whether \"Firefox 140.0\" appears on the specified official release notes page within the event window. If the version is listed, the market resolves 'Yes'. Otherwise, it resolves 'No'. No data occurring after closing_date 2026-03-08 21:45 UTC may influence settlement. The event starts at 2026-03-08 21:15 UTC.",
+          "yesToken": "0x992cbb16f6fE297cC340633C2550CEE27C913b6f",
+          "noToken": "0x68b9E82b8025C02eD49e9caf2aB9BB33c2F905E7",
+          "firstSeenAtUnix": 1773004608,
+          "lastSeenAtUnix": 1773007646
         }
       ],
       "positions": [
@@ -114,6 +124,13 @@
           "noShares": "48500000",
           "completeSetsMinted": "48500000",
           "redeemableUsdc": "48500000"
+        },
+        {
+          "eventId": "421614:4",
+          "yesShares": "0",
+          "noShares": "1901171",
+          "completeSetsMinted": "0",
+          "redeemableUsdc": "0"
         }
       ]
     }
