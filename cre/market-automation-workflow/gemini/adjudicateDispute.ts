@@ -7,6 +7,24 @@ import {
 import { type Config } from "../Constant-variable/config";
 import { type GeminiResolveResponse } from "../type";
 
+const parseGeminiJson = (rawText: string): GeminiResolveResponse => {
+  const trimmed = (rawText || "").trim();
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fencedMatch?.[1]?.trim() || trimmed;
+
+  try {
+    return JSON.parse(candidate) as GeminiResolveResponse;
+  } catch {
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(candidate.slice(firstBrace, lastBrace + 1)) as GeminiResolveResponse;
+    }
+  }
+
+  throw new Error(`Gemini did not return valid JSON. Raw response: ${trimmed.slice(0, 500)}`);
+};
+
 export interface DisputeAdjudicationInput {
   question: string;
   resolutionTime: string;
@@ -108,5 +126,5 @@ DISPUTED_OUTCOME_SET: ${JSON.stringify(input.disputedOutcomes)}`
     const rawData = new TextDecoder().decode(res.body);
     const parsed = JSON.parse(rawData);
     const aiResponseString = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return JSON.parse(aiResponseString) as GeminiResolveResponse;
+    return parseGeminiJson(aiResponseString);
   };

@@ -130,10 +130,11 @@ export const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
       data: bytesToHex(syncSnapshotResult.data),
     }) as [bigint, bigint, bigint];
 
-    if (marketState !== MARKET_STATE_OPEN) {
+    if (Number(marketState) !== MARKET_STATE_OPEN) {
       runtime.log(`Skipping ${marketAddress}: market is no longer open (state=${marketState})`);
       continue;
     }
+    
 
     const validUntil = BigInt(Math.floor(Date.now() / 1000) + 15 * 60);
     const pricePayload = encodeAbiParameters(

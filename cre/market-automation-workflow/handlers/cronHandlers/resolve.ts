@@ -58,6 +58,10 @@ const toOutcomeCode = (result: string): number => {
   return 3;
 };
 
+const toIsoUtc = (unixSeconds: bigint): string => {
+  return new Date(Number(unixSeconds) * 1000).toISOString();
+};
+
 
 
 /**
@@ -66,6 +70,12 @@ const toOutcomeCode = (result: string): number => {
  * After attempting resolutions, it triggers withdrawal queue processing across factories.
  */
 export const resoloveEvent = (runtime: Runtime<Config>): string => {
+
+
+
+
+
+
   const marketFactoryCallData = encodeFunctionData({
     abi: MarketFactoryAbi,
     functionName: "getActiveEventList",
@@ -158,11 +168,13 @@ runtime.log(`Active Events: ${JSON.stringify( activeEventList)}`);
         data: bytesToHex(snapshotResult.data),
       }) as DisputeResolutionSnapshot;
       const question = snapshot[5] || "";
-      const resolutionTime = snapshot[4].toString();
+      const resolutionTimeUnix = snapshot[4].toString();
+      const resolutionTimeIso = toIsoUtc(snapshot[4]);
 
       const geminiResolve = askGemeniResolve(runtime, {
         question,
-        resolutionTime,
+        resolutionTimeUnix,
+        resolutionTimeIso,
       });
       const outcome = toOutcomeCode(geminiResolve.result);
       const proofUrl = geminiResolve.source_url || `https://www.google.com/search?q=${question}`;

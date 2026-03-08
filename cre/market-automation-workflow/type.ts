@@ -17,6 +17,12 @@ export interface GeminiResolveResponse{
   "source_url": string
 }
 
+export interface ResolveInput {
+  question: string,
+  resolutionTimeUnix: string,
+  resolutionTimeIso: string
+}
+
 
 export interface SignupNewUserResponse {
   kind: string;
