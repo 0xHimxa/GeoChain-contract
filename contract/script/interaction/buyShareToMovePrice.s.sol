@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {Script} from "forge-std/Script.sol";
+import {Script,console} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketBase.sol";
 import {Resolution} from "../../src/libraries/MarketTypes.sol";
 import {PredictionMarketRouterVaultOperations} from "../../src/router/PredictionMarketRouterVaultOperations.sol";
+import { PredictionMarketResolution} from "../../src/predictionMarket/PredictionMarketResolution.sol";
 
 /// @notice Test helper script to move market price by buying YES or NO exposure.
 /// @dev Direction:
@@ -17,8 +18,10 @@ contract BuyShareToMovePrice is Script {
     function run() external {
         // --- Configuration ---
         address trader = 0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc;
-        address marketAddr = 0x5bacFe702DDB2a6f996700a8b39E74b463656d42;
+        address marketAddr =  0x00a6f82d7775f64843908b595BFc38dE5b960cee;
         bool isBuyYes = true; // Set to false for NO
+    Resolution outcome;
+
         
         uint256 targetSwapIn = isBuyYes ? 300_000_000 : 300_000_000;
         uint256 collateralIn = vm.envOr("COLLATERAL_IN", (targetSwapIn * 10_000) / 9_700);
@@ -32,9 +35,12 @@ contract BuyShareToMovePrice is Script {
 
          vm.startBroadcast(trader);
     // market.manualResolveMarket( Resolution.Yes , "http://localhost:3000");
-    IERC20(0xe34742D957708d2c91CA8827F758b3843d681b3e).approve(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5, 800e6);
-PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5)).depositCollateral(200e6);
-PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5)).depositFor( 0x2De856163308221EB58C1280fFeA2C0eDABb7818,200e6);
+   // IERC20(0xe34742D957708d2c91CA8827F758b3843d681b3e).approve(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5, 800e6);
+    PredictionMarketResolution(marketAddr). manualResolveMarket( Resolution.No , "http://localhost:3000");
+  //  PredictionMarketResolution(marketAddr).proposedResolution( );
+
+//PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5)).depositCollateral(200e6);
+//PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5)).depositFor( 0x2De856163308221EB58C1280fFeA2C0eDABb7818,200e6);
 
         // // 1. Minting
         // IERC20(market.i_collateral()).approve(marketAddr, collateralIn);
@@ -48,11 +54,12 @@ PredictionMarketRouterVaultOperations(payable(0xEeD3dc1B401ebd6C22E00641Cc6663Ff
         //    IERC20(market.yesToken()).approve(marketAddr, targetSwapIn);
         //     market.swapYesForNo(targetSwapIn, 0);
         //  }
+       // console.log("Outcome:", outcome);
 
         vm.stopBroadcast();
 
         // --- Post-Trade Logs ---
-        console2.log("--- AFTER ---");
+        console2.log("--- AFTER ---", uint8(outcome));
         _logMarketState(market);
     }
 
