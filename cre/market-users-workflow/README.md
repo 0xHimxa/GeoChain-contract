@@ -64,7 +64,7 @@ market-users-workflow/
 └── payload/
     ├── fiat.json
     ├── positions.json
-    └── sponser.json
+    └── sponsor.json
 ```
 
 ## Handler Notes

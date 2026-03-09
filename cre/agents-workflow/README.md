@@ -17,7 +17,7 @@
 
 ## Overview
 
-The **agents-workflow** is a standalone CRE workflow purpose-built for AI agent trading on GeoChain prediction markets. It is **architecturally separate** from the [market-workflow](../market-workflow/README.md) to isolate agent trading from operational market automation.
+The **agents-workflow** is a standalone CRE workflow purpose-built for AI agent trading on GeoChain prediction markets. It is **architecturally separate** from the [market-automation-workflow](../market-automation-workflow/README.md) to isolate agent trading from operational market automation.
 
 ### Why a Separate Workflow?
 
@@ -59,7 +59,7 @@ The **agents-workflow** is a standalone CRE workflow purpose-built for AI agent 
     ┌──────────▼──────────────▼──────────────────────▼────────────┐
     │                   Shared Infrastructure                      │
     ├────────────────┬───────────────┬────────────────────────────┤
-    │   firebase/    │    utils/     │  market-workflow (reused)   │
+    │   firebase/    │    utils/     │  market-automation-workflow │
     │  Session mgmt  │ Validation   │  sponsor + execute handlers │
     └────────────────┴───────────────┴────────────────────────────┘
 ```
@@ -108,9 +108,9 @@ agents-workflow/
 │   │   ├── httpAgentExecuteTrade.ts  # Approval consumption & on-chain submission
 │   │   ├── httpAgentRevoke.ts        # Session termination
 │   │   ├── httpAgentGeminiAutoTrade.ts  # AI-driven autonomous trading
-│   │   ├── httpSponsorPolicy.ts     # (Reused from market-workflow)
-│   │   ├── httpExecuteReport.ts     # (Reused from market-workflow)
-│   │   └── httpRevokeSession.ts     # (Reused from market-workflow)
+│   │   ├── httpSponsorPolicy.ts     # (Reused from market-automation-workflow)
+│   │   ├── httpExecuteReport.ts     # (Reused from market-automation-workflow)
+│   │   └── httpRevokeSession.ts     # (Reused from market-automation-workflow)
 │   └── utils/
 │       ├── sessionValidation.ts     # EIP-712 session signature verification
 │       ├── agentAction.ts           # Agent action → router action type mapping
@@ -309,13 +309,13 @@ Agent trading uses a **6-layer defense-in-depth** security model:
 | `agentPolicy.maxSlippageBps` | `number` | Maximum allowed slippage in basis points |
 | `agentPolicy.defaultSlippageBps` | `number` | Default slippage when not specified |
 | `agentPolicy.supportedChainIds` | `number[]` | Chain IDs agents can trade on |
-| `sponsorPolicy` | `object` | Shared sponsor policy (reused from market-workflow) |
+| `sponsorPolicy` | `object` | Shared sponsor policy (reused from market-automation-workflow) |
 | `executePolicy` | `object` | Shared execute policy allowlist |
 | `evms[]` | `EvmConfig[]` | Per-chain contract addresses and config |
 
 ### Required Secrets
 
-Same as market-workflow:
+Same as market-automation-workflow:
 
 | Secret | Description |
 |---|---|
@@ -332,7 +332,7 @@ Same as market-workflow:
 - [Bun](https://bun.sh) ≥ 1.0
 - [Chainlink CRE CLI](https://docs.chain.link/cre)
 - Deployed smart contracts with agent permissions configured
-- `market-workflow` deployed (agents-workflow reuses shared policies)
+- `market-automation-workflow` deployed (agents-workflow reuses shared policies)
 
 ### Install
 
@@ -412,5 +412,5 @@ bun test
 
 ## Related Documentation
 
-- [Market Workflow README](../market-workflow/README.md) — Core automation CRE workflow
+- [Market Automation Workflow README](../market-automation-workflow/README.md) — Core automation CRE workflow
 - [Project README](../../README.md) — Full project documentation

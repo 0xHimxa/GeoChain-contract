@@ -128,11 +128,11 @@ If any check fails, tx/report execution reverts on-chain.
 
 New files:
 
-- `cre/market-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts`
-- `cre/market-workflow/handlers/httpHandlers/httpAgentSponsorTrade.ts`
-- `cre/market-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts`
-- `cre/market-workflow/handlers/httpHandlers/httpAgentRevoke.ts`
-- `cre/market-workflow/handlers/utils/agentAction.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpAgentSponsorTrade.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpAgentRevoke.ts`
+- `cre/market-automation-workflow/handlers/utils/agentAction.ts`
 
 ### 4.1 `agentAction.ts` (shared mapping + payload encoding)
 
@@ -215,7 +215,7 @@ Behavior:
 
 File:
 
-- `cre/market-workflow/handlers/httpHandlers/httpSponsorPolicy.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpSponsorPolicy.ts`
 
 What changed:
 
@@ -227,7 +227,7 @@ What changed:
 
 File:
 
-- `cre/market-workflow/handlers/httpHandlers/httpExecuteReport.ts`
+- `cre/market-automation-workflow/handlers/httpHandlers/httpExecuteReport.ts`
 
 What changed:
 
@@ -237,7 +237,7 @@ What changed:
 
 File:
 
-- `cre/market-workflow/main.ts`
+- `cre/market-automation-workflow/main.ts`
 
 Added imports + HTTP trigger registrations for:
 
@@ -254,7 +254,7 @@ And added:
 
 File:
 
-- `cre/market-workflow/Constant-variable/config.ts`
+- `cre/market-automation-workflow/Constant-variable/config.ts`
 
 Added types:
 

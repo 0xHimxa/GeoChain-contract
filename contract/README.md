@@ -470,7 +470,7 @@ forge coverage
 |---|---|---|
 | `test/unit/` | Unit tests | Individual function behavior verification |
 | `test/statelessFuzz/` | Stateless fuzz | Random input testing for edge cases |
-| `test/statefullFuzz/` | Stateful invariant | Multi-step invariant checking (1000 runs, depth 50) |
+| `test/statefullFuzz/` | Stateful invariant | Multi-step invariant checking with active Foundry invariant suites |
 
 ### Foundry Configuration
 
@@ -513,6 +513,6 @@ fail_on_revert = true
 
 ## Related Documentation
 
-- [Market Workflow README](../cre/market-workflow/README.md) — CRE automation workflow
+- [Market Automation Workflow README](../cre/market-automation-workflow/README.md) — CRE automation workflow
 - [Agents Workflow README](../cre/agents-workflow/README.md) — Agent trading CRE workflow
 - [Project README](../README.md) — Full project documentation

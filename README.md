@@ -34,7 +34,7 @@ GeoChain is a prediction market protocol that uses **Chainlink CRE** to automate
 
 | Item | Link |
 |---|---|
-| Video walkthrough |https://youtu.be/usd_6u_leKE?si=2_bofLCQuyVJtOHE |
+| Video walkthrough | https://youtu.be/usd_6u_leKE?si=2_bofLCQuyVJtOHE |
 | Repo | [GeoChain source code](./) |
 | User UI | [`frontend/minimal-sponsor-ui`](./frontend/minimal-sponsor-ui) |
 | Agent UI | [`frontend/minimal-sponsor-ui/src/AgentApp.tsx`](./frontend/minimal-sponsor-ui/src/AgentApp.tsx) |
@@ -136,7 +136,7 @@ GeoChain doesn't just automate resolution — it automates the **entire market l
 | Automated Action | Workflow | Handler | Trigger |
 |---|---|---|---|
 | **Market Creation** | `market-automation-workflow` | `createPredictionMarketEvent` | Cron — Gemini generates unique event ideas, deploys on-chain |
-| **Market Resolution** | `market-automation-workflow` | `resoloveEvent` | Cron — detects markets past resolution time, calls Gemini |
+| **Market Resolution** | `market-automation-workflow` | `resolveEvent` | Cron — detects markets past resolution time, calls Gemini |
 | **Liquidity Top-Up** | `market-automation-workflow` | `marketFactoryBalanceTopUp` | Cron — monitors factory balance, auto-replenishes |
 | **Price Sync** | `market-automation-workflow` | `syncCanonicalPrice` | Cron — CRE reads hub prices and writes canonical sync reports directly to spoke factories |
 | **Unsafe Market Arbitrage** | `market-automation-workflow` | `arbitrateUnsafeMarketHandler` | Cron — corrects price deviations across chains |
@@ -599,7 +599,7 @@ cre workflow simulate ./ \
   --target staging-settings \
   --non-interactive \
   --trigger-index 0 \
-  --http-payload "$(cat payload/sponser.json)" \
+  --http-payload "$(cat payload/sponsor.json)" \
   --broadcast
 
 # Deploy to CRE staging

@@ -83,9 +83,9 @@ User can instantly stop agent:
 
 Files:
 
-- [config.staging.json](/home/himxa/Desktop/market/contracts/cre/market-workflow/config.staging.json)
-- [config.production.json](/home/himxa/Desktop/market/contracts/cre/market-workflow/config.production.json)
-- [config.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/Constant-variable/config.ts)
+- [config.staging.json](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/config.staging.json)
+- [config.production.json](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/config.production.json)
+- [config.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/Constant-variable/config.ts)
 
 Required fields:
 
@@ -108,8 +108,8 @@ If `sponsorPolicy.requireSessionAuthorization = true`, each sponsor request need
 
 Relevant code:
 
-- [sessionMessage.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/utils/sessionMessage.ts)
-- [sessionValidation.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/utils/sessionValidation.ts)
+- [sessionMessage.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/utils/sessionMessage.ts)
+- [sessionValidation.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/utils/sessionValidation.ts)
 
 ### 4.1 Required session fields
 
@@ -219,11 +219,11 @@ const requestSignature = await session.signTypedData({
 
 Files:
 
-- [httpAgentPlanTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts)
-- [httpAgentSponsorTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/httpHandlers/httpAgentSponsorTrade.ts)
-- [httpAgentExecuteTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts)
-- [httpAgentGeminiAutoTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/httpHandlers/httpAgentGeminiAutoTrade.ts)
-- [httpAgentRevoke.ts](/home/himxa/Desktop/market/contracts/cre/market-workflow/handlers/httpHandlers/httpAgentRevoke.ts)
+- [httpAgentPlanTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts)
+- [httpAgentSponsorTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/httpHandlers/httpAgentSponsorTrade.ts)
+- [httpAgentExecuteTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts)
+- [httpAgentGeminiAutoTrade.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/httpHandlers/httpAgentGeminiAutoTrade.ts)
+- [httpAgentRevoke.ts](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/handlers/httpHandlers/httpAgentRevoke.ts)
 
 You have two modes:
 
@@ -386,5 +386,5 @@ You can skip `httpAgentGeminiAutoTrade` entirely.
 
 ## 9. Related Docs
 
-1. [README-agentic-mode.md](/home/himxa/Desktop/market/contracts/cre/market-workflow/README-agentic-mode.md)
-2. [README.md](/home/himxa/Desktop/market/contracts/cre/market-workflow/README.md)
+1. [README-agentic-mode.md](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/README-agentic-mode.md)
+2. [README.md](/home/himxa/Desktop/market/contracts/cre/market-automation-workflow/README.md)

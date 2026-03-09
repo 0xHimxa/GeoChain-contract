@@ -10,7 +10,7 @@ test/
 │   └── PredictionMarket.t.sol
 ├── statelessFuzz/      # Property-based fuzz testing
 │   └── predictionMarket.t.sol
-├── statefullFuzz/      # Invariant/stateful fuzz testing (WIP)
+├── statefullFuzz/      # Invariant/stateful fuzz testing
 └── README.md          # This file
 ```
 
@@ -112,7 +112,7 @@ function testFuzz_Swap_AlwaysMaintainsK(uint256 swapAmount) public {
 }
 ```
 
-### Invariant Tests (Coming Soon)
+### Invariant Tests
 
 Located in `test/statefullFuzz/`, these tests verify that certain properties always hold.
 

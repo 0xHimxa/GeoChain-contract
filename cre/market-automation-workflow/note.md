@@ -17,7 +17,7 @@ a event handler that resolve marker factory the moment event resolved
 6) completed arbitrage fixing
 
 
-cre workflow simulate ./cre/market-workflow \
+cre workflow simulate ./cre/market-automation-workflow \
   --non-interactive \
   --trigger-index 1 \
   --http-payload '{"requestId":"manual_sponsor_1","chainId":84532,"action":"addLiquidity","amountUsdc":"1000000","sender":"0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc","slippageBps":100}' \

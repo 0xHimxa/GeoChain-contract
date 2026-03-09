@@ -16,7 +16,7 @@
 
 ## Overview
 
-The **market-workflow** is a Chainlink CRE (Compute Runtime Environment) workflow that automates the entire prediction market lifecycle — from AI-powered market creation to cross-chain price synchronization, dispute resolution, and withdrawal processing.
+The **market-automation-workflow** is a Chainlink CRE (Compute Runtime Environment) workflow that automates the entire prediction market lifecycle — from AI-powered market creation to cross-chain price synchronization, dispute resolution, and withdrawal processing.
 
 It is deployed as a single CRE workflow graph composed of three trigger types:
 
@@ -64,7 +64,7 @@ It is deployed as a single CRE workflow graph composed of three trigger types:
 ### Directory Structure
 
 ```
-market-workflow/
+market-automation-workflow/
 ├── main.ts                          # Workflow entry point & graph builder
 ├── config.staging.json              # Staging deployment configuration
 ├── config.production.json           # Production deployment configuration
@@ -395,7 +395,7 @@ Register via `cre secrets set`:
 ### Install
 
 ```bash
-cd cre/market-workflow
+cd cre/market-automation-workflow
 bun install
 ```
 
