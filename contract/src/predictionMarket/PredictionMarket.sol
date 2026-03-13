@@ -2,34 +2,25 @@
 pragma solidity 0.8.33;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {State, MarketConstants, MarketEvents, MarketErrors} from "../libraries/MarketTypes.sol";
-import {AMMLib} from "../libraries/AMMLib.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    State,
+    MarketConstants,
+    MarketEvents,
+    MarketErrors
+} from "../libraries/MarketTypes.sol";
 import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
 import {PredictionMarketResolution} from "./PredictionMarketResolution.sol";
 
 /// @title PredictionMarket
-/// @notice Concrete market surface that exposes liquidity, swap, canonical pricing, and resolution APIs.
-/// @dev Most logic lives in inherited modules; this contract mainly provides public entrypoints and
-/// owner-controlled policy/config accessors.
+/// @notice Concrete market surface using LMSR (Logarithmic Market Scoring Rule) AMM.
+/// @dev LMSR buy/sell trades are CRE-report-driven (off-chain compute, on-chain execute).
+///      Complete-set operations and resolution remain direct user calls.
+///      Most logic lives in inherited modules; this contract provides public entrypoints.
 contract PredictionMarket is PredictionMarketResolution {
     using SafeERC20 for IERC20;
-
-    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) public override {
-        super.addLiquidity(yesAmount, noAmount, minShares);
-    }
-
-    function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut) public override {
-        super.removeLiquidity(shares, minYesOut, minNoOut);
-    }
-
-    function removeLiquidityAndRedeemCollateral(uint256 shares, uint256 minCollateralOut) public override {
-        super.removeLiquidityAndRedeemCollateral(shares, minCollateralOut);
-    }
-
-    function transferShares(address to, uint256 shares) public override {
-        super.transferShares(to, shares);
-    }
 
     function mintCompleteSets(uint256 amount) public override {
         super.mintCompleteSets(amount);
@@ -39,20 +30,11 @@ contract PredictionMarket is PredictionMarketResolution {
         super.redeemCompleteSets(amount);
     }
 
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut) public override {
-        super.swapYesForNo(yesIn, minNoOut);
-    }
-
-    function swapNoForYes(uint256 noIn, uint256 minYesOut) public override {
-        super.swapNoForYes(noIn, minYesOut);
-    }
-
     /// @notice Updates deviation-policy thresholds that control canonical pricing safety rails.
     /// @dev Parameter constraints guarantee valid ordering and sane caps:
     /// `soft < stress < hard`,
     /// output caps are non-zero and <= 100%,
     /// unsafe cap is strictly tighter than stress cap.
-    /// These values directly influence swap fee uplift, direction restrictions, and per-trade size caps.
     function setDeviationPolicy(
         uint16 _softDeviationBps,
         uint16 _stressDeviationBps,
@@ -62,12 +44,15 @@ contract PredictionMarket is PredictionMarketResolution {
         uint16 _unsafeMaxOutBps
     ) external onlyOwner {
         if (
-            _softDeviationBps >= _stressDeviationBps || _stressDeviationBps >= _hardDeviationBps
-                || _hardDeviationBps > MarketConstants.FEE_PRECISION_BPS
-                || _stressExtraFeeBps > MarketConstants.FEE_PRECISION_BPS
-                || _stressMaxOutBps == 0 || _stressMaxOutBps > MarketConstants.FEE_PRECISION_BPS
-                || _unsafeMaxOutBps == 0 || _unsafeMaxOutBps > MarketConstants.FEE_PRECISION_BPS
-                || _unsafeMaxOutBps >= _stressMaxOutBps
+            _softDeviationBps >= _stressDeviationBps ||
+            _stressDeviationBps >= _hardDeviationBps ||
+            _hardDeviationBps > MarketConstants.FEE_PRECISION_BPS ||
+            _stressExtraFeeBps > MarketConstants.FEE_PRECISION_BPS ||
+            _stressMaxOutBps == 0 ||
+            _stressMaxOutBps > MarketConstants.FEE_PRECISION_BPS ||
+            _unsafeMaxOutBps == 0 ||
+            _unsafeMaxOutBps > MarketConstants.FEE_PRECISION_BPS ||
+            _unsafeMaxOutBps >= _stressMaxOutBps
         ) {
             revert PredictionMarket__DeviationPolicyInvalid();
         }
@@ -80,21 +65,21 @@ contract PredictionMarket is PredictionMarketResolution {
         unsafeMaxOutBps = _unsafeMaxOutBps;
 
         emit DeviationPolicyUpdated(
-            _softDeviationBps, _stressDeviationBps, _hardDeviationBps, _stressExtraFeeBps, _stressMaxOutBps, _unsafeMaxOutBps
+            _softDeviationBps,
+            _stressDeviationBps,
+            _hardDeviationBps,
+            _stressExtraFeeBps,
+            _stressMaxOutBps,
+            _unsafeMaxOutBps
         );
     }
 
-    /// @notice Returns current deviation diagnostics used by operators/automation.
+    /// @notice Returns current deviation diagnostics for cross-chain monitoring.
     /// @dev In local mode (non-canonical), returns permissive defaults.
-    /// In canonical mode, computes:
-    /// - deviation band,
-    /// - effective fee,
-    /// - max output cap in bps,
-    /// - whether each swap direction is currently permitted.
+    ///      In canonical mode, compares LMSR-stored prices against the hub canonical prices.
     function getDeviationStatus()
         external
         view
-       
         returns (
             DeviationBand band,
             uint256 deviationBps,
@@ -119,49 +104,45 @@ contract PredictionMarket is PredictionMarketResolution {
         _validateCanonicalPrices();
 
         uint8 bandId;
-        CanonicalPricingModule.DeviationStatusParams memory p = CanonicalPricingModule.DeviationStatusParams({
-            yesReserve: yesReserve,
-            noReserve: noReserve,
-            pricePrecision: MarketConstants.PRICE_PRECISION,
-            canonicalYesPriceE6: canonicalYesPriceE6,
-            softDeviationBps: softDeviationBps,
-            stressDeviationBps: stressDeviationBps,
-            hardDeviationBps: hardDeviationBps,
-            stressExtraFeeBps: stressExtraFeeBps,
-            stressMaxOutBps: stressMaxOutBps,
-            unsafeMaxOutBps: unsafeMaxOutBps,
-            swapFeeBps: MarketConstants.SWAP_FEE_BPS,
-            feePrecisionBps: MarketConstants.FEE_PRECISION_BPS
-        });
-        (bandId, deviationBps, effectiveFeeBps, maxOutBps, allowYesForNo, allowNoForYes) =
-            CanonicalPricingModule.deviationStatus(p);
+        // Use LMSR-stored prices instead of reserve-derived prices
+        // For LMSR, we derive synthetic "reserves" from prices for the canonical module
+        // price_yes = noReserve / (yesReserve + noReserve)
+        // So: yesReserve ∝ noPrice, noReserve ∝ yesPrice
+        uint256 syntheticYesReserve = lastNoPriceE6;
+        uint256 syntheticNoReserve = lastYesPriceE6;
+
+        CanonicalPricingModule.DeviationStatusParams
+            memory p = CanonicalPricingModule.DeviationStatusParams({
+                yesReserve: syntheticYesReserve,
+                noReserve: syntheticNoReserve,
+                pricePrecision: MarketConstants.PRICE_PRECISION,
+                canonicalYesPriceE6: canonicalYesPriceE6,
+                softDeviationBps: softDeviationBps,
+                stressDeviationBps: stressDeviationBps,
+                hardDeviationBps: hardDeviationBps,
+                stressExtraFeeBps: stressExtraFeeBps,
+                stressMaxOutBps: stressMaxOutBps,
+                unsafeMaxOutBps: unsafeMaxOutBps,
+                swapFeeBps: MarketConstants.SWAP_FEE_BPS,
+                feePrecisionBps: MarketConstants.FEE_PRECISION_BPS
+            });
+        (
+            bandId,
+            deviationBps,
+            effectiveFeeBps,
+            maxOutBps,
+            allowYesForNo,
+            allowNoForYes
+        ) = CanonicalPricingModule.deviationStatus(p);
         band = _bandFromId(bandId);
     }
 
-    /// @notice Quotes YES->NO swap output under current policy.
-    /// @dev Example: `yesIn = 2_000_000` means 2 units when tokens use 6 decimals.
-    function getYesForNoQuote(uint256 yesIn)
-        external
-        view
-        zeroAmountCheck(yesIn)
-        returns (uint256 netOut, uint256 fee)
-    {
-        return _quoteSwap(yesIn, true);
-    }
-
-    /// @notice Quotes NO->YES swap output under current policy.
-    /// @dev Example: `noIn = 2_000_000` means 2 units when tokens use 6 decimals.
-    function getNoForYesQuote(uint256 noIn) external view zeroAmountCheck(noIn) returns (uint256 netOut, uint256 fee) {
-        return _quoteSwap(noIn, false);
-    }
-
     /// @notice Returns YES probability in `1e6` precision.
-    /// @dev Source of truth:
-    /// - canonical mode: latest hub-synced canonical price,
-    /// - local mode: implied AMM price from reserves.
+    /// @dev LMSR stores prices directly (updated by CRE on each trade).
+    ///      In canonical mode, returns the hub-synced value if fresh.
     function getYesPriceProbability() external view returns (uint256) {
-        if (!seeded) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        if (!initialized) {
+            revert MarketErrors.LMSR__NotInitialized();
         }
 
         if (_isCanonicalPricingMode()) {
@@ -169,15 +150,13 @@ contract PredictionMarket is PredictionMarketResolution {
             return canonicalYesPriceE6;
         }
 
-        return AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
+        return lastYesPriceE6;
     }
 
     /// @notice Returns NO probability in `1e6` precision.
-    /// @dev Mirrors `getYesPriceProbability` source logic, using canonical value when active,
-    /// otherwise derives as `PRICE_PRECISION - yesProbability`.
     function getNoPriceProbability() external view returns (uint256) {
-        if (!seeded) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
+        if (!initialized) {
+            revert MarketErrors.LMSR__NotInitialized();
         }
 
         if (_isCanonicalPricingMode()) {
@@ -185,25 +164,7 @@ contract PredictionMarket is PredictionMarketResolution {
             return canonicalNoPriceE6;
         }
 
-        uint256 yesProbability = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
-        return MarketConstants.PRICE_PRECISION - yesProbability;
-    }
-
-    /// @notice Returns market state and both probabilities in one read for automation consumers.
-    function getSyncSnapshot() external view returns (State marketState, uint256 yesPriceE6, uint256 noPriceE6) {
-        if (!seeded) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet();
-        }
-
-        marketState = state;
-
-        if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            return (marketState, canonicalYesPriceE6, canonicalNoPriceE6);
-        }
-
-        yesPriceE6 = AMMLib.getYesProbability(yesReserve, noReserve, MarketConstants.PRICE_PRECISION);
-        noPriceE6 = MarketConstants.PRICE_PRECISION - yesPriceE6;
+        return lastNoPriceE6;
     }
 
     /// @notice Pauses user actions guarded by `whenNotPaused` / `marketOpen`.
@@ -217,11 +178,7 @@ contract PredictionMarket is PredictionMarketResolution {
     }
 
     /// @notice Withdraws accumulated protocol fee collateral.
-    /// @dev Guardrails:
-    /// - only owner or cross-chain controller may call,
-    /// - market must already be resolved,
-    /// - contract collateral balance must cover tracked fee amount.
-    /// On success, transfers full fee bucket and resets it to zero.
+    /// @dev Only owner or cross-chain controller may call after market resolution.
     function withdrawProtocolFees() external {
         if (msg.sender != owner() && msg.sender != crossChainController) {
             revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();

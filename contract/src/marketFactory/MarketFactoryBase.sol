@@ -1,15 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {
+    Initializable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    UUPSUpgradeable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
 import {MarketDeployer} from "./event-deployer/MarketDeployer.sol";
-import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
-import {MarketErrors, Resolution, MarketConstants} from "../libraries/MarketTypes.sol";
+import {
+    ReceiverTemplateUpgradeable
+} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
+import {
+    MarketErrors,
+    Resolution,
+    MarketConstants
+} from "../libraries/MarketTypes.sol";
 import {OutcomeToken} from "../token/OutcomeToken.sol";
 import {Client} from "../ccip/Client.sol";
 import {IRouterClient} from "../ccip/IRouterClient.sol";
@@ -130,15 +142,42 @@ abstract contract MarketFactoryBase is
         uint64 nonce;
     }
 
-    event MarketCreated(uint256 indexed marketId, address indexed market, uint256 indexed initialLiquidity);
+    event MarketCreated(
+        uint256 indexed marketId,
+        address indexed market,
+        uint256 indexed initialLiquidity
+    );
     event MarketFactory__LiquidityAdded(uint256 indexed amount);
-    event CcipConfigUpdated(address indexed router, address indexed feeToken, bool indexed isHubFactory);
-    event ChainSelectorSupportUpdated(uint64 indexed chainSelector, bool indexed isSupported);
-    event TrustedRemoteUpdated(uint64 indexed chainSelector, address indexed remoteFactory);
+    event CcipConfigUpdated(
+        address indexed router,
+        address indexed feeToken,
+        bool indexed isHubFactory
+    );
+    event ChainSelectorSupportUpdated(
+        uint64 indexed chainSelector,
+        bool indexed isSupported
+    );
+    event TrustedRemoteUpdated(
+        uint64 indexed chainSelector,
+        address indexed remoteFactory
+    );
     event TrustedRemoteRemoved(uint64 indexed chainSelector);
-    event CcipMessageSent(bytes32 indexed messageId, uint64 indexed destinationChainSelector, uint8 indexed messageType);
-    event CanonicalPriceMessageReceived(uint256 indexed marketId, uint256 yesPriceE6, uint256 noPriceE6, uint64 nonce);
-    event ResolutionMessageReceived(uint256 indexed marketId, Resolution indexed outcome, uint64 nonce);
+    event CcipMessageSent(
+        bytes32 indexed messageId,
+        uint64 indexed destinationChainSelector,
+        uint8 indexed messageType
+    );
+    event CanonicalPriceMessageReceived(
+        uint256 indexed marketId,
+        uint256 yesPriceE6,
+        uint256 noPriceE6,
+        uint64 nonce
+    );
+    event ResolutionMessageReceived(
+        uint256 indexed marketId,
+        Resolution indexed outcome,
+        uint64 nonce
+    );
     event PredictionMarketBridgeUpdated(address indexed bridge);
     event PredictionMarketRouterUpdated(address indexed router);
     event UnsafeArbitrageExecuted(
@@ -155,9 +194,17 @@ abstract contract MarketFactoryBase is
     event WithdrawSkippedNoShares(uint256 indexed marketId);
     event WithdrawSkippedNotResolved(uint256 indexed marketId);
     event MarkertFactor_ReslovedEventReomved(uint256 indexed marketId);
-    event MarketMarkedForManualReview(uint256 indexed marketId, address indexed market);
-    event ManualReviewMarketRemoved(uint256 indexed marketId, address indexed market);
-    event NewPredictionImplementationSet(address indexed newPredictionMarketImplementation);
+    event MarketMarkedForManualReview(
+        uint256 indexed marketId,
+        address indexed market
+    );
+    event ManualReviewMarketRemoved(
+        uint256 indexed marketId,
+        address indexed market
+    );
+    event NewPredictionImplementationSet(
+        address indexed newPredictionMarketImplementation
+    );
 
     struct UnsafeArbContext {
         address marketAddress;
@@ -217,14 +264,17 @@ abstract contract MarketFactoryBase is
     /// @dev This initializer wires collateral/deployer/forwarder, precomputes report action hashes,
     /// seeds a default supported selector allowlist, and defines bootstrap canonical pricing values
     /// for newly created spoke markets.
-    function initialize(address _collateral, address _forwarder, address _marketDeployer, address _initialOwner)
-        public
-        virtual
-        initializer
-    {
+    function initialize(
+        address _collateral,
+        address _forwarder,
+        address _marketDeployer,
+        address _initialOwner
+    ) public virtual initializer {
         if (
-            _collateral == address(0) || _forwarder == address(0) || _marketDeployer == address(0)
-                || _initialOwner == address(0)
+            _collateral == address(0) ||
+            _forwarder == address(0) ||
+            _marketDeployer == address(0) ||
+            _initialOwner == address(0)
         ) {
             revert MarketFactory__ZeroAddress();
         }
@@ -235,13 +285,23 @@ abstract contract MarketFactoryBase is
         Amount_Funding_Factory = 100000e6;
 
         hashed_BroadCastPrice = keccak256(abi.encode("broadCastPrice"));
-        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
-        hashed_BroadCastResolution = keccak256(abi.encode("broadCastResolution"));
+        hashed_SyncSpokeCanonicalPrice = keccak256(
+            abi.encode("syncSpokeCanonicalPrice")
+        );
+        hashed_BroadCastResolution = keccak256(
+            abi.encode("broadCastResolution")
+        );
         hashed_CreateMarket = keccak256(abi.encode("createMarket"));
         hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
-        hashed_AddLiquidityToFactory = keccak256(abi.encode("addLiquidityToFactory"));
-        hashed_WithCollatralAndFee = keccak256(abi.encode("WithCollatralAndFee"));
-        hashed_ProcessPendingWithdrawals = keccak256(abi.encode("processPendingWithdrawals"));
+        hashed_AddLiquidityToFactory = keccak256(
+            abi.encode("addLiquidityToFactory")
+        );
+        hashed_WithCollatralAndFee = keccak256(
+            abi.encode("WithCollatralAndFee")
+        );
+        hashed_ProcessPendingWithdrawals = keccak256(
+            abi.encode("processPendingWithdrawals")
+        );
         initailEventLiquidity = 30000e6;
 
         s_supportedChainSelector[10344971235874465080] = true;
@@ -250,7 +310,9 @@ abstract contract MarketFactoryBase is
         s_supportedChainSelector[80002] = true;
         s_supportedChainSelector[84532] = true;
 
-        hashed_SyncSpokeCanonicalPrice = keccak256(abi.encode("syncSpokeCanonicalPrice"));
+        hashed_SyncSpokeCanonicalPrice = keccak256(
+            abi.encode("syncSpokeCanonicalPrice")
+        );
         initialCanonicalPriceWindow = 5 minutes;
         initialCanonicalPriceE6 = 500_000;
     }
@@ -264,15 +326,22 @@ abstract contract MarketFactoryBase is
 
     /// @notice Updates the clone implementation inside the current deployer.
     /// @dev Keeps deployer address constant while changing implementation target for new clones.
-    function setNewMarketDeployerImplemntation(address _newPredictionMarketImplementation) external onlyOwner {
-        if (_newPredictionMarketImplementation == address(0)) revert MarketFactory__ZeroAddress();
-        MarketDeployer(address(marketDeployer)).setImplementation(_newPredictionMarketImplementation);
+    function setNewMarketDeployerImplemntation(
+        address _newPredictionMarketImplementation
+    ) external onlyOwner {
+        if (_newPredictionMarketImplementation == address(0))
+            revert MarketFactory__ZeroAddress();
+        MarketDeployer(address(marketDeployer)).setImplementation(
+            _newPredictionMarketImplementation
+        );
         emit NewPredictionImplementationSet(_newPredictionMarketImplementation);
     }
 
     /// @notice UUPS authorization hook.
     /// @dev Restricts upgrades to owner and blocks accidental zero implementation address.
-    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal view override onlyOwner {
         if (newImplementation == address(0)) {
             revert MarketFactory__ZeroAddress();
         }
@@ -307,19 +376,26 @@ abstract contract MarketFactoryBase is
 
     /// @notice Owner entrypoint to create and seed a new market.
     /// @dev Delegates to `_createMarket`, which performs deployment, registration, and wiring.
-    function createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
-        external
-        onlyOwner
-        returns (address market)
-    {
-        return _createMarket(question, closeTime, resolutionTime, initialLiquidity);
+    function createMarket(
+        string memory question,
+        uint256 closeTime,
+        uint256 resolutionTime,
+        uint256 initialLiquidity
+    ) external onlyOwner returns (address market) {
+        return
+            _createMarket(
+                question,
+                closeTime,
+                resolutionTime,
+                initialLiquidity
+            );
     }
 
     /// @dev Full market bootstrap routine.
     /// Detailed flow:
     /// 1) validate temporal/question/liquidity inputs,
     /// 2) deploy market clone via `marketDeployer`,
-    /// 3) transfer initial collateral and call `seedLiquidity`,
+    /// 3) transfer LMSR subsidy collateral and call `initializeMarket(b)`,
     /// 4) assign new market id and both-direction mappings,
     /// 5) mirror mapping to bridge (if configured),
     /// 6) add market to active list and index map,
@@ -327,11 +403,15 @@ abstract contract MarketFactoryBase is
     /// 8) if this factory is a spoke, push bootstrap canonical price/nonce,
     /// 9) transfer market ownership to factory owner,
     /// 10) emit creation event.
-    function _createMarket(string memory question, uint256 closeTime, uint256 resolutionTime, uint256 initialLiquidity)
-        internal
-        returns (address market)
-    {
-        if (closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0) {
+    function _createMarket(
+        string memory question,
+        uint256 closeTime,
+        uint256 resolutionTime,
+        uint256 initialLiquidity
+    ) internal returns (address market) {
+        if (
+            closeTime == 0 || resolutionTime == 0 || bytes(question).length == 0
+        ) {
             revert MarketErrors.PredictionMarket__InvalidArguments_PassedInConstructor();
         }
 
@@ -346,18 +426,26 @@ abstract contract MarketFactoryBase is
 
         PredictionMarket m = PredictionMarket(
             marketDeployer.deployPredictionMarket(
-                question, address(collateral), closeTime, resolutionTime, _getForwarderAddress()
+                question,
+                address(collateral),
+                closeTime,
+                resolutionTime,
+                _getForwarderAddress()
             )
         );
 
-        collateral.safeTransfer(address(m), initialLiquidity);
-        m.seedLiquidity(initialLiquidity);
+        // LMSR: initialLiquidity is the 'b' parameter.
+        // Subsidy required = b × ln(2) / 1e6 ≈ 0.693 × b
+        uint256 subsidyRequired = (initialLiquidity *
+            MarketConstants.LMSR_LN2_E6) / MarketConstants.PRICE_PRECISION;
+        collateral.safeTransfer(address(m), subsidyRequired);
+        m.initializeMarket(initialLiquidity);
 
         marketCount++;
         marketById[marketCount] = address(m);
         marketIdByAddress[address(m)] = marketCount;
         m.setMarketId(marketCount);
-        
+
         activeMarkets.push(address(m));
         marketToIndex[address(m)] = activeMarkets.length - 1;
         isActiveMarket[address(m)] = true;
@@ -366,18 +454,22 @@ abstract contract MarketFactoryBase is
 
         if (!isHubFactory) {
             m.syncCanonicalPriceFromHub(
-                initialCanonicalPriceE6, initialCanonicalPriceE6, block.timestamp + initialCanonicalPriceWindow, nonce
+                initialCanonicalPriceE6,
+                initialCanonicalPriceE6,
+                block.timestamp + initialCanonicalPriceWindow,
+                nonce
             );
         }
 
         if (predictionMarketBridge != address(0)) {
-            IPredictionMarketBridgeMapper(predictionMarketBridge).setMarketIdMapping(marketCount, address(m));
+            IPredictionMarketBridgeMapper(predictionMarketBridge)
+                .setMarketIdMapping(marketCount, address(m));
         }
         if (predictionMarketRouter != address(0)) {
-            IPredictionMarketRouterMapper(predictionMarketRouter).setMarketAllowed(address(m), true);
+            IPredictionMarketRouterMapper(predictionMarketRouter)
+                .setMarketAllowed(address(m), true);
             m.setRiskExempt(predictionMarketRouter, true);
         }
-
 
         m.transferOwnership(owner());
 

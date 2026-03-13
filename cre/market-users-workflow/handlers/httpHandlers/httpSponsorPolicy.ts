@@ -29,20 +29,16 @@ const PRICISION = 1000000n
 const DEFAULT_MAX_AMOUNT_USDC = 10000n  * PRICISION;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
 const DEFAULT_ALLOWED_ACTIONS = new Set([
-  "addLiquidity",
-  "removeLiquidity",
-  "swapYesForNo",
-  "swapNoForYes",
+  "lmsrBuy",
+  "lmsrSell",
   "mintCompleteSets",
   "redeemCompleteSets",
   "redeem",
   "disputeProposedResolution",
 ]);
 const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
-  addLiquidity: "routerAddLiquidity",
-  removeLiquidity: "routerRemoveLiquidity",
-  swapYesForNo: "routerSwapYesForNo",
-  swapNoForYes: "routerSwapNoForYes",
+  lmsrBuy: "LMSRBuy",
+  lmsrSell: "LMSRSell",
   mintCompleteSets: "routerMintCompleteSets",
   redeemCompleteSets: "routerRedeemCompleteSets",
   redeem: "routerRedeem",

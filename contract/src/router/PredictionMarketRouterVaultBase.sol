@@ -1,30 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {
+    Initializable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    UUPSUpgradeable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ReceiverTemplateUpgradeable} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    ReceiverTemplateUpgradeable
+} from "../../script/interfaces/ReceiverTemplateUpgradeable.sol";
 import {MarketConstants} from "../libraries/MarketTypes.sol";
 
 /// @title IPredictionMarketLike
 /// @notice Minimal market interface consumed by the router vault.
+/// @dev LMSR trades are CRE-report-driven, so swap/LP functions are removed.
 interface IPredictionMarketLike {
     function i_collateral() external view returns (address);
     function yesToken() external view returns (address);
     function noToken() external view returns (address);
     function resolution() external view returns (uint8);
-    function lpShares(address account) external view returns (uint256);
 
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;
     function redeem(uint256 amount) external;
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut) external;
-    function swapNoForYes(uint256 noIn, uint256 minYesOut) external;
-    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) external;
-    function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut) external;
     function disputeProposedResolution(uint8 proposedOutcome) external;
 }
 
@@ -58,30 +64,52 @@ abstract contract PredictionMarketRouterVaultBase is
     error Router__EthTransferFailed();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
 
-    bytes32 internal constant HASHED_DEPOSIT_FOR = keccak256(abi.encode("routerDepositFor"));
-    bytes32 internal constant HASHED_WITHDRAW_COLLATERAL = keccak256(abi.encode("routerWithdrawCollateralFor"));
-    bytes32 internal constant HASHED_WITHDRAW_OUTCOME = keccak256(abi.encode("routerWithdrawOutcomeFor"));
-    bytes32 internal constant HASHED_MINT = keccak256(abi.encode("routerMintCompleteSets"));
-    bytes32 internal constant HASHED_REDEEM = keccak256(abi.encode("routerRedeemCompleteSets"));
-    bytes32 internal constant HASHED_SWAP_YES_FOR_NO = keccak256(abi.encode("routerSwapYesForNo"));
-    bytes32 internal constant HASHED_SWAP_NO_FOR_YES = keccak256(abi.encode("routerSwapNoForYes"));
-    bytes32 internal constant HASHED_ADD_LIQ = keccak256(abi.encode("routerAddLiquidity"));
-    bytes32 internal constant HASHED_REMOVE_LIQ = keccak256(abi.encode("routerRemoveLiquidity"));
-    bytes32 internal constant HASHED_CREDIT_FROM_FIAT = keccak256(abi.encode("routerCreditFromFiat"));
-    bytes32 internal constant HASHED_CREDIT_FROM_ETH = keccak256(abi.encode("routerCreditFromEth"));
-    bytes32 internal constant HASHED_REDEEM_WINNINGS = keccak256(abi.encode("routerRedeem"));
-    bytes32 internal constant HASHED_DISPUTE = keccak256(abi.encode("routerDisputeProposedResolution"));
+    bytes32 internal constant HASHED_DEPOSIT_FOR =
+        keccak256(abi.encode("routerDepositFor"));
+    bytes32 internal constant HASHED_WITHDRAW_COLLATERAL =
+        keccak256(abi.encode("routerWithdrawCollateralFor"));
+    bytes32 internal constant HASHED_WITHDRAW_OUTCOME =
+        keccak256(abi.encode("routerWithdrawOutcomeFor"));
+    bytes32 internal constant HASHED_MINT =
+        keccak256(abi.encode("routerMintCompleteSets"));
+    bytes32 internal constant HASHED_REDEEM =
+        keccak256(abi.encode("routerRedeemCompleteSets"));
+    bytes32 internal constant HASHED_SWAP_YES_FOR_NO =
+        keccak256(abi.encode("routerSwapYesForNo"));
+    bytes32 internal constant HASHED_SWAP_NO_FOR_YES =
+        keccak256(abi.encode("routerSwapNoForYes"));
+    bytes32 internal constant HASHED_ADD_LIQ =
+        keccak256(abi.encode("routerAddLiquidity"));
+    bytes32 internal constant HASHED_REMOVE_LIQ =
+        keccak256(abi.encode("routerRemoveLiquidity"));
+    bytes32 internal constant HASHED_CREDIT_FROM_FIAT =
+        keccak256(abi.encode("routerCreditFromFiat"));
+    bytes32 internal constant HASHED_CREDIT_FROM_ETH =
+        keccak256(abi.encode("routerCreditFromEth"));
+    bytes32 internal constant HASHED_REDEEM_WINNINGS =
+        keccak256(abi.encode("routerRedeem"));
+    bytes32 internal constant HASHED_DISPUTE =
+        keccak256(abi.encode("routerDisputeProposedResolution"));
 
     //Agents
-    bytes32 internal constant HASHED_AGENT_MINT = keccak256(abi.encode("routerAgentMintCompleteSets"));
-    bytes32 internal constant HASHED_AGENT_REDEEM = keccak256(abi.encode("routerAgentRedeemCompleteSets"));
-    bytes32 internal constant HASHED_AGENT_SWAP_YES_FOR_NO = keccak256(abi.encode("routerAgentSwapYesForNo"));
-    bytes32 internal constant HASHED_AGENT_SWAP_NO_FOR_YES = keccak256(abi.encode("routerAgentSwapNoForYes"));
-    bytes32 internal constant HASHED_AGENT_ADD_LIQ = keccak256(abi.encode("routerAgentAddLiquidity"));
-    bytes32 internal constant HASHED_AGENT_REMOVE_LIQ = keccak256(abi.encode("routerAgentRemoveLiquidity"));
-    bytes32 internal constant HASHED_AGENT_REDEEM_WINNINGS = keccak256(abi.encode("routerAgentRedeem"));
-    bytes32 internal constant HASHED_AGENT_DISPUTE = keccak256(abi.encode("routerAgentDisputeProposedResolution"));
-    bytes32 internal constant HASHED_AGENT_REVOKE_PERMISSION = keccak256(abi.encode("routerAgentRevokePermission"));
+    bytes32 internal constant HASHED_AGENT_MINT =
+        keccak256(abi.encode("routerAgentMintCompleteSets"));
+    bytes32 internal constant HASHED_AGENT_REDEEM =
+        keccak256(abi.encode("routerAgentRedeemCompleteSets"));
+    bytes32 internal constant HASHED_AGENT_SWAP_YES_FOR_NO =
+        keccak256(abi.encode("routerAgentSwapYesForNo"));
+    bytes32 internal constant HASHED_AGENT_SWAP_NO_FOR_YES =
+        keccak256(abi.encode("routerAgentSwapNoForYes"));
+    bytes32 internal constant HASHED_AGENT_ADD_LIQ =
+        keccak256(abi.encode("routerAgentAddLiquidity"));
+    bytes32 internal constant HASHED_AGENT_REMOVE_LIQ =
+        keccak256(abi.encode("routerAgentRemoveLiquidity"));
+    bytes32 internal constant HASHED_AGENT_REDEEM_WINNINGS =
+        keccak256(abi.encode("routerAgentRedeem"));
+    bytes32 internal constant HASHED_AGENT_DISPUTE =
+        keccak256(abi.encode("routerAgentDisputeProposedResolution"));
+    bytes32 internal constant HASHED_AGENT_REVOKE_PERMISSION =
+        keccak256(abi.encode("routerAgentRevokePermission"));
 
     uint32 internal constant AGENT_ACTION_MINT = 1 << 0;
     uint32 internal constant AGENT_ACTION_REDEEM_COMPLETE_SETS = 1 << 1;
@@ -111,30 +139,77 @@ abstract contract PredictionMarketRouterVaultBase is
     mapping(address => uint256) public userRiskExposure;
     mapping(address => bool) public isRiskExempt;
     //agent Permision
-    mapping(address => mapping(address => AgentPermission)) public agentPermissions;
+    mapping(address => mapping(address => AgentPermission))
+        public agentPermissions;
     mapping(bytes32 => bool) public processedEthDeposits;
 
     event MarketAllowlistUpdated(address indexed market, bool allowed);
     event Deposited(address indexed user, uint256 amount);
     event CollateralWithdrawn(address indexed user, uint256 amount);
-    event OutcomeWithdrawn(address indexed user, address indexed token, uint256 amount);
-    event CompleteSetsMinted(
-        address indexed user, address indexed market, uint256 collateralIn, uint256 yesOut, uint256 noOut
+    event OutcomeWithdrawn(
+        address indexed user,
+        address indexed token,
+        uint256 amount
     );
-    event CompleteSetsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
-    event WinningsRedeemed(address indexed user, address indexed market, uint256 amount, uint256 collateralOut);
-    event SwappedYesForNo(address indexed user, address indexed market, uint256 yesIn, uint256 noOut);
-    event SwappedNoForYes(address indexed user, address indexed market, uint256 noIn, uint256 yesOut);
-    event LiquidityAdded(address indexed user, address indexed market, uint256 yesIn, uint256 noIn, uint256 sharesOut);
+    event CompleteSetsMinted(
+        address indexed user,
+        address indexed market,
+        uint256 collateralIn,
+        uint256 yesOut,
+        uint256 noOut
+    );
+    event CompleteSetsRedeemed(
+        address indexed user,
+        address indexed market,
+        uint256 amount,
+        uint256 collateralOut
+    );
+    event WinningsRedeemed(
+        address indexed user,
+        address indexed market,
+        uint256 amount,
+        uint256 collateralOut
+    );
+    event SwappedYesForNo(
+        address indexed user,
+        address indexed market,
+        uint256 yesIn,
+        uint256 noOut
+    );
+    event SwappedNoForYes(
+        address indexed user,
+        address indexed market,
+        uint256 noIn,
+        uint256 yesOut
+    );
+    event LiquidityAdded(
+        address indexed user,
+        address indexed market,
+        uint256 yesIn,
+        uint256 noIn,
+        uint256 sharesOut
+    );
     event LiquidityRemoved(
-        address indexed user, address indexed market, uint256 sharesIn, uint256 yesOut, uint256 noOut
+        address indexed user,
+        address indexed market,
+        uint256 sharesIn,
+        uint256 yesOut,
+        uint256 noOut
     );
     event CollateralCreditedFromFiat(address indexed user, uint256 amount);
     event EthReceived(address indexed sender, uint256 amountWei);
     event EthWithdrawn(address indexed recipient, uint256 amountWei);
-    event CollateralCreditedFromEth(address indexed user, uint256 amount, bytes32 indexed depositId);
+    event CollateralCreditedFromEth(
+        address indexed user,
+        uint256 amount,
+        bytes32 indexed depositId
+    );
     event RouterRiskExemptUpdated(address indexed account, bool exempt);
-    event DisputeSubmitted(address indexed user, address indexed market, uint8 proposedOutcome);
+    event DisputeSubmitted(
+        address indexed user,
+        address indexed market,
+        uint8 proposedOutcome
+    );
     event AgentPermissionUpdated(
         address indexed user,
         address indexed agent,
@@ -144,7 +219,12 @@ abstract contract PredictionMarketRouterVaultBase is
         uint64 expiresAt
     );
     event AgentPermissionRevoked(address indexed user, address indexed agent);
-    event AgentActionExecuted(address indexed user, address indexed agent, string actionType, uint256 boundedAmount);
+    event AgentActionExecuted(
+        address indexed user,
+        address indexed agent,
+        string actionType,
+        uint256 boundedAmount
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -166,7 +246,9 @@ abstract contract PredictionMarketRouterVaultBase is
     }
 
     /// @dev UUPS authorization hook.
-    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal view override onlyOwner {
         if (newImplementation == address(0)) revert Router__ZeroAddress();
     }
 
@@ -184,7 +266,11 @@ abstract contract PredictionMarketRouterVaultBase is
     }
 
     /// @notice Alias helper for untracked collateral value.
-    function getRouterUntrackedValue() external view returns (uint256 untracked) {
+    function getRouterUntrackedValue()
+        external
+        view
+        returns (uint256 untracked)
+    {
         uint256 balance = collateralToken.balanceOf(address(this));
         uint256 credited = totalCollateralCredits;
         untracked = balance > credited ? balance - credited : 0;
@@ -197,13 +283,20 @@ abstract contract PredictionMarketRouterVaultBase is
 
     /// @dev Reverts if market collateral token differs from router collateral.
     function _ensureCollateralMatch(address market) internal view {
-        if (IPredictionMarketLike(market).i_collateral() != address(collateralToken)) {
+        if (
+            IPredictionMarketLike(market).i_collateral() !=
+            address(collateralToken)
+        ) {
             revert Router__CollateralMismatch();
         }
     }
 
     /// @dev Ensures spender has enough allowance by bumping toward max when needed.
-    function _ensureAllowance(IERC20 token, address spender, uint256 amountNeeded) internal {
+    function _ensureAllowance(
+        IERC20 token,
+        address spender,
+        uint256 amountNeeded
+    ) internal {
         uint256 allowance = token.allowance(address(this), spender);
         if (allowance >= amountNeeded) return;
         uint256 increase = type(uint256).max - allowance;

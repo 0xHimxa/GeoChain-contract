@@ -2,8 +2,16 @@
 pragma solidity 0.8.33;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Resolution, MarketConstants, MarketEvents, MarketErrors, State} from "../libraries/MarketTypes.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    Resolution,
+    MarketConstants,
+    MarketEvents,
+    MarketErrors,
+    State
+} from "../libraries/MarketTypes.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
 import {PredictionMarketLiquidity} from "./PredictionMarketLiquidity.sol";
 
@@ -14,7 +22,10 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
 
     /// @notice Owner-triggered local resolution entrypoint.
     /// @dev Uses `_resolve`, which enforces timestamp/state checks and handles review/final paths.
-    function resolve(Resolution _outcome, string memory proofUrl) external onlyOwner {
+    function resolve(
+        Resolution _outcome,
+        string memory proofUrl
+    ) external onlyOwner {
         _resolve(_outcome, proofUrl);
     }
 
@@ -60,7 +71,11 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         resolutionDisputed = false;
         state = State.Review;
 
-        emit MarketEvents.ResolutionProposed(_outcome, disputeDeadline, proofUrl);
+        emit MarketEvents.ResolutionProposed(
+            _outcome,
+            disputeDeadline,
+            proofUrl
+        );
     }
 
     /// @notice Updates dispute-window duration used for new resolution proposals.
@@ -85,19 +100,25 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
         uint256 outcomeValue = uint256(proposedOutcome);
         if (
-            outcomeValue == uint256(Resolution.Unset)
-                || outcomeValue > uint256(Resolution.Inconclusive)
+            outcomeValue == uint256(Resolution.Unset) ||
+            outcomeValue > uint256(Resolution.Inconclusive)
         ) {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
 
         hasSubmittedDispute[msg.sender] = true;
         disputeSubmissions.push(
-            DisputeSubmission({disputer: msg.sender, proposedOutcome: proposedOutcome, submittedAt: block.timestamp})
+            DisputeSubmission({
+                disputer: msg.sender,
+                proposedOutcome: proposedOutcome,
+                submittedAt: block.timestamp
+            })
         );
         if (!uniqueDisputedOutcomeSeen[uint8(proposedOutcome)]) {
             uniqueDisputedOutcomeSeen[uint8(proposedOutcome)] = true;
-            uniqueDisputedOutcomes[uniqueDisputedOutcomesCount] = proposedOutcome;
+            uniqueDisputedOutcomes[
+                uniqueDisputedOutcomesCount
+            ] = proposedOutcome;
             uniqueDisputedOutcomesCount++;
         }
         resolutionDisputed = true;
@@ -133,17 +154,27 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Owner adjudicates disputed provisional resolution.
     /// @dev If adjudicated outcome is Yes/No, market finalizes immediately.
     /// If adjudicated outcome is Inconclusive, market remains in review with manual review enabled.
-    function adjudicateDisputedResolution(Resolution adjudicatedOutcome, string calldata proofUrl) external onlyOwner {
+    function adjudicateDisputedResolution(
+        Resolution adjudicatedOutcome,
+        string calldata proofUrl
+    ) external onlyOwner {
         _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
     }
 
     /// @dev Resolves a disputed proposal after off-chain review.
     /// A Yes/No adjudication finalizes immediately; an inconclusive adjudication keeps the market
     /// in manual review so it cannot be forced into a binary outcome without sufficient evidence.
-    function _adjudicateDisputedResolution(Resolution adjudicatedOutcome, string memory proofUrl) internal {
+    function _adjudicateDisputedResolution(
+        Resolution adjudicatedOutcome,
+        string memory proofUrl
+    ) internal {
         _revertIfLocalResolutionDisabled();
 
-        if (state != State.Review || proposedResolution == Resolution.Unset || !resolutionDisputed) {
+        if (
+            state != State.Review ||
+            proposedResolution == Resolution.Unset ||
+            !resolutionDisputed
+        ) {
             revert MarketErrors.PredictionMarket__NoPendingResolution();
         }
 
@@ -154,7 +185,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         if (adjudicatedOutcome == Resolution.Inconclusive) {
             manualReviewNeeded = true;
             resolution = Resolution.Inconclusive;
-               marketFactory.removeResolvedMarket(address(this));
+            marketFactory.removeResolvedMarket(address(this));
             marketFactory.markMarketForManualReview(address(this));
 
             emit MarketEvents.IsUnderManualReview(adjudicatedOutcome);
@@ -171,13 +202,18 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Redeems winning outcome token after market resolution.
     /// @dev Applies redeem fee, burns only the winning side token, and transfers net collateral.
     /// If market is not resolved, redemption is blocked.
-    function redeem(uint256 amount) external nonReentrant whenNotPaused zeroAmountCheck(amount) {
+    function redeem(
+        uint256 amount
+    ) external nonReentrant whenNotPaused zeroAmountCheck(amount) {
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__NotResolved();
         }
 
-        (uint256 netAmount, uint256 fee) =
-            FeeLib.deductFee(amount, MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+        (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
+            amount,
+            MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
 
         protocolCollateralFees += fee;
 
@@ -195,7 +231,10 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Manual finalization path for markets currently in review.
     /// @dev Used after off-chain/manual adjudication when initial resolution was inconclusive.
     /// Requires non-empty proof URL and a final Yes/No outcome.
-    function manualResolveMarket(Resolution _outcome, string calldata proofUrl) external onlyOwner {
+    function manualResolveMarket(
+        Resolution _outcome,
+        string calldata proofUrl
+    ) external onlyOwner {
         _revertIfLocalResolutionDisabled();
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
@@ -242,14 +281,22 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Cross-chain resolution callback used by spoke markets.
     /// @dev Skips local timing/state checks because hub has already finalized the outcome.
     /// Still validates proof URL, outcome finality, and non-resolved precondition.
-    function resolveFromHub(Resolution _outcome, string calldata proofUrl) external onlyCrossChainController {
+    function resolveFromHub(
+        Resolution _outcome,
+        string calldata proofUrl
+    ) external onlyCrossChainController {
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
         }
-        if (_outcome == Resolution.Unset || _outcome == Resolution.Inconclusive) {
+        if (
+            _outcome == Resolution.Unset || _outcome == Resolution.Inconclusive
+        ) {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
-        if (state == State.Resolved || (state == State.Review && proposedResolution != Resolution.Unset)) {
+        if (
+            state == State.Resolved ||
+            (state == State.Review && proposedResolution != Resolution.Unset)
+        ) {
             revert MarketErrors.PredictionMarket__AlreadyResolved();
         }
 
@@ -259,10 +306,12 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Applies canonical price update from hub with strict nonce ordering.
     /// @dev Also enforces normalization invariant:
     /// `yesPriceE6 + noPriceE6 == PRICE_PRECISION`.
-    function syncCanonicalPriceFromHub(uint256 yesPriceE6, uint256 noPriceE6, uint256 validUntil, uint64 nonce)
-        external
-        onlyCrossChainController
-    {
+    function syncCanonicalPriceFromHub(
+        uint256 yesPriceE6,
+        uint256 noPriceE6,
+        uint256 validUntil,
+        uint64 nonce
+    ) external onlyCrossChainController {
         if (yesPriceE6 + noPriceE6 != MarketConstants.PRICE_PRECISION) {
             revert PredictionMarket__InvalidCanonicalPrice();
         }
@@ -275,21 +324,34 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         canonicalPriceValidUntil = validUntil;
         canonicalPriceNonce = nonce;
 
-        emit MarketEvents.SyncCanonicalPrice(yesPriceE6, noPriceE6, validUntil, nonce);
+        emit MarketEvents.SyncCanonicalPrice(
+            yesPriceE6,
+            noPriceE6,
+            validUntil,
+            nonce
+        );
     }
 
-    /// @dev Receiver-side report dispatcher for resolution automation.
+    /// @dev Receiver-side report dispatcher for resolution and LMSR trade automation.
     /// Supported report actions are:
     /// - `ResolveMarket`
     /// - `FinalizeResolutionAfterDisputeWindow`
     /// - `AdjudicateDisputedResolution`
-    /// Any other action string is rejected so only explicit resolution flows can execute.
+    /// - `LMSRBuy`  — CRE-computed buy trade
+    /// - `LMSRSell` — CRE-computed sell trade
+    /// Any other action string is rejected so only explicit flows can execute.
     function _processReport(bytes calldata report) internal override {
-        (string memory actionType, bytes memory payload) = abi.decode(report, (string, bytes));
+        (string memory actionType, bytes memory payload) = abi.decode(
+            report,
+            (string, bytes)
+        );
         bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
 
         if (actionTypeHash == HASHED_RESOLVE_MARKET) {
-            (Resolution _outcome, string memory _proofUrl) = abi.decode(payload, (Resolution, string));
+            (Resolution _outcome, string memory _proofUrl) = abi.decode(
+                payload,
+                (Resolution, string)
+            );
             _resolve(_outcome, _proofUrl);
             return;
         }
@@ -300,8 +362,60 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
 
         if (actionTypeHash == HASHED_ADJUDICATE_DISPUTED_RESOLUTION) {
-            (Resolution adjudicatedOutcome, string memory proofUrl) = abi.decode(payload, (Resolution, string));
+            (Resolution adjudicatedOutcome, string memory proofUrl) = abi
+                .decode(payload, (Resolution, string));
             _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
+            return;
+        }
+
+        // ── LMSR Trade Reports (CRE-computed) ────────────────────────
+        if (actionTypeHash == HASHED_LMSR_BUY) {
+            (
+                address trader,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 costDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                    payload,
+                    (address, uint8, uint256, uint256, uint256, uint256, uint64)
+                );
+            _executeLMSRBuy(
+                trader,
+                outcomeIndex,
+                sharesDelta,
+                costDelta,
+                newYesPriceE6,
+                newNoPriceE6,
+                nonce
+            );
+            return;
+        }
+
+        if (actionTypeHash == HASHED_LMSR_SELL) {
+            (
+                address trader,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 refundDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                    payload,
+                    (address, uint8, uint256, uint256, uint256, uint256, uint64)
+                );
+            _executeLMSRSell(
+                trader,
+                outcomeIndex,
+                sharesDelta,
+                refundDelta,
+                newYesPriceE6,
+                newNoPriceE6,
+                nonce
+            );
             return;
         }
 
@@ -311,7 +425,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// @notice Convenience helper indicating whether this market is time-eligible for resolution.
     /// @dev Returns true only when close-time and resolution-time windows have both passed.
     function checkResolutionTime() external view returns (bool resolveReady) {
-        resolveReady = block.timestamp > closeTime && block.timestamp >= resolutionTime;
+        resolveReady =
+            block.timestamp > closeTime &&
+            block.timestamp >= resolutionTime;
     }
 
     /// @notice Returns total number of stored dispute submissions.
@@ -334,7 +450,9 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             Resolution[] memory disputedUniqueOutcomes
         )
     {
-        Resolution[] memory outcomes = new Resolution[](uniqueDisputedOutcomesCount);
+        Resolution[] memory outcomes = new Resolution[](
+            uniqueDisputedOutcomesCount
+        );
         for (uint256 i = 0; i < uniqueDisputedOutcomesCount; i++) {
             outcomes[i] = uniqueDisputedOutcomes[i];
         }

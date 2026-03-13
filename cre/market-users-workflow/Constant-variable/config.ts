@@ -49,6 +49,12 @@ export type AgentPolicyConfig = {
   defaultSlippageBps: number;
 };
 
+export type LmsrTradePolicyConfig = {
+  enabled: boolean;
+  supportedChainIds: number[];
+  maxAmountUsdc: string;
+};
+
 export type Config = {
   schedule: string;
   evms: EvmConfig[];
@@ -56,11 +62,13 @@ export type Config = {
   httpExecutionAuthorizedKeys?: AuthorizedKeyConfig[];
   httpFiatCreditAuthorizedKeys?: AuthorizedKeyConfig[];
   httpAgentAuthorizedKeys?: AuthorizedKeyConfig[];
+  httpLmsrTradeAuthorizedKeys?: AuthorizedKeyConfig[];
   sponsorPolicy?: SponsorPolicyConfig;
   executePolicy?: ExecutePolicyConfig;
   fiatCreditPolicy?: FiatCreditPolicyConfig;
   ethCreditPolicy?: EthCreditPolicyConfig;
   agentPolicy?: AgentPolicyConfig;
+  lmsrTradePolicy?: LmsrTradePolicyConfig;
 };
 
 export const sender = "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc";

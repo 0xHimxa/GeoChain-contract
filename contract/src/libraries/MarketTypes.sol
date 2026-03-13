@@ -40,19 +40,39 @@ library MarketConstants {
     uint256 internal constant MAX_RISK_EXPOSURE = 10000e6;
     /// @dev Default duration for market resolution disputes.
     uint256 internal constant DEFAULT_DISPUTE_WINDOW = 1 hours;
+
+    // ── LMSR Constants ───────────────────────────────────────────────
+    /// @dev ln(2) scaled to 1e6. Used to compute max market-maker subsidy for binary markets.
+    uint256 internal constant LMSR_LN2_E6 = 693_147;
+    /// @dev Tolerance for CRE-reported price sum validation (0.1%).
+    uint256 internal constant LMSR_PRICE_TOLERANCE = 1_000;
+    /// @dev Minimum trade size for LMSR buy/sell (1 USDC).
+    uint256 internal constant MINIMUM_LMSR_TRADE_AMOUNT = 1e6;
 }
 
 /// @title MarketEvents
 /// @notice Events emitted by prediction market contracts.
 library MarketEvents {
     /// @dev User swapped one outcome token for the other.
-    event Trade(address indexed user, bool yesForNo, uint256 amountIn, uint256 amountOut);
+    event Trade(
+        address indexed user,
+        bool yesForNo,
+        uint256 amountIn,
+        uint256 amountOut
+    );
     /// @dev Market reached final resolved state.
     event Resolved(Resolution outcome);
     /// @dev Initial market outcome proposed and pending dispute window expiry.
-    event ResolutionProposed(Resolution indexed outcome, uint256 indexed disputeDeadline, string proofUrl);
+    event ResolutionProposed(
+        Resolution indexed outcome,
+        uint256 indexed disputeDeadline,
+        string proofUrl
+    );
     /// @dev Proposed resolution was disputed by a participant.
-    event ResolutionDisputed(address indexed disputer, Resolution indexed proposedOutcome);
+    event ResolutionDisputed(
+        address indexed disputer,
+        Resolution indexed proposedOutcome
+    );
     /// @dev User redeemed winning token for collateral.
     event Redeemed(address indexed user, uint256 amount);
     /// @dev User minted YES+NO pair from collateral.
@@ -62,13 +82,31 @@ library MarketEvents {
     /// @dev One-time pool bootstrap event.
     event LiquiditySeeded(uint256 amount);
     /// @dev LP added balanced liquidity.
-    event LiquidityAdded(address indexed user, uint256 yesAmount, uint256 noAmount, uint256 shares);
+    event LiquidityAdded(
+        address indexed user,
+        uint256 yesAmount,
+        uint256 noAmount,
+        uint256 shares
+    );
     /// @dev LP removed proportional liquidity.
-    event LiquidityRemoved(address indexed user, uint256 yesAmount, uint256 noAmount, uint256 shares);
+    event LiquidityRemoved(
+        address indexed user,
+        uint256 yesAmount,
+        uint256 noAmount,
+        uint256 shares
+    );
     /// @dev LP share transfer between accounts.
-    event SharesTransferred(address indexed from, address indexed to, uint256 shares);
+    event SharesTransferred(
+        address indexed from,
+        address indexed to,
+        uint256 shares
+    );
     /// @dev LP collateral withdrawal after resolution.
-    event WithDrawnLiquidity(address indexed user, uint256 amount, uint256 shares);
+    event WithDrawnLiquidity(
+        address indexed user,
+        uint256 amount,
+        uint256 shares
+    );
     /// @dev Market marked for manual review due to inconclusive resolution.
     event IsUnderManualReview(Resolution indexed outcome);
     /// @dev Cross-chain controller configured.
@@ -77,9 +115,38 @@ library MarketEvents {
     event MarketIdSet(uint256 indexed marketId);
     event MarketIdAlreadySet();
     /// @dev Canonical price snapshot synced from hub.
-    event SyncCanonicalPrice(uint256 indexed yesPriceE6, uint256 indexed noPriceE6, uint256 indexed validUntil, uint64 nonce);
+    event SyncCanonicalPrice(
+        uint256 indexed yesPriceE6,
+        uint256 indexed noPriceE6,
+        uint256 indexed validUntil,
+        uint64 nonce
+    );
     /// @dev Protocol fee withdrawal executed.
     event WithdrawProtocolFees(address indexed owner, uint256 amount);
+
+    // ── LMSR Events ──────────────────────────────────────────────────
+    /// @dev LMSR market initialized with liquidity parameter and subsidy deposit.
+    event MarketInitialized(uint256 liquidityParam, uint256 subsidyDeposit);
+    /// @dev CRE-driven LMSR buy trade executed.
+    event LMSRBuyExecuted(
+        address indexed trader,
+        uint8 indexed outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    );
+    /// @dev CRE-driven LMSR sell trade executed.
+    event LMSRSellExecuted(
+        address indexed trader,
+        uint8 indexed outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    );
 }
 
 /// @title MarketErrors
@@ -134,4 +201,24 @@ library MarketErrors {
     error PredictionMarket__DisputeWindowClosed();
     error PredictionMarket__ResolutionAlreadyDisputed();
     error PredictionMarket__DisputeAlreadySubmittedByUser();
+
+    // ── LMSR Errors ──────────────────────────────────────────────────
+    /// @dev CRE-reported prices do not sum to ~1e6.
+    error LMSR__InvalidPriceSum();
+    /// @dev Trade report nonce is not strictly greater than current nonce.
+    error LMSR__StaleTradeNonce();
+    /// @dev Contract does not hold enough collateral for the LMSR subsidy.
+    error LMSR__InsufficientSubsidy();
+    /// @dev Trader does not hold enough outcome tokens to sell.
+    error LMSR__InsufficientShares();
+    /// @dev Market has already been initialized with LMSR parameters.
+    error LMSR__AlreadyInitialized();
+    /// @dev Market has not been initialized with LMSR parameters yet.
+    error LMSR__NotInitialized();
+    /// @dev Trade amount is below minimum.
+    error LMSR__TradeBelowMinimum();
+    /// @dev Invalid outcome index (must be 0 for YES or 1 for NO).
+    error LMSR__InvalidOutcomeIndex();
+    /// @dev Trader address cannot be zero.
+    error LMSR__TraderCannotBeZero();
 }

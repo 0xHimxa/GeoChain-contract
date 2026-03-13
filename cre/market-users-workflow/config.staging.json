@@ -18,6 +18,12 @@
       "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
     }
   ],
+  "httpLmsrTradeAuthorizedKeys": [
+    {
+      "type": "KEY_TYPE_ECDSA_EVM",
+      "publicKey": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc"
+    }
+  ],
   "sponsorPolicy": {
     "enabled": true,
     "supportedChainIds": [
@@ -25,10 +31,8 @@
       84532
     ],
     "allowedActions": [
-      "addLiquidity",
-      "removeLiquidity",
-      "swapYesForNo",
-      "swapNoForYes",
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
       "redeemCompleteSets",
       "redeem",
@@ -51,24 +55,18 @@
       "broadCastPrice",
       "broadCastResolution",
       "syncSpokeCanonicalPrice",
+      "LMSRBuy",
+      "LMSRSell",
       "routerDepositFor",
       "routerWithdrawCollateralFor",
       "routerWithdrawOutcomeFor",
       "routerMintCompleteSets",
       "routerRedeemCompleteSets",
       "routerRedeem",
-      "routerSwapYesForNo",
-      "routerSwapNoForYes",
-      "routerAddLiquidity",
-      "routerRemoveLiquidity",
       "routerDisputeProposedResolution",
       "routerAgentMintCompleteSets",
       "routerAgentRedeemCompleteSets",
       "routerAgentRedeem",
-      "routerAgentSwapYesForNo",
-      "routerAgentSwapNoForYes",
-      "routerAgentAddLiquidity",
-      "routerAgentRemoveLiquidity",
       "routerAgentDisputeProposedResolution",
       "routerCreditFromFiat",
       "routerCreditFromEth"
@@ -81,10 +79,8 @@
       84532
     ],
     "allowedActions": [
-      "addLiquidity",
-      "removeLiquidity",
-      "swapYesForNo",
-      "swapNoForYes",
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
       "redeemCompleteSets",
       "redeem",
@@ -93,6 +89,14 @@
     "maxAmountUsdc": "10000000000",
     "maxSlippageBps": 300,
     "defaultSlippageBps": 100
+  },
+  "lmsrTradePolicy": {
+    "enabled": true,
+    "supportedChainIds": [
+      421614,
+      84532
+    ],
+    "maxAmountUsdc": "10000000000"
   },
   "ethCreditPolicy": {
     "enabled": true,

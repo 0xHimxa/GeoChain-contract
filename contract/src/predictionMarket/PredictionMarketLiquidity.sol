@@ -2,238 +2,201 @@
 pragma solidity 0.8.33;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {MarketConstants, MarketEvents, MarketErrors, State, Resolution} from "../libraries/MarketTypes.sol";
-import {AMMLib} from "../libraries/AMMLib.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    MarketConstants,
+    MarketEvents,
+    MarketErrors,
+    State,
+    Resolution
+} from "../libraries/MarketTypes.sol";
+import {LMSRLib} from "../libraries/LMSRLib.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
+import {OutcomeToken} from "../token/OutcomeToken.sol";
 import {PredictionMarketBase} from "./PredictionMarketBase.sol";
 
 /// @title PredictionMarketLiquidity
-/// @notice Liquidity, complete-set, and swap flows for an open market.
+/// @notice LMSR trading, market initialization, and complete-set flows for an open market.
+/// @dev All LMSR buy/sell trades are CRE-report-driven. The CRE HTTP handler computes
+///      the cost using exp/ln off-chain, then sends a signed report that this contract validates
+///      and executes. Complete-set mint/redeem remain direct user calls (AMM-agnostic).
 abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     using SafeERC20 for IERC20;
 
-    /// @notice Performs one-time bootstrap of the AMM pool.
-    /// @dev Requires pre-funded collateral balance in this contract, then:
-    /// 1) sets YES/NO reserves equally to `amount`,
-    /// 2) mints matching YES/NO inventory to the pool itself,
-    /// 3) mints initial LP shares 1:1 with amount to the owner.
-    /// This creates an initial balanced invariant before public trading starts.
-    function seedLiquidity(uint256 amount) external onlyOwner whenNotPaused {
-        if (seeded) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityAlreadySet();
+    // ═══════════════════════════════════════════════════════════════════
+    //  LMSR Market Initialization
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice One-time LMSR market initialization. Locks collateral as market-maker subsidy.
+    /// @dev The subsidy = b × ln(2) for binary markets. This collateral must be pre-funded
+    ///      to this contract before calling. Unlike CPMM seedLiquidity, no LP shares are minted.
+    ///      The market creator accepts bounded loss (subsidy amount) in exchange for providing
+    ///      continuous liquidity to the market.
+    /// @param _liquidityParam The LMSR 'b' parameter. Controls market depth and max loss.
+    function initializeMarket(
+        uint256 _liquidityParam
+    ) external onlyOwner whenNotPaused {
+        if (initialized) {
+            revert MarketErrors.LMSR__AlreadyInitialized();
         }
-        if (amount == 0) {
-            revert MarketErrors.PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
+        if (_liquidityParam == 0) {
+            revert MarketErrors.PredictionMarket__AmountCantBeZero();
         }
 
+        uint256 subsidyRequired = LMSRLib.maxSubsidyLoss(_liquidityParam);
         uint256 contractBalance = i_collateral.balanceOf(address(this));
-        if (contractBalance < amount) {
-            revert MarketErrors.PredictionMarket__FundingInitailAountGreaterThanAmountSent();
+        if (contractBalance < subsidyRequired) {
+            revert MarketErrors.LMSR__InsufficientSubsidy();
         }
 
-        yesReserve = amount;
-        noReserve = amount;
-        seeded = true;
+        liquidityParam = _liquidityParam;
+        subsidyDeposit = subsidyRequired;
+        initialized = true;
 
-        totalShares = amount;
-        lpShares[msg.sender] = amount;
+        // Initial shares are both zero → equal 50/50 pricing
+        yesSharesOutstanding = 0;
+        noSharesOutstanding = 0;
+        lastYesPriceE6 = 500_000;
+        lastNoPriceE6 = 500_000;
+        tradeNonce = 0;
 
-        yesToken.mint(address(this), amount);
-        noToken.mint(address(this), amount);
-
-        emit MarketEvents.LiquiditySeeded(amount);
+        emit MarketEvents.MarketInitialized(_liquidityParam, subsidyRequired);
     }
 
-    /// @notice Adds balanced liquidity and mints LP shares.
-    /// @dev Uses `AMMLib.calculateShares` to keep pool ratio unchanged by taking the limiting side.
-    /// If user sends off-ratio amounts, only proportional subset (`usedYes`, `usedNo`) is consumed.
-    /// This avoids reserve skew and preserves AMM pricing assumptions.
-    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares)
-        public
-        virtual
-        nonReentrant
-        marketOpen
-        seededOnly
-    {
-        if (yesAmount == 0 && noAmount == 0) {
-            revert MarketErrors.PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
-        }
-        if (
-            yesAmount < MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE
-                || noAmount < MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE
-        ) {
-            revert MarketErrors.PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum();
-        }
+    // ═══════════════════════════════════════════════════════════════════
+    //  CRE-Driven LMSR Trade Execution
+    // ═══════════════════════════════════════════════════════════════════
 
-        uint256 yesTokenBalance = yesToken.balanceOf(address(msg.sender));
-        uint256 noTokenBalance = noToken.balanceOf(address(msg.sender));
-        if (yesTokenBalance < yesAmount || noTokenBalance < noAmount) {
-            revert MarketErrors.PredictionMarket__AddLiquidity_InsuffientTokenBalance();
-        }
+    /// @notice Executes an LMSR buy trade from a CRE-signed report.
+    /// @dev Called internally by _processReport when action type is "LMSRBuy".
+    ///      The CRE handler computed the cost off-chain using:
+    ///        costDelta = C(q + Δe_i) - C(q) where C(q) = b × ln(Σ exp(q_j / b))
+    ///      On-chain we validate: prices sum to ~1e6, nonce is fresh, amounts are sane.
+    /// @param trader Address of the buyer (collateral taken from this address).
+    /// @param outcomeIndex 0 for YES, 1 for NO.
+    /// @param sharesDelta Number of outcome shares to mint.
+    /// @param costDelta Collateral cost computed by CRE (transferred from trader).
+    /// @param newYesPriceE6 Updated YES price after trade (1e6 precision).
+    /// @param newNoPriceE6 Updated NO price after trade (1e6 precision).
+    /// @param nonce Monotonic trade nonce from CRE.
+    function _executeLMSRBuy(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        // ── Validation ───────────────────────────────────────────────
+        if (trader == address(0))
+            revert MarketErrors.LMSR__TraderCannotBeZero();
+        if (outcomeIndex > 1) revert MarketErrors.LMSR__InvalidOutcomeIndex();
+        if (sharesDelta < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT)
+            revert MarketErrors.LMSR__TradeBelowMinimum();
+        if (!LMSRLib.validatePriceSum(newYesPriceE6, newNoPriceE6))
+            revert MarketErrors.LMSR__InvalidPriceSum();
+        if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
+            revert MarketErrors.LMSR__StaleTradeNonce();
 
-        (uint256 shares, uint256 usedYes, uint256 usedNo) =
-            AMMLib.calculateShares(yesAmount, noAmount, totalShares, yesReserve, noReserve);
+        // ── State update ─────────────────────────────────────────────
+        tradeNonce = nonce;
+        lastYesPriceE6 = newYesPriceE6;
+        lastNoPriceE6 = newNoPriceE6;
 
-        if (shares < minShares) {
-            revert MarketErrors.PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
-        }
+        // Transfer collateral from trader to market
+        i_collateral.safeTransferFrom(trader, address(this), costDelta);
 
-        yesReserve += usedYes;
-        noReserve += usedNo;
-
-        totalShares += shares;
-        lpShares[msg.sender] += shares;
-
-        IERC20(address(yesToken)).safeTransferFrom(msg.sender, address(this), usedYes);
-        IERC20(address(noToken)).safeTransferFrom(msg.sender, address(this), usedNo);
-
-        emit MarketEvents.LiquidityAdded(msg.sender, usedYes, usedNo, shares);
-    }
-
-    /// @notice Burns LP shares and returns proportional YES/NO reserves.
-    /// @dev Output math is share-based:
-    /// `yesOut = yesReserve * shares / totalShares`
-    /// `noOut  = noReserve  * shares / totalShares`
-    /// Caller can protect against reserve movement using `minYesOut` / `minNoOut`.
-    function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut)
-        public
-        virtual
-        nonReentrant
-        seededOnly
-        marketOpen
-    {
-        uint256 userShares = lpShares[msg.sender];
-
-        if (shares == 0) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
-        }
-        if (userShares < shares) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
+        // Mint outcome tokens to trader and update outstanding shares
+        if (outcomeIndex == 0) {
+            yesSharesOutstanding += sharesDelta;
+            yesToken.mint(trader, sharesDelta);
+        } else {
+            noSharesOutstanding += sharesDelta;
+            noToken.mint(trader, sharesDelta);
         }
 
-        uint256 yesOut = AMMLib.calculateProportionalOutput(yesReserve, shares, totalShares);
-        uint256 noOut = AMMLib.calculateProportionalOutput(noReserve, shares, totalShares);
-
-        if (yesOut < minYesOut || noOut < minNoOut) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_SlippageExceeded();
-        }
-
-        lpShares[msg.sender] = userShares - shares;
-        totalShares -= shares;
-
-        yesReserve -= yesOut;
-        noReserve -= noOut;
-
-        IERC20(address(yesToken)).safeTransfer(msg.sender, yesOut);
-        IERC20(address(noToken)).safeTransfer(msg.sender, noOut);
-
-        emit MarketEvents.LiquidityRemoved(msg.sender, yesOut, noOut, shares);
-    }
-
-    /// @notice Removes liquidity and immediately redeems matched YES/NO amount into collateral.
-    /// @dev After proportional withdrawal, only `min(yesOut, noOut)` can form complete sets.
-    /// That matched amount is redeemed to collateral minus redeem fee; unmatched remainder is
-    /// returned as outcome tokens to caller. This path is useful when LP wants partial collateral
-    /// exit without fully market-making in outcome tokens.
-    function removeLiquidityAndRedeemCollateral(uint256 shares, uint256 minCollateralOut)
-        public
-        virtual
-        nonReentrant
-        seededOnly
-        marketOpen
-    {
-        uint256 userShares = lpShares[msg.sender];
-
-        if (shares == 0) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
-        }
-        if (userShares < shares) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
-        }
-
-        uint256 yesOut = AMMLib.calculateProportionalOutput(yesReserve, shares, totalShares);
-        uint256 noOut = AMMLib.calculateProportionalOutput(noReserve, shares, totalShares);
-
-        lpShares[msg.sender] = userShares - shares;
-        totalShares -= shares;
-        yesReserve -= yesOut;
-        noReserve -= noOut;
-
-        emit MarketEvents.LiquidityRemoved(msg.sender, yesOut, noOut, shares);
-
-        uint256 completeSets = yesOut < noOut ? yesOut : noOut;
-
-        (uint256 netCollaterals, uint256 fee) = FeeLib.deductFee(
-            completeSets, MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
+        emit MarketEvents.LMSRBuyExecuted(
+            trader,
+            outcomeIndex,
+            sharesDelta,
+            costDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
         );
-
-        if (netCollaterals < minCollateralOut) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_SlippageExceeded();
-        }
-
-        protocolCollateralFees += fee;
-
-        yesToken.burn(address(this), completeSets);
-        noToken.burn(address(this), completeSets);
-
-        uint256 leftoverYes = yesOut - completeSets;
-        uint256 leftoverNo = noOut - completeSets;
-
-        if (leftoverYes > 0) {
-            IERC20(address(yesToken)).safeTransfer(msg.sender, leftoverYes);
-        }
-
-        if (leftoverNo > 0) {
-            IERC20(address(noToken)).safeTransfer(msg.sender, leftoverNo);
-        }
-
-        i_collateral.safeTransfer(msg.sender, netCollaterals);
-
-        emit MarketEvents.CompleteSetsRedeemed(msg.sender, netCollaterals);
     }
 
-    /// @notice Post-resolution LP settlement path.
-    /// @dev Only final outcomes Yes/No are valid here. Shares are redeemed through
-    /// `_withdrawResolvedLiquidity`, which values LP shares solely against winning reserve side.
-    function withdrawLiquidityCollateral(uint256 shares) external nonReentrant whenNotPaused {
-        if (state != State.Resolved) {
-            revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+    /// @notice Executes an LMSR sell trade from a CRE-signed report.
+    /// @dev Called internally by _processReport when action type is "LMSRSell".
+    ///      The CRE handler computed the refund off-chain using:
+    ///        refundDelta = C(q) - C(q - Δe_i)
+    ///      Trader must hold >= sharesDelta of the outcome token.
+    /// @param trader Address of the seller (refund sent to this address).
+    /// @param outcomeIndex 0 for YES, 1 for NO.
+    /// @param sharesDelta Number of outcome shares to burn.
+    /// @param refundDelta Collateral refund computed by CRE (transferred to trader).
+    /// @param newYesPriceE6 Updated YES price after trade (1e6 precision).
+    /// @param newNoPriceE6 Updated NO price after trade (1e6 precision).
+    /// @param nonce Monotonic trade nonce from CRE.
+    function _executeLMSRSell(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        // ── Validation ───────────────────────────────────────────────
+        if (trader == address(0))
+            revert MarketErrors.LMSR__TraderCannotBeZero();
+        if (outcomeIndex > 1) revert MarketErrors.LMSR__InvalidOutcomeIndex();
+        if (sharesDelta < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT)
+            revert MarketErrors.LMSR__TradeBelowMinimum();
+        if (!LMSRLib.validatePriceSum(newYesPriceE6, newNoPriceE6))
+            revert MarketErrors.LMSR__InvalidPriceSum();
+        if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
+            revert MarketErrors.LMSR__StaleTradeNonce();
+
+        // Check trader has enough tokens to sell
+        OutcomeToken token = outcomeIndex == 0 ? yesToken : noToken;
+        if (token.balanceOf(trader) < sharesDelta)
+            revert MarketErrors.LMSR__InsufficientShares();
+
+        // ── State update ─────────────────────────────────────────────
+        tradeNonce = nonce;
+        lastYesPriceE6 = newYesPriceE6;
+        lastNoPriceE6 = newNoPriceE6;
+
+        // Burn outcome tokens from trader and update outstanding shares
+        if (outcomeIndex == 0) {
+            yesSharesOutstanding -= sharesDelta;
+            yesToken.burn(trader, sharesDelta);
+        } else {
+            noSharesOutstanding -= sharesDelta;
+            noToken.burn(trader, sharesDelta);
         }
 
-        uint256 resolutionOut = uint256(resolution);
+        // Transfer collateral refund to trader
+        i_collateral.safeTransfer(trader, refundDelta);
 
-        if (resolutionOut != uint256(Resolution.Yes) && resolutionOut != uint256(Resolution.No)) {
-            revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
-        }
-
-        uint256 userShares = lpShares[msg.sender];
-
-        if (shares == 0) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
-        }
-        if (userShares < shares) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
-        }
-
-        _withdrawResolvedLiquidity(shares, userShares, resolutionOut == uint256(Resolution.Yes));
+        emit MarketEvents.LMSRSellExecuted(
+            trader,
+            outcomeIndex,
+            sharesDelta,
+            refundDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
     }
 
-    /// @notice Transfers LP shares between accounts without changing pool reserves.
-    /// @dev This is an internal accounting transfer only; no token mint/burn happens.
-    function transferShares(address to, uint256 shares) public virtual whenNotPaused {
-        if (to == address(0)) {
-            revert MarketErrors.PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
-        }
-        if (lpShares[msg.sender] < shares) {
-            revert MarketErrors.PredictionMarket__TransferShares_InsufficientShares();
-        }
-
-        lpShares[msg.sender] -= shares;
-        lpShares[to] += shares;
-
-        emit MarketEvents.SharesTransferred(msg.sender, to, shares);
-    }
+    // ═══════════════════════════════════════════════════════════════════
+    //  Complete Set Operations (AMM-agnostic, works with any model)
+    // ═══════════════════════════════════════════════════════════════════
 
     /// @notice Mints complete sets by depositing collateral.
     /// @dev Economic effect:
@@ -242,7 +205,16 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     /// - user receives equal YES and NO balances of `netAmount`.
     /// Risk control:
     /// user exposure is tracked and bounded unless caller is factory or explicitly exempt.
-    function mintCompleteSets(uint256 amount) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
+    function mintCompleteSets(
+        uint256 amount
+    )
+        public
+        virtual
+        nonReentrant
+        marketOpen
+        initializedOnly
+        zeroAmountCheck(amount)
+    {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
         }
@@ -253,12 +225,19 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         }
 
         uint256 exposure = userRiskExposure[msg.sender];
-        if (msg.sender != address(marketFactory) && !isRiskExempt[msg.sender] && exposure + amount > MarketConstants.MAX_RISK_EXPOSURE) {
+        if (
+            msg.sender != address(marketFactory) &&
+            !isRiskExempt[msg.sender] &&
+            exposure + amount > MarketConstants.MAX_RISK_EXPOSURE
+        ) {
             revert MarketErrors.PredictionMarket__RiskExposureExceeded();
         }
 
-        (uint256 netAmount, uint256 fee) =
-            FeeLib.deductFee(amount, MarketConstants.MINT_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+        (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
+            amount,
+            MarketConstants.MINT_COMPLETE_SETS_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
 
         protocolCollateralFees += fee;
         userRiskExposure[msg.sender] += amount;
@@ -274,7 +253,9 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     /// @notice Redeems complete sets back into collateral during open market state.
     /// @dev Caller must hold both sides in equal `amount`. Contract burns both tokens,
     /// charges redeem fee, and transfers net collateral back to caller.
-    function redeemCompleteSets(uint256 amount) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
+    function redeemCompleteSets(
+        uint256 amount
+    ) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__RedeemCompletesetLessThanMinAllowed();
         }
@@ -284,8 +265,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
         }
 
-        (uint256 netAmount, uint256 fee) =
-            FeeLib.deductFee(amount, MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
+        (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
+            amount,
+            MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
 
         protocolCollateralFees += fee;
 
@@ -294,31 +278,5 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         i_collateral.safeTransfer(msg.sender, netAmount);
 
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);
-    }
-
-    /// @notice Public YES->NO swap entrypoint.
-    /// @dev Delegates to `_swap` with direction flag set to YES input.
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut)
-        public
-        virtual
-        nonReentrant
-        marketOpen
-        seededOnly
-        zeroAmountCheck(yesIn)
-    {
-        _swap(yesIn, minNoOut, true);
-    }
-
-    /// @notice Public NO->YES swap entrypoint.
-    /// @dev Delegates to `_swap` with direction flag set to NO input.
-    function swapNoForYes(uint256 noIn, uint256 minYesOut)
-        public
-        virtual
-        nonReentrant
-        marketOpen
-        seededOnly
-        zeroAmountCheck(noIn)
-    {
-        _swap(noIn, minYesOut, false);
     }
 }

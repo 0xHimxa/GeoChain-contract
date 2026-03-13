@@ -4,6 +4,7 @@ import { sponsorUserOpPolicyHandler } from "./handlers/httpHandlers/httpSponsorP
 import { executeReportHttpHandler } from "./handlers/httpHandlers/httpExecuteReport";
 import { revokeSessionHttpHandler } from "./handlers/httpHandlers/httpRevokeSession";
 import { fiatCreditHttpHandler } from "./handlers/httpHandlers/httpFiatCredit";
+import { lmsrTradeHttpHandler } from "./handlers/httpHandlers/httpLmsrTrade";
 import { ethCreditFromLogsHandler } from "./handlers/eventsHandler/ethCreditFromLogs";
 
 const ETH_RECEIVED_EVENT_SIG = "0xe98f6e2bbf18d38ab3110207f18cc6cc79ca9fcd98fb75e8f5fdc7fc4f09d5e3";
@@ -22,9 +23,11 @@ const initWorkflow = (config: Config) => {
   const httpAuthorizedKeys = config.httpTriggerAuthorizedKeys || [];
   const httpExecutionAuthorizedKeys = config.httpExecutionAuthorizedKeys || [];
   const httpFiatCreditAuthorizedKeys = config.httpFiatCreditAuthorizedKeys || [];
+  const httpLmsrTradeAuthorizedKeys = config.httpLmsrTradeAuthorizedKeys || [];
   const hasHttpTriggerKeys = httpAuthorizedKeys.length > 0;
   const hasHttpExecutionTriggerKeys = httpExecutionAuthorizedKeys.length > 0;
   const hasHttpFiatCreditKeys = httpFiatCreditAuthorizedKeys.length > 0;
+  const hasHttpLmsrTradeKeys = httpLmsrTradeAuthorizedKeys.length > 0;
   const ethCreditPolicy = config.ethCreditPolicy;
   const hasEthCredit = Boolean(ethCreditPolicy?.enabled);
 
@@ -63,6 +66,17 @@ const initWorkflow = (config: Config) => {
             authorizedKeys: httpFiatCreditAuthorizedKeys,
           }),
           fiatCreditHttpHandler
+        ),
+      ]
+    : [];
+
+  const lmsrTradeHttpWorkflows: Workflow<Config> = hasHttpLmsrTradeKeys
+    ? [
+        handler(
+          http.trigger({
+            authorizedKeys: httpLmsrTradeAuthorizedKeys,
+          }),
+          lmsrTradeHttpHandler
         ),
       ]
     : [];
@@ -106,6 +120,7 @@ const initWorkflow = (config: Config) => {
     ...sponsorHttpWorkflows,
     ...executeHttpWorkflows,
     ...fiatCreditHttpWorkflows,
+    ...lmsrTradeHttpWorkflows,
     ...ethCreditLogWorkflows,
   ];
 };
@@ -120,5 +135,7 @@ export {
   executeReportHttpHandler,
   revokeSessionHttpHandler,
   fiatCreditHttpHandler,
+  lmsrTradeHttpHandler,
   ethCreditFromLogsHandler,
 };
+
