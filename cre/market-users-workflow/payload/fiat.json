@@ -1,8 +1,8 @@
 {
-  "requestId": "fiat_req_1772667775264",
-  "paymentId": "pay_1772667775264",
+  "requestId": "fiat_req_1773262639293",
+  "paymentId": "pay_1773262639293",
   "chainId": 421614,
-  "user": "0x076373b0B75f6EfCc8f9687Fc54FA028d2Af6Fb5",
+  "user": "0x2De856163308221EB58C1280fFeA2C0eDABb7818",
   "amountUsdc": "150000000",
-  "provider": "card"
+  "provider": "stripe"
 }
