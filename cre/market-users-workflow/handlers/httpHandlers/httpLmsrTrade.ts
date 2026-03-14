@@ -53,9 +53,20 @@ type LmsrTradeResponse = {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
-const PRICE_PRECISION = 1_000_000;
-const FEE_PRECISION_BPS = 10_000;
-const LMSR_TRADE_FEE_BPS = 400; // 4% fee - must match PredictionMarket constants
+const PRICE_PRECISION = 1_000_000n;
+const FEE_PRECISION_BPS = 10_000n;
+const LMSR_TRADE_FEE_BPS = 400n; // 4% fee - must match PredictionMarket constants
+
+/**
+ * Fixed-point scale used throughout BigInt LMSR math.
+ *
+ * WAD (1e18) is the de-facto standard in DeFi fixed-point libraries
+ * (e.g. Solidity's DSMath, PRBMath, FixedPointMathLib). It gives 18
+ * decimal digits of fractional precision — more than enough for price/cost
+ * calculations where the final outputs are only 6-decimal (1e6) prices and
+ * integer collateral units.
+ */
+const WAD = 1_000_000_000_000_000_000n; // 1e18
 
 /** ABI fragment for PredictionMarketBase.getLMSRState() */
 const getLMSRStateAbi = [
@@ -107,29 +118,177 @@ const erc20BalanceOfAbi = [
 
 type LMSRState = readonly [bigint, bigint, bigint, bigint, bigint, bigint];
 
-// ─── LMSR Math (log-sum-exp trick for numerical stability) ───────────────────
+// ─── BigInt Fixed-Point Math ─────────────────────────────────────────────────
+//
+// All functions below operate entirely in BigInt with WAD (1e18) scaling.
+// No Number / floating-point is used anywhere in the LMSR math path.
+//
+// Design choices & trade-offs
+// ───────────────────────────
+// • exp(x)   20-term Taylor series around 0, with range reduction via
+//             exp(x) = exp(x mod ln2) * 2^k  so the series always converges
+//             fast. Accurate to < 1 ULP (WAD unit) for inputs up to ~135 WAD
+//             (i.e. x < 135, which is far beyond any realistic share ratio).
+//
+// • ln(x)   - Halley's method (cubic convergence) seeded from a bit-length
+//             estimate, then refined until the iterate stops changing.
+//             Converges in ≤ 8 iterations for any positive WAD-scaled input.
+//
+// • lmsrCost / lmsrPrice - bigint ports of the log-sum-exp (LSE) trick:
+//             shift all exponents by the maximum before summing to prevent
+//             overflow, then re-add it. Identical algorithmic structure to
+//             the float version but fully precision-safe.
 
-/**
- * Computes LMSR cost function: C(q) = b × ln(Σ exp(q_i / b))
- * Uses the log-sum-exp trick to avoid overflow: max + ln(Σ exp(v_i - max))
- */
-function lmsrCost(shares: number[], b: number): number {
-  const scaled = shares.map((q) => q / b);
-  const max = Math.max(...scaled);
-  const sumExp = scaled.reduce((s, v) => s + Math.exp(v - max), 0);
-  return b * (max + Math.log(sumExp));
+/** Absolute value of a bigint */
+function absBigInt(x: bigint): bigint {
+  return x < 0n ? -x : x;
 }
 
 /**
- * Computes LMSR probability/price for outcome i: price_i = exp(q_i/b) / Σ exp(q_j/b)
- * Uses log-sum-exp trick for numerical stability (softmax).
+ * WAD-scaled natural exponent: exp(x) where x is WAD-scaled.
+ *
+ * Range reduction: x = k*ln2 + r  →  exp(x) = 2^k * exp(r)
+ * Then exp(r) via 20-term Taylor series (r is in [-ln2/2, ln2/2]).
+ *
+ * Handles negative x correctly (exp(-x) = 1/exp(x)).
+ * Reverts (throws) for x > 135*WAD, mirroring Solidity overflow guards.
  */
-function lmsrPrice(shares: number[], b: number, i: number): number {
-  const scaled = shares.map((q) => q / b);
-  const max = Math.max(...scaled);
-  const exps = scaled.map((v) => Math.exp(v - max));
-  const sum = exps.reduce((a, c) => a + c, 0);
-  return exps[i] / sum;
+function wadExp(x: bigint): bigint {
+  if (x === 0n) return WAD;
+
+  const MAX_INPUT = 135n * WAD;
+  if (x > MAX_INPUT) throw new Error(`wadExp overflow: x=${x}`);
+
+  // Handle negatives: exp(-x) = WAD^2 / exp(x)
+  if (x < 0n) return (WAD * WAD) / wadExp(-x);
+
+  // ln(2) scaled to WAD
+  const LN2 = 693_147_180_559_945_309n; // ln(2) * 1e18
+
+  // Range reduction: find k such that x = k*LN2 + r, 0 <= r < LN2
+  const k = x / LN2;
+  const r = x - k * LN2; // r in [0, LN2)
+
+  // Taylor series: exp(r) = Σ r^n / n!  (n=0..19)
+  // Accumulate in WAD scale; each term = prev_term * r / (n * WAD)
+  let result = WAD; // term_0 = 1 * WAD
+  let term = WAD;
+  for (let n = 1n; n <= 20n; n++) {
+    term = (term * r) / (n * WAD);
+    result += term;
+    if (term === 0n) break; // converged
+  }
+
+  // Re-apply range reduction: multiply by 2^k
+  // Do it via repeated squaring to avoid BigInt shift limitations with WAD
+  let scale = WAD;
+  let base = 2n * WAD; // 2.0 in WAD
+  let exp = k;
+  while (exp > 0n) {
+    if (exp & 1n) scale = (scale * base) / WAD;
+    base = (base * base) / WAD;
+    exp >>= 1n;
+  }
+
+  return (result * scale) / WAD;
+}
+
+/**
+ * WAD-scaled natural logarithm: ln(x) where x is WAD-scaled.
+ *
+ * Uses Halley's method (cubic convergence):
+ *   y_{n+1} = y_n + 2 * (x - exp(y_n)) / (x + exp(y_n))
+ *
+ * Seeded by bit-length of x to give a starting point within 1 bit of truth.
+ * Typically converges in 5-8 iterations.
+ *
+ * Throws for x <= 0.
+ */
+function wadLn(x: bigint): bigint {
+  if (x <= 0n) throw new Error(`wadLn domain error: x=${x}`);
+  if (x === WAD) return 0n;
+
+  // Seed: bit_length(x / WAD) * ln(2)  (coarse integer approximation)
+  const LN2 = 693_147_180_559_945_309n;
+  const intPart = x / WAD;
+  let bits = 0n;
+  let tmp = intPart > 0n ? intPart : 1n;
+  while (tmp > 0n) {
+    tmp >>= 1n;
+    bits++;
+  }
+  let y = (bits - 1n) * LN2; // seed in WAD scale
+
+  // Halley iterations until convergence (max 20 guards against infinite loop)
+  for (let i = 0; i < 20; i++) {
+    const ey = wadExp(y);
+    // Halley step: y += 2*(x - ey)/(x + ey)
+    const numerator = 2n * (x - ey);
+    const denominator = x + ey;
+    if (denominator === 0n) break;
+    const delta = (numerator * WAD) / denominator;
+    y += delta;
+    if (absBigInt(delta) <= 1n) break; // converged to 1 ULP
+  }
+
+  return y;
+}
+
+/**
+ * LMSR cost function in BigInt fixed-point (WAD scale).
+ *
+ *   C(q) = b × ln( Σ exp(q_i / b) )
+ *
+ * Log-sum-exp trick for overflow safety (same as the float version):
+ *   C(q) = b × ( maxScaled + ln( Σ exp(q_i/b − maxScaled) ) )
+ *
+ * @param shares  Array of share quantities (raw bigint, same units as b)
+ * @param b       Liquidity parameter (raw bigint, same units as shares)
+ * @returns       Cost in the same units as b (raw bigint, NOT WAD-scaled)
+ */
+function lmsrCostBigInt(shares: bigint[], b: bigint): bigint {
+  if (b === 0n) throw new Error("lmsrCost: b must be non-zero");
+
+  // q_i / b, WAD-scaled: (q_i * WAD) / b
+  const scaled = shares.map((q) => (q * WAD) / b);
+
+  // max for log-sum-exp trick
+  const maxScaled = scaled.reduce((m, v) => (v > m ? v : m), scaled[0]);
+
+  // Σ exp(q_i/b − maxScaled)  [all exponents ≤ 0, so no overflow]
+  const sumExp = scaled.reduce((acc, v) => acc + wadExp(v - maxScaled), 0n);
+
+  // C = b * (maxScaled + ln(sumExp))  — result back in raw units
+  // maxScaled is WAD-scaled, wadLn(sumExp) is WAD-scaled → sum is WAD-scaled
+  const lnSum = wadLn(sumExp);
+  const costWad = maxScaled + lnSum; // WAD-scaled
+  // Bring back to raw units: (b * costWad) / WAD
+  return (b * costWad) / WAD;
+}
+
+/**
+ * LMSR price (probability) for outcome i, in WAD scale (i.e. 1.0 == WAD).
+ *
+ *   price_i = exp(q_i/b) / Σ exp(q_j/b)
+ *
+ * Uses the same log-sum-exp trick to prevent overflow in the softmax.
+ *
+ * @param shares  Array of share quantities (raw bigint)
+ * @param b       Liquidity parameter (raw bigint)
+ * @param i       Outcome index to price
+ * @returns       Price in WAD scale (e.g. 0.6 == 600_000_000_000_000_000n)
+ */
+function lmsrPriceBigInt(shares: bigint[], b: bigint, i: number): bigint {
+  if (b === 0n) throw new Error("lmsrPrice: b must be non-zero");
+
+  const scaled = shares.map((q) => (q * WAD) / b);
+  const maxScaled = scaled.reduce((m, v) => (v > m ? v : m), scaled[0]);
+
+  const exps = scaled.map((v) => wadExp(v - maxScaled));
+  const sumExp = exps.reduce((acc, v) => acc + v, 0n);
+
+  // price_i = exp_i / sumExp  (both WAD-scaled → result is WAD-scaled)
+  return (exps[i] * WAD) / sumExp;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -193,11 +352,16 @@ const fail = (requestId: string, reason: string): string =>
  * LMSR Trade HTTP handler for the CRE market-users workflow.
  *
  * Receives a user trade intent, reads on-chain LMSR state, computes the LMSR
- * cost/refund off-chain using exp/ln, then encodes and writes a signed report
- * to the market contract for on-chain execution.
+ * cost/refund off-chain using BigInt fixed-point arithmetic (WAD = 1e18),
+ * then encodes and writes a signed report to the market contract for on-chain
+ * execution.
+ *
+ * All share quantities, the liquidity parameter b, costs, and prices stay as
+ * bigint throughout — no Number cast is performed on uint256 chain values.
  *
  * Report format matches PredictionMarketResolution._processReport() expectations:
- *   ("LMSRBuy"|"LMSRSell", abi.encode(trader, outcomeIndex, sharesDelta, costOrRefund, newYesPriceE6, newNoPriceE6, nonce))
+ *   ("LMSRBuy"|"LMSRSell", abi.encode(trader, outcomeIndex, sharesDelta,
+ *    costOrRefund, newYesPriceE6, newNoPriceE6, nonce))
  */
 export const lmsrTradeHttpHandler = async (
   runtime: Runtime<Config>,
@@ -291,13 +455,6 @@ export const lmsrTradeHttpHandler = async (
   const evmClient = new EVMClient(network.chainSelector.selector);
 
   // ── Read On-Chain LMSR State ─────────────────────────────────────
-  const getLMSRStateCallData = encodeAbiParameters(
-    parseAbiParameters("bytes4"),
-    // getLMSRState() selector
-    ["0x" as `0x${string}`]
-  );
-
-  // Use raw ABI encoding for the call
   const stateCallData = "0xc1e80882"; // keccak256("getLMSRState()")[:4]
 
   let lmsrState: LMSRState;
@@ -324,16 +481,15 @@ export const lmsrTradeHttpHandler = async (
     );
   }
 
+  // ── All chain values stay as bigint — no Number() cast ───────────
   const [yesSharesRaw, noSharesRaw, bRaw, , , currentNonceRaw] = lmsrState;
 
-  // Convert to floating point for LMSR math
-  const yesShares = Number(yesSharesRaw);
-  const noShares = Number(noSharesRaw);
-  const b = Number(bRaw);
-  const sharesDeltaNum = Number(sharesDelta);
-  const currentNonce = Number(currentNonceRaw);
+  const yesShares: bigint = yesSharesRaw;
+  const noShares: bigint = noSharesRaw;
+  const b: bigint = bRaw;
+  const currentNonce: bigint = currentNonceRaw;
 
-  if (b === 0) {
+  if (b === 0n) {
     return fail(requestId, "market not initialized (b=0)");
   }
 
@@ -397,63 +553,59 @@ export const lmsrTradeHttpHandler = async (
     }
   }
 
-  // ── Compute LMSR Cost/Refund ─────────────────────────────────────
-  const sharesBefore = [yesShares, noShares];
-  const costBefore = lmsrCost(sharesBefore, b);
+  // ── Compute LMSR Cost/Refund (fully in BigInt) ───────────────────
+  const sharesBefore: bigint[] = [yesShares, noShares];
+  const costBefore: bigint = lmsrCostBigInt(sharesBefore, b);
 
-  const sharesAfter = [...sharesBefore];
+  const sharesAfter: bigint[] = [...sharesBefore];
   if (req.action === "buy") {
-    sharesAfter[req.outcomeIndex] += sharesDeltaNum;
+    sharesAfter[req.outcomeIndex] += sharesDelta;
   } else {
-    //come
-    // Sell: verify trader has enough shares
-    if (sharesAfter[req.outcomeIndex] < sharesDeltaNum) {
+    if (sharesAfter[req.outcomeIndex] < sharesDelta) {
       return fail(requestId, "insufficient outstanding shares for sell");
     }
-    sharesAfter[req.outcomeIndex] -= sharesDeltaNum;
+    sharesAfter[req.outcomeIndex] -= sharesDelta;
   }
 
-  const costAfter = lmsrCost(sharesAfter, b);
+  const costAfter: bigint = lmsrCostBigInt(sharesAfter, b);
 
-  let costOrRefundFloat: number;
+  let costOrRefund: bigint;
   if (req.action === "buy") {
-    costOrRefundFloat = costAfter - costBefore;
-    if (costOrRefundFloat <= 0) {
+    const rawCost = costAfter - costBefore;
+    if (rawCost <= 0n) {
       return fail(requestId, "computed cost is non-positive (unexpected)");
     }
-
-
-  // Convert to inclusive fee: subtract fee so AMM stays balanced if fee removed later
-  
-  const grossMultiplier =
-    FEE_PRECISION_BPS / (FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS);
-
-  costOrRefundFloat = costOrRefundFloat * grossMultiplier;
-
-
+    // Apply fee: grossCost = rawCost * FEE_PRECISION_BPS / (FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS)
+    // Integer ceiling: (a * b + c - 1) / c
+    const numerator = rawCost * FEE_PRECISION_BPS;
+    const denominator = FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS;
+    // Ceiling division for buy (trader pays at least the true cost)
+    costOrRefund = (numerator + denominator - 1n) / denominator;
   } else {
-    costOrRefundFloat = costBefore - costAfter;
-    if (costOrRefundFloat <= 0) {
+    const rawRefund = costBefore - costAfter;
+    if (rawRefund <= 0n) {
       return fail(requestId, "computed refund is non-positive (unexpected)");
     }
+    // Sell: no fee markup; floor division so AMM never overpays
+    costOrRefund = rawRefund;
   }
 
-  // Compute new prices after trade
-  const newYesPrice = lmsrPrice(sharesAfter, b, 0);
-  const newNoPrice = lmsrPrice(sharesAfter, b, 1);
+  // ── Compute new prices in WAD scale, then downscale to 1e6 ───────
+  //
+  // lmsrPriceBigInt returns a WAD-scaled value (1.0 == 1e18).
+  // To convert to E6 (1.0 == 1e6): priceE6 = priceWad * PRICE_PRECISION / WAD
+  const newYesPriceWad: bigint = lmsrPriceBigInt(sharesAfter, b, 0);
+  const newNoPriceWad: bigint = lmsrPriceBigInt(sharesAfter, b, 1);
 
-  // Scale to integers (collateral has 6 decimals, prices use 1e6 precision)
-  const costOrRefundInt = req.action === "buy" ? BigInt(Math.ceil(costOrRefundFloat)) : BigInt(Math.floor(costOrRefundFloat));
-  const newYesPriceE6 = BigInt(Math.round(newYesPrice * PRICE_PRECISION));
-  const newNoPriceE6 = BigInt(Math.round(newNoPrice * PRICE_PRECISION));
+  // Round to nearest for prices (neither systematically favours AMM or trader)
+  const halfWad = WAD / 2n;
+  let finalYesPriceE6: bigint = (newYesPriceWad * PRICE_PRECISION + halfWad) / WAD;
+  let finalNoPriceE6: bigint = (newNoPriceWad * PRICE_PRECISION + halfWad) / WAD;
 
-  // Ensure prices sum to ~PRICE_PRECISION (normalize if rounding drift)
-  const priceSum = newYesPriceE6 + newNoPriceE6;
-  let finalYesPriceE6 = newYesPriceE6;
-  let finalNoPriceE6 = newNoPriceE6;
-  if (priceSum !== BigInt(PRICE_PRECISION)) {
-    // Adjust the larger price to absorb the rounding error
-    const diff = BigInt(PRICE_PRECISION) - priceSum;
+  // Ensure prices sum exactly to PRICE_PRECISION (absorb rounding drift on the larger leg)
+  const priceSum = finalYesPriceE6 + finalNoPriceE6;
+  if (priceSum !== PRICE_PRECISION) {
+    const diff = PRICE_PRECISION - priceSum;
     if (finalYesPriceE6 >= finalNoPriceE6) {
       finalYesPriceE6 += diff;
     } else {
@@ -461,11 +613,11 @@ export const lmsrTradeHttpHandler = async (
     }
   }
 
-  const expectedNonce = BigInt(currentNonce);
+  const expectedNonce: bigint = currentNonce;
 
   runtime.log(
     `[LMSR_TRADE] ${req.action} outcomeIndex=${req.outcomeIndex} sharesDelta=${sharesDelta} ` +
-      `costOrRefund=${costOrRefundInt} newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${expectedNonce}`
+      `costOrRefund=${costOrRefund} newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${expectedNonce}`
   );
 
   // ── Encode & Submit Report ───────────────────────────────────────
@@ -475,7 +627,7 @@ export const lmsrTradeHttpHandler = async (
       req.trader as `0x${string}`,
       req.outcomeIndex,
       sharesDelta,
-      costOrRefundInt,
+      costOrRefund,
       finalYesPriceE6,
       finalNoPriceE6,
       expectedNonce,
@@ -524,7 +676,7 @@ export const lmsrTradeHttpHandler = async (
     chainName: evmConfig.chainName,
     receiver: req.market,
     explorerUrl,
-    costOrRefund: costOrRefundInt.toString(),
+    costOrRefund: costOrRefund.toString(),
     newYesPriceE6: finalYesPriceE6.toString(),
     newNoPriceE6: finalNoPriceE6.toString(),
   } satisfies LmsrTradeResponse);

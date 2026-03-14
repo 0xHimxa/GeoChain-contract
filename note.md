@@ -7,3 +7,6 @@ need to update my risk exposure
 
 
 test how the burn logic works if router call market
+
+
+need to implement logic so market need to validate or compare price before accepting it , to avoid blindfold trust
