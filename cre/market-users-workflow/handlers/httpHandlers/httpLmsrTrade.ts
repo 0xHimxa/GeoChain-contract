@@ -312,6 +312,7 @@ export const lmsrTradeHttpHandler = async (
   if (req.action === "buy") {
     sharesAfter[req.outcomeIndex] += sharesDeltaNum;
   } else {
+    //come
     // Sell: verify trader has enough shares
     if (sharesAfter[req.outcomeIndex] < sharesDeltaNum) {
       return fail(requestId, "insufficient outstanding shares for sell");

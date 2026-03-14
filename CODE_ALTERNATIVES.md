@@ -5,6 +5,8 @@
 
 ---
 
+migrated to LMSR successfully
+
 ## 1. AMM Model: CPMM → LMSR
 
 ### Problem
