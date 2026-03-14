@@ -106,6 +106,9 @@ abstract contract PredictionMarketBase is
 
     /// @notice Running collateral exposure tracked per account.
     mapping(address => uint256) public userRiskExposure;
+
+    ///@notice Per-account exposure cap for regular users (exempt accounts can bypass this).
+   
     /// @notice Accounts exempt from risk exposure cap.
     mapping(address => bool) public isRiskExempt;
 

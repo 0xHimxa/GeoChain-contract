@@ -22,6 +22,8 @@ enum Resolution {
 library MarketConstants {
     /// @dev Base AMM swap fee in bps.
     uint256 internal constant SWAP_FEE_BPS = 400;
+    /// @dev Fee charged on LMSR buy/sell trades (bps).
+    uint256 internal constant LMSR_TRADE_FEE_BPS = 400;
     /// @dev Fee charged when minting complete sets.
     uint256 internal constant MINT_COMPLETE_SETS_FEE_BPS = 300;
     /// @dev Fee charged when redeeming complete sets or winnings.
@@ -37,7 +39,8 @@ library MarketConstants {
     /// @dev Price precision for probabilities/canonical prices.
     uint256 internal constant PRICE_PRECISION = 1e6;
     /// @dev Per-user exposure cap for non-exempt mintCompleteSets callers.
-    uint256 internal constant MAX_RISK_EXPOSURE = 10000e6;
+    uint256 internal constant MAX_EXPOSURE_PRECISION = 10_000;
+    uint256 internal constant MAX_EXPOSURE_BPS = 500; // 5% of total liquidity
     /// @dev Default duration for market resolution disputes.
     uint256 internal constant DEFAULT_DISPUTE_WINDOW = 1 hours;
 

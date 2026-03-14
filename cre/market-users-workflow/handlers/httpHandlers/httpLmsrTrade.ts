@@ -10,6 +10,7 @@ import {
 } from "@chainlink/cre-sdk";
 import {
   decodeFunctionResult,
+  encodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
 } from "viem";
@@ -68,6 +69,36 @@ const getLMSRStateAbi = [
       { name: "noPriceE6", type: "uint256" },
       { name: "currentNonce", type: "uint64" },
     ],
+    stateMutability: "view",
+  },
+] as const;
+
+const getYesTokenAbi = [
+  {
+    type: "function",
+    name: "yesToken",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const getNoTokenAbi = [
+  {
+    type: "function",
+    name: "noToken",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const erc20BalanceOfAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
   },
 ] as const;
@@ -302,6 +333,66 @@ export const lmsrTradeHttpHandler = async (
 
   if (b === 0) {
     return fail(requestId, "market not initialized (b=0)");
+  }
+
+  // ── For sells, verify trader balance early to avoid on-chain revert ──
+  if (req.action === "sell") {
+    try {
+      const tokenCallData = encodeFunctionData({
+        abi: req.outcomeIndex === 0 ? getYesTokenAbi : getNoTokenAbi,
+        functionName: req.outcomeIndex === 0 ? "yesToken" : "noToken",
+        args: [],
+      });
+
+      const tokenResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: req.trader as `0x${string}`,
+            to: req.market as `0x${string}`,
+            data: tokenCallData as `0x${string}`,
+          }),
+        })
+        .result();
+
+      const tokenAddress = decodeFunctionResult({
+        abi: req.outcomeIndex === 0 ? getYesTokenAbi : getNoTokenAbi,
+        functionName: req.outcomeIndex === 0 ? "yesToken" : "noToken",
+        data: bytesToHex(tokenResult.data),
+      }) as `0x${string}`;
+
+      const balanceCallData = encodeFunctionData({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [req.trader as `0x${string}`],
+      });
+
+      const balanceResult = evmClient
+        .callContract(runtime, {
+          call: encodeCallMsg({
+            from: req.trader as `0x${string}`,
+            to: tokenAddress,
+            data: balanceCallData as `0x${string}`,
+          }),
+        })
+        .result();
+
+      const balance = decodeFunctionResult({
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        data: bytesToHex(balanceResult.data),
+      }) as bigint;
+
+      if (balance < sharesDelta) {
+        return fail(requestId, "insufficient outcome token balance for sell");
+      }
+    } catch (error) {
+      return fail(
+        requestId,
+        `failed to read outcome token balance: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   // ── Compute LMSR Cost/Refund ─────────────────────────────────────

@@ -65,6 +65,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         emit MarketEvents.MarketInitialized(_liquidityParam, subsidyRequired);
     }
 
+
+
+
+
     // ═══════════════════════════════════════════════════════════════════
     //  CRE-Driven LMSR Trade Execution
     // ═══════════════════════════════════════════════════════════════════
@@ -77,7 +81,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     /// @param trader Address of the buyer (collateral taken from this address).
     /// @param outcomeIndex 0 for YES, 1 for NO.
     /// @param sharesDelta Number of outcome shares to mint.
-    /// @param costDelta Collateral cost computed by CRE (transferred from trader).
+    /// @param costDelta Collateral cost computed by CRE (pre-fee).
     /// @param newYesPriceE6 Updated YES price after trade (1e6 precision).
     /// @param newNoPriceE6 Updated NO price after trade (1e6 precision).
     /// @param nonce Monotonic trade nonce from CRE.
@@ -89,7 +93,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 newYesPriceE6,
         uint256 newNoPriceE6,
         uint64 nonce
-    ) internal {
+    ) internal marketOpen {
         // ── Validation ───────────────────────────────────────────────
         if (trader == address(0))
             revert MarketErrors.LMSR__TraderCannotBeZero();
@@ -100,14 +104,24 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
+            _checkUserExposure(trader, costDelta);
 
         // ── State update ─────────────────────────────────────────────
         tradeNonce = nonce;
         lastYesPriceE6 = newYesPriceE6;
         lastNoPriceE6 = newNoPriceE6;
 
-        // Transfer collateral from trader to market
-        i_collateral.safeTransferFrom(trader, address(this), costDelta);
+        // Compute and charge LMSR trade fee on top of CRE-reported cost
+        uint256 fee = FeeLib.calculateFee(
+            costDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 totalCost = costDelta + fee;
+        protocolCollateralFees += fee;
+
+        // Transfer collateral (cost + fee) from trader to market
+        i_collateral.safeTransferFrom(trader, address(this), totalCost);
 
         // Mint outcome tokens to trader and update outstanding shares
         if (outcomeIndex == 0) {
@@ -129,6 +143,27 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         );
     }
 
+
+    /// @notice Validates that a user's total exposure does not exceed the dynamic risk cap.
+    /// @dev Ensures user exposure stays within 5% of total market liquidity (500 BPS).
+    ///      Reverts with RiskExposureExceeded if the new exposure would exceed the cap.
+    ///      This protects the protocol from excessive concentration risk per user.
+    /// @param user The address of the user to check exposure for.
+    /// @param additionalExposure The additional exposure amount to add to current exposure.
+    function _checkUserExposure(address user, uint256 additionalExposure) internal view {
+       // Calculate the dynamic cap: (Liquidity * 500) / 10000
+        uint256 dynamicCap = (liquidityParam * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        
+        uint256 currentExposure = userRiskExposure[user];
+        uint256 newExposure = currentExposure + additionalExposure;
+        if (newExposure > dynamicCap) {
+            revert MarketErrors.PredictionMarket__RiskExposureExceeded();
+        }
+    }
+
+
+
+
     /// @notice Executes an LMSR sell trade from a CRE-signed report.
     /// @dev Called internally by _processReport when action type is "LMSRSell".
     ///      The CRE handler computed the refund off-chain using:
@@ -137,7 +172,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     /// @param trader Address of the seller (refund sent to this address).
     /// @param outcomeIndex 0 for YES, 1 for NO.
     /// @param sharesDelta Number of outcome shares to burn.
-    /// @param refundDelta Collateral refund computed by CRE (transferred to trader).
+    /// @param refundDelta Collateral refund computed by CRE (pre-fee).
     /// @param newYesPriceE6 Updated YES price after trade (1e6 precision).
     /// @param newNoPriceE6 Updated NO price after trade (1e6 precision).
     /// @param nonce Monotonic trade nonce from CRE.
@@ -149,7 +184,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 newYesPriceE6,
         uint256 newNoPriceE6,
         uint64 nonce
-    ) internal {
+    ) internal marketOpen  {
         // ── Validation ───────────────────────────────────────────────
         if (trader == address(0))
             revert MarketErrors.LMSR__TraderCannotBeZero();
@@ -160,7 +195,9 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
-
+         userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
+            ? userRiskExposure[trader] - refundDelta
+            : 0; // Prevent underflow  
         // Check trader has enough tokens to sell
         OutcomeToken token = outcomeIndex == 0 ? yesToken : noToken;
         if (token.balanceOf(trader) < sharesDelta)
@@ -180,8 +217,17 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             noToken.burn(trader, sharesDelta);
         }
 
-        // Transfer collateral refund to trader
-        i_collateral.safeTransfer(trader, refundDelta);
+        // Deduct LMSR trade fee from refund
+        uint256 fee = FeeLib.calculateFee(
+            refundDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 netRefund = refundDelta - fee;
+        protocolCollateralFees += fee;
+
+        // Transfer net collateral refund to trader
+        i_collateral.safeTransfer(trader, netRefund);
 
         emit MarketEvents.LMSRSellExecuted(
             trader,
@@ -227,10 +273,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 exposure = userRiskExposure[msg.sender];
         if (
             msg.sender != address(marketFactory) &&
-            !isRiskExempt[msg.sender] &&
-            exposure + amount > MarketConstants.MAX_RISK_EXPOSURE
+            !isRiskExempt[msg.sender] 
         ) {
-            revert MarketErrors.PredictionMarket__RiskExposureExceeded();
+            _checkUserExposure(msg.sender, amount);
+
         }
 
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
@@ -264,6 +310,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         if (userNoBalance < amount || userYesBalance < amount) {
             revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
         }
+
+         userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
+            ? userRiskExposure[trader] - refundDelta
+            : 0; // Prevent underflow 
 
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
             amount,
