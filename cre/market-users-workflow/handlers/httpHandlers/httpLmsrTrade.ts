@@ -54,6 +54,8 @@ type LmsrTradeResponse = {
 
 const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const PRICE_PRECISION = 1_000_000;
+const FEE_PRECISION_BPS = 10_000;
+const LMSR_TRADE_FEE_BPS = 400; // 4% fee - must match PredictionMarket constants
 
 /** ABI fragment for PredictionMarketBase.getLMSRState() */
 const getLMSRStateAbi = [
@@ -419,6 +421,16 @@ export const lmsrTradeHttpHandler = async (
     if (costOrRefundFloat <= 0) {
       return fail(requestId, "computed cost is non-positive (unexpected)");
     }
+
+
+  // Convert to inclusive fee: subtract fee so AMM stays balanced if fee removed later
+  
+  const grossMultiplier =
+    FEE_PRECISION_BPS / (FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS);
+
+  costOrRefundFloat = costOrRefundFloat * grossMultiplier;
+
+
   } else {
     costOrRefundFloat = costBefore - costAfter;
     if (costOrRefundFloat <= 0) {
@@ -431,7 +443,7 @@ export const lmsrTradeHttpHandler = async (
   const newNoPrice = lmsrPrice(sharesAfter, b, 1);
 
   // Scale to integers (collateral has 6 decimals, prices use 1e6 precision)
-  const costOrRefundInt = BigInt(Math.ceil(costOrRefundFloat));
+  const costOrRefundInt = req.action === "buy" ? BigInt(Math.ceil(costOrRefundFloat)) : BigInt(Math.floor(costOrRefundFloat));
   const newYesPriceE6 = BigInt(Math.round(newYesPrice * PRICE_PRECISION));
   const newNoPriceE6 = BigInt(Math.round(newNoPrice * PRICE_PRECISION));
 
@@ -449,11 +461,11 @@ export const lmsrTradeHttpHandler = async (
     }
   }
 
-  const newNonce = BigInt(currentNonce + 1);
+  const expectedNonce = BigInt(currentNonce);
 
   runtime.log(
     `[LMSR_TRADE] ${req.action} outcomeIndex=${req.outcomeIndex} sharesDelta=${sharesDelta} ` +
-      `costOrRefund=${costOrRefundInt} newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${newNonce}`
+      `costOrRefund=${costOrRefundInt} newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${expectedNonce}`
   );
 
   // ── Encode & Submit Report ───────────────────────────────────────
@@ -466,7 +478,7 @@ export const lmsrTradeHttpHandler = async (
       costOrRefundInt,
       finalYesPriceE6,
       finalNoPriceE6,
-      newNonce,
+      expectedNonce,
     ]
   );
 

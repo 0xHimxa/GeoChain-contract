@@ -469,6 +469,7 @@ abstract contract MarketFactoryBase is
             IPredictionMarketRouterMapper(predictionMarketRouter)
                 .setMarketAllowed(address(m), true);
             m.setRiskExempt(predictionMarketRouter, true);
+            m.setRouterVault(predictionMarketRouter);
         }
 
         m.transferOwnership(owner());

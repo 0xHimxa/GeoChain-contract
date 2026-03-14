@@ -139,7 +139,7 @@ abstract contract PredictionMarketRouterVaultOperations is
         _redeem(msg.sender, market, amount);
     }
 
-    // NOTE: In LMSR mode, swap and liquidity functions are removed.
+    // NOTE: External buy/sell removed - only CRE via _processReport can call these
     // LMSR trades are CRE-report-driven (off-chain compute, on-chain execute).
     // Users interact via: mintCompleteSets, redeemCompleteSets, redeem.
 
@@ -412,6 +412,94 @@ abstract contract PredictionMarketRouterVaultOperations is
         emit WinningsRedeemed(user, market, amount, collateralDelta);
     }
 
+    /// @dev Executes LMSR buy trade via router vault accounting.
+    function _buy(
+        address user,
+        address market,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        _validateMarket(market);
+        _ensureCollateralMatch(market);
+
+        // costDelta is inclusive (CRE already subtracted fee)
+        uint256 userCollateral = collateralCredits[user];
+        if (userCollateral < costDelta) revert Router__InsufficientBalance();
+        collateralCredits[user] = userCollateral - costDelta;
+        totalCollateralCredits -= costDelta;
+
+        address token = outcomeIndex == 0
+            ? IPredictionMarketLike(market).yesToken()
+            : IPredictionMarketLike(market).noToken();
+
+        uint256 tokenBefore = IERC20(token).balanceOf(address(this));
+
+        _ensureAllowance(collateralToken, market, costDelta);
+        IPredictionMarketLike(market).executeBuy(
+           address(this),
+            outcomeIndex,
+            sharesDelta,
+            costDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
+
+        uint256 tokenAfter = IERC20(token).balanceOf(address(this));
+        uint256 tokenDelta = tokenAfter - tokenBefore;
+
+        tokenCredits[user][token] += tokenDelta;
+
+        emit SwappedYesForNo(user, market, costDelta, tokenDelta);
+    }
+
+    /// @dev Executes LMSR sell trade via router vault accounting.
+    function _sell(
+        address user,
+        address market,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        _validateMarket(market);
+
+        address token = outcomeIndex == 0
+            ? IPredictionMarketLike(market).yesToken()
+            : IPredictionMarketLike(market).noToken();
+
+        uint256 userTokenBal = tokenCredits[user][token];
+        if (userTokenBal < sharesDelta) revert Router__InsufficientBalance();
+        tokenCredits[user][token] = userTokenBal - sharesDelta;
+
+        uint256 collateralBefore = collateralToken.balanceOf(address(this));
+
+        _ensureAllowance(IERC20(token), market, sharesDelta);
+        IPredictionMarketLike(market).executeSell(
+            address(this),
+            outcomeIndex,
+            sharesDelta,
+            refundDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
+
+        uint256 collateralAfter = collateralToken.balanceOf(address(this));
+        uint256 collateralDelta = collateralAfter - collateralBefore;
+
+        collateralCredits[user] += collateralDelta;
+        totalCollateralCredits += collateralDelta;
+
+        emit SwappedNoForYes(user, market, sharesDelta, collateralDelta);
+    }
+
     // NOTE: _swapYesForNo, _swapNoForYes, _addLiquidity, _removeLiquidity
     // removed in LMSR mode. Trades are CRE-report-driven.
 
@@ -517,6 +605,40 @@ abstract contract PredictionMarketRouterVaultOperations is
             _redeemCompleteSets(user, market, amount);
             return true;
         }
+        if (actionTypeHash == HASHED_BUY) {
+            (
+                address user,
+                address market,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 costDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                payload,
+                (address, address, uint8, uint256, uint256, uint256, uint256, uint64)
+            );
+            _buy(user, market, outcomeIndex, sharesDelta, costDelta, newYesPriceE6, newNoPriceE6, nonce);
+            return true;
+        }
+        if (actionTypeHash == HASHED_SELL) {
+            (
+                address user,
+                address market,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 refundDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                payload,
+                (address, address, uint8, uint256, uint256, uint256, uint256, uint64)
+            );
+            _sell(user, market, outcomeIndex, sharesDelta, refundDelta, newYesPriceE6, newNoPriceE6, nonce);
+            return true;
+        }
         // NOTE: HASHED_SWAP_YES_FOR_NO, HASHED_SWAP_NO_FOR_YES, HASHED_ADD_LIQ, HASHED_REMOVE_LIQ
         // removed in LMSR mode. Trades are CRE-report-driven.
         if (actionTypeHash == HASHED_CREDIT_FROM_FIAT) {
@@ -600,6 +722,46 @@ abstract contract PredictionMarketRouterVaultOperations is
             _authorizeAgent(user, agent, AGENT_ACTION_DISPUTE, 0);
             _disputeProposedResolution(user, market, proposedOutcome);
             emit AgentActionExecuted(user, agent, actionType, 0);
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_BUY) {
+            (
+                address user,
+                address agent,
+                address market,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 costDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                payload,
+                (address, address, address, uint8, uint256, uint256, uint256, uint256, uint64)
+            );
+            _authorizeAgent(user, agent, AGENT_ACTION_BUY, costDelta);
+            _buy(user, market, outcomeIndex, sharesDelta, costDelta, newYesPriceE6, newNoPriceE6, nonce);
+            emit AgentActionExecuted(user, agent, actionType, costDelta);
+            return true;
+        }
+        if (actionTypeHash == HASHED_AGENT_SELL) {
+            (
+                address user,
+                address agent,
+                address market,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 refundDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                payload,
+                (address, address, address, uint8, uint256, uint256, uint256, uint256, uint64)
+            );
+            _authorizeAgent(user, agent, AGENT_ACTION_SELL, sharesDelta);
+            _sell(user, market, outcomeIndex, sharesDelta, refundDelta, newYesPriceE6, newNoPriceE6, nonce);
+            emit AgentActionExecuted(user, agent, actionType, sharesDelta);
             return true;
         }
         if (actionTypeHash == HASHED_AGENT_REVOKE_PERMISSION) {

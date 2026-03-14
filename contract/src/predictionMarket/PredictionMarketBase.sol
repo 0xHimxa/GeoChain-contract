@@ -145,6 +145,9 @@ mapping(address => uint256) public userBoughtNoShares;
     /// @notice Parent factory reference for cross-contract coordination.
     MarketFactory internal marketFactory;
 
+    /// @notice Authorized router vault for buy/sell operations.
+    address public routerVault;
+
     /// @notice Authorized cross-chain controller (usually factory).
     address public crossChainController;
     /// @notice Canonical YES price (1e6 precision) received from hub.
@@ -194,6 +197,9 @@ mapping(address => uint256) public userBoughtNoShares;
     error PredictionMarket__MarketIdAlreadySet();
     error PredictionMarket__InvalidOutcomeTokenAddress();
     error PredictionMarket__OutcomeTokensAlreadySet();
+    error PredictionMarket__OnlyRouterVault();
+    error PredictionMarket__RouterVaultAlreadySet();
+    error PredictionMarket__RouterVaultZeroAddress();
 
     enum DeviationBand {
         Normal,
@@ -326,6 +332,14 @@ mapping(address => uint256) public userBoughtNoShares;
         isRiskExempt[account] = exempt;
     }
 
+    /// @notice Sets the authorized router vault for buy/sell operations.
+    /// @dev Can only be set once. Router vault is typically set during market creation or via factory.
+    function setRouterVault(address _routerVault) external onlyOwner {
+        if (_routerVault == address(0)) revert PredictionMarket__RouterVaultZeroAddress();
+        if (routerVault != address(0)) revert PredictionMarket__RouterVaultAlreadySet();
+        routerVault = _routerVault;
+    }
+
     /// @dev Auto-transitions Open -> Closed after close time.
     function _updateState() internal {
         if (state == State.Open && block.timestamp >= closeTime) {
@@ -387,6 +401,14 @@ mapping(address => uint256) public userBoughtNoShares;
         ) {
             revert PredictionMarket__CanonicalPriceStale();
         }
+    }
+
+    /// @dev Restricts access to the authorized router vault.
+    modifier onlyRouterVault() {
+        if (msg.sender != routerVault) {
+            revert PredictionMarket__OnlyRouterVault();
+        }
+        _;
     }
 
     /// @dev Converts module band id into local enum.

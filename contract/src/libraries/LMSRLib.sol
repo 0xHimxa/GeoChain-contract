@@ -34,7 +34,7 @@ library LMSRLib {
     /// @param reportNonce The nonce carried by the incoming CRE report.
     /// @return valid True if reportNonce > currentNonce.
     function validateTradeNonce(uint64 currentNonce, uint64 reportNonce) internal pure returns (bool valid) {
-        valid = reportNonce > currentNonce;
+        valid = reportNonce == currentNonce;
     }
 
     /// @notice Computes the maximum subsidy loss for a binary LMSR market.

@@ -41,6 +41,7 @@ library MarketConstants {
     /// @dev Per-user exposure cap for non-exempt mintCompleteSets callers.
     uint256 internal constant MAX_EXPOSURE_PRECISION = 10_000;
     uint256 internal constant MAX_EXPOSURE_BPS = 500; // 5% of total liquidity
+    uint256 internal constant MAX_RISK_EXPOSURE = 100_000_000; // 100 USDC static cap
     /// @dev Default duration for market resolution disputes.
     uint256 internal constant DEFAULT_DISPUTE_WINDOW = 1 hours;
 

@@ -32,6 +32,26 @@ interface IPredictionMarketLike {
     function redeemCompleteSets(uint256 amount) external;
     function redeem(uint256 amount) external;
     function disputeProposedResolution(uint8 proposedOutcome) external;
+
+    function executeBuy(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) external;
+
+    function executeSell(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) external;
 }
 
 /// @title PredictionMarketRouterVaultBase
@@ -74,14 +94,10 @@ abstract contract PredictionMarketRouterVaultBase is
         keccak256(abi.encode("routerMintCompleteSets"));
     bytes32 internal constant HASHED_REDEEM =
         keccak256(abi.encode("routerRedeemCompleteSets"));
-    bytes32 internal constant HASHED_SWAP_YES_FOR_NO =
-        keccak256(abi.encode("routerSwapYesForNo"));
-    bytes32 internal constant HASHED_SWAP_NO_FOR_YES =
-        keccak256(abi.encode("routerSwapNoForYes"));
-    bytes32 internal constant HASHED_ADD_LIQ =
-        keccak256(abi.encode("routerAddLiquidity"));
-    bytes32 internal constant HASHED_REMOVE_LIQ =
-        keccak256(abi.encode("routerRemoveLiquidity"));
+    bytes32 internal constant HASHED_BUY =
+        keccak256(abi.encode("routerBuy"));
+    bytes32 internal constant HASHED_SELL =
+        keccak256(abi.encode("routerSell"));
     bytes32 internal constant HASHED_CREDIT_FROM_FIAT =
         keccak256(abi.encode("routerCreditFromFiat"));
     bytes32 internal constant HASHED_CREDIT_FROM_ETH =
@@ -96,29 +112,23 @@ abstract contract PredictionMarketRouterVaultBase is
         keccak256(abi.encode("routerAgentMintCompleteSets"));
     bytes32 internal constant HASHED_AGENT_REDEEM =
         keccak256(abi.encode("routerAgentRedeemCompleteSets"));
-    bytes32 internal constant HASHED_AGENT_SWAP_YES_FOR_NO =
-        keccak256(abi.encode("routerAgentSwapYesForNo"));
-    bytes32 internal constant HASHED_AGENT_SWAP_NO_FOR_YES =
-        keccak256(abi.encode("routerAgentSwapNoForYes"));
-    bytes32 internal constant HASHED_AGENT_ADD_LIQ =
-        keccak256(abi.encode("routerAgentAddLiquidity"));
-    bytes32 internal constant HASHED_AGENT_REMOVE_LIQ =
-        keccak256(abi.encode("routerAgentRemoveLiquidity"));
     bytes32 internal constant HASHED_AGENT_REDEEM_WINNINGS =
         keccak256(abi.encode("routerAgentRedeem"));
     bytes32 internal constant HASHED_AGENT_DISPUTE =
         keccak256(abi.encode("routerAgentDisputeProposedResolution"));
+    bytes32 internal constant HASHED_AGENT_BUY =
+        keccak256(abi.encode("routerAgentBuy"));
+    bytes32 internal constant HASHED_AGENT_SELL =
+        keccak256(abi.encode("routerAgentSell"));
     bytes32 internal constant HASHED_AGENT_REVOKE_PERMISSION =
         keccak256(abi.encode("routerAgentRevokePermission"));
 
     uint32 internal constant AGENT_ACTION_MINT = 1 << 0;
     uint32 internal constant AGENT_ACTION_REDEEM_COMPLETE_SETS = 1 << 1;
-    uint32 internal constant AGENT_ACTION_SWAP_YES_FOR_NO = 1 << 2;
-    uint32 internal constant AGENT_ACTION_SWAP_NO_FOR_YES = 1 << 3;
-    uint32 internal constant AGENT_ACTION_ADD_LIQUIDITY = 1 << 4;
-    uint32 internal constant AGENT_ACTION_REMOVE_LIQUIDITY = 1 << 5;
-    uint32 internal constant AGENT_ACTION_REDEEM_WINNINGS = 1 << 6;
-    uint32 internal constant AGENT_ACTION_DISPUTE = 1 << 7;
+    uint32 internal constant AGENT_ACTION_REDEEM_WINNINGS = 1 << 2;
+    uint32 internal constant AGENT_ACTION_DISPUTE = 1 << 3;
+    uint32 internal constant AGENT_ACTION_BUY = 1 << 4;
+    uint32 internal constant AGENT_ACTION_SELL = 1 << 5;
 
     struct AgentPermission {
         bool enabled;

@@ -104,27 +104,34 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
+         if(!isRiskExempt[trader]){
             _checkUserExposure(trader, costDelta);
+        } 
+
+
 
 
         // ── State update ─────────────────────────────────────────────
-        tradeNonce = nonce;
+        tradeNonce += 1;
         lastYesPriceE6 = newYesPriceE6;
         lastNoPriceE6 = newNoPriceE6;
-            userRiskExposure[trader] += costDelta;
+    
 
-        // Compute and charge LMSR trade fee on top of CRE-reported cost
+        // Extract fee from inclusive amount (CRE sends cost with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
             costDelta,
             MarketConstants.LMSR_TRADE_FEE_BPS,
             MarketConstants.FEE_PRECISION_BPS
         );
-        uint256 totalCost = costDelta + fee;
+        uint256 actualCost = costDelta - fee; // costDelta is already inclusive (CRE subtracted fee)
         protocolCollateralFees += fee;
+        if(!isRiskExempt[trader]){
 
-        // Transfer collateral (cost + fee) from trader to market
-        i_collateral.safeTransferFrom(trader, address(this), totalCost);
+            userRiskExposure[trader] += actualCost;
 
+        }
+
+    
         // Mint outcome tokens to trader and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding += sharesDelta;
@@ -135,6 +142,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             userBoughtNoShares[trader] += sharesDelta;
             noToken.mint(trader, sharesDelta);
         }
+
+            // Transfer collateral (inclusive cost) from trader to market
+        i_collateral.safeTransferFrom(trader, address(this), costDelta);
+
 
         emit MarketEvents.LMSRBuyExecuted(
             trader,
@@ -199,11 +210,15 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
-         userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
+     if(!isRiskExempt[trader]){
+            userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
             ? userRiskExposure[trader] - refundDelta
             : 0; // Prevent underflow  
-        // Check trader has enough tokens to sell
+     }
+        // Check router has enough tokens to sell
         OutcomeToken token = outcomeIndex == 0 ? yesToken : noToken;
+
+        //checked the share is from AMM and not from mint complete set
         uint256 availableToSell = outcomeIndex == 0 
     ? userBoughtYesShares[trader] 
     : userBoughtNoShares[trader];
@@ -219,11 +234,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
 }    
 
         // ── State update ─────────────────────────────────────────────
-        tradeNonce = nonce;
+        tradeNonce += 1;
         lastYesPriceE6 = newYesPriceE6;
         lastNoPriceE6 = newNoPriceE6;
 
-        // Burn outcome tokens from trader and update outstanding shares
+        // Burn outcome tokens from router and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding -= sharesDelta;
             userBoughtYesShares[trader] -= sharesDelta;
@@ -234,13 +249,13 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             noToken.burn(trader, sharesDelta);
         }
 
-        // Deduct LMSR trade fee from refund
+        // Extract fee from inclusive refund (CRE sends refund with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
             refundDelta,
             MarketConstants.LMSR_TRADE_FEE_BPS,
             MarketConstants.FEE_PRECISION_BPS
         );
-        uint256 netRefund = refundDelta - fee;
+        uint256 netRefund = refundDelta - fee; // refundDelta is already inclusive (CRE subtracted fee)
         protocolCollateralFees += fee;
 
         // Transfer net collateral refund to trader
@@ -303,12 +318,18 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         );
 
         protocolCollateralFees += fee;
-        userRiskExposure[msg.sender] += amount;
+        
+        if(!isRiskExempt[msg.sender]){
+
+            userRiskExposure[msg.sender] += amount;
+
+        }
 
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);
 
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
+
 
         emit MarketEvents.CompleteSetsMinted(msg.sender, netAmount);
     }
@@ -328,10 +349,6 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
         }
 
-         userRiskExposure[msg.sender] = userRiskExposure[msg.sender] > refundDelta
-            ? userRiskExposure[msg.sender] - refundDelta
-            : 0; // Prevent underflow 
-
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
             amount,
             MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS,
@@ -339,11 +356,61 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         );
 
         protocolCollateralFees += fee;
+    if(!isRiskExempt[msg.sender]){
 
+        userRiskExposure[msg.sender] = userRiskExposure[msg.sender] > amount
+            ? userRiskExposure[msg.sender] - amount
+            : 0;
+
+    }
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
         i_collateral.safeTransfer(msg.sender, netAmount);
 
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);
+    }
+
+    /// @notice External entry point for executing LMSR buy trades via router vault.
+    /// @dev Only callable by the authorized router vault. Validates CRE report data and executes trade.
+    function executeBuy(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) external onlyRouterVault nonReentrant {
+        _executeLMSRBuy(
+            trader,
+            outcomeIndex,
+            sharesDelta,
+            costDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
+    }
+
+    /// @notice External entry point for executing LMSR sell trades via router vault.
+    /// @dev Only callable by the authorized router vault. Validates CRE report data and executes trade.
+    function executeSell(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) external onlyRouterVault nonReentrant {
+        _executeLMSRSell(
+            trader,
+            outcomeIndex,
+            sharesDelta,
+            refundDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
     }
 }
