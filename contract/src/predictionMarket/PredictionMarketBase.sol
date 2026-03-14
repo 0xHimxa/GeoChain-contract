@@ -112,6 +112,14 @@ abstract contract PredictionMarketBase is
     /// @notice Accounts exempt from risk exposure cap.
     mapping(address => bool) public isRiskExempt;
 
+/// @notice User-level tracking of shares bought on each side.
+///@dev Used to enforce that users can't sell more shares than they bought from the AMM.
+// this is beacuse mintCompleteSets produced  same amount of no and yes shares which can be sold to the AMM for collateral twice,
+//  to avoid this, we track the number of shares bought in AMM by each user.
+mapping(address => uint256) public userBoughtYesShares;
+mapping(address => uint256) public userBoughtNoShares;
+
+
     /// @notice Current lifecycle state.
     State public state;
     /// @notice Final or interim resolution value.

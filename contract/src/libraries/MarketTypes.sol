@@ -224,4 +224,7 @@ library MarketErrors {
     error LMSR__InvalidOutcomeIndex();
     /// @dev Trader address cannot be zero.
     error LMSR__TraderCannotBeZero();
+
+    error MarketErrors__InsufficientBoughtShares();
+    error LMSR__InsufficientBoughtShares();
 }

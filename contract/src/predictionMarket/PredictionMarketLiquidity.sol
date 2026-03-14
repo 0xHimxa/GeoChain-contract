@@ -106,10 +106,12 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__StaleTradeNonce();
             _checkUserExposure(trader, costDelta);
 
+
         // ── State update ─────────────────────────────────────────────
         tradeNonce = nonce;
         lastYesPriceE6 = newYesPriceE6;
         lastNoPriceE6 = newNoPriceE6;
+            userRiskExposure[trader] += costDelta;
 
         // Compute and charge LMSR trade fee on top of CRE-reported cost
         uint256 fee = FeeLib.calculateFee(
@@ -126,9 +128,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         // Mint outcome tokens to trader and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding += sharesDelta;
+            userBoughtYesShares[trader] += sharesDelta;
             yesToken.mint(trader, sharesDelta);
         } else {
             noSharesOutstanding += sharesDelta;
+            userBoughtNoShares[trader] += sharesDelta;
             noToken.mint(trader, sharesDelta);
         }
 
@@ -200,8 +204,19 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             : 0; // Prevent underflow  
         // Check trader has enough tokens to sell
         OutcomeToken token = outcomeIndex == 0 ? yesToken : noToken;
+        uint256 availableToSell = outcomeIndex == 0 
+    ? userBoughtYesShares[trader] 
+    : userBoughtNoShares[trader];
+
+
+
         if (token.balanceOf(trader) < sharesDelta)
             revert MarketErrors.LMSR__InsufficientShares();
+
+
+        if (sharesDelta > availableToSell) {
+    revert MarketErrors.LMSR__InsufficientBoughtShares();
+}    
 
         // ── State update ─────────────────────────────────────────────
         tradeNonce = nonce;
@@ -211,9 +226,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         // Burn outcome tokens from trader and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding -= sharesDelta;
+            userBoughtYesShares[trader] -= sharesDelta;
             yesToken.burn(trader, sharesDelta);
         } else {
             noSharesOutstanding -= sharesDelta;
+            userBoughtNoShares[trader] -= sharesDelta;
             noToken.burn(trader, sharesDelta);
         }
 
@@ -311,8 +328,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
         }
 
-         userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
-            ? userRiskExposure[trader] - refundDelta
+         userRiskExposure[msg.sender] = userRiskExposure[msg.sender] > refundDelta
+            ? userRiskExposure[msg.sender] - refundDelta
             : 0; // Prevent underflow 
 
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
