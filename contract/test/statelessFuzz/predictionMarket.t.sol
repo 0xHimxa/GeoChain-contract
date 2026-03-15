@@ -5,8 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
-import {AMMLib} from "../../src/libraries/AMMLib.sol";
-import {MarketConstants, MarketErrors, Resolution} from "../../src/libraries/MarketTypes.sol";
+import {FeeLib} from "../../src/libraries/FeeLib.sol";
+import {MarketConstants, Resolution} from "../../src/libraries/MarketTypes.sol";
+import {LMSRLib} from "../../src/libraries/LMSRLib.sol";
+import {IReceiver} from "../../script/interfaces/IReceiver.sol";
 
 contract MockMarketFactoryFuzz {
     address public lastRemoved;
@@ -52,10 +54,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
     MockMarketFactoryFuzz internal mockFactory;
 
     address internal alice = makeAddr("alice");
-    address internal bob = makeAddr("bob");
     address internal constant FORWARDER = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
-    uint256 internal constant INITIAL_LIQUIDITY = 10_000e6;
+    uint256 internal constant LIQUIDITY_PARAM = 10_000e6;
 
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
@@ -77,8 +78,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
         vm.prank(address(mockFactory));
         market.transferOwnership(address(this));
 
-        collateral.mint(address(market), INITIAL_LIQUIDITY);
-        market.seedLiquidity(INITIAL_LIQUIDITY);
+        uint256 subsidy = LMSRLib.maxSubsidyLoss(LIQUIDITY_PARAM);
+        collateral.mint(address(market), subsidy);
+        market.initializeMarket(LIQUIDITY_PARAM);
     }
 
     function _mintAndApprove(address user, uint256 amount) internal returns (uint256 netAmount) {
@@ -93,6 +95,12 @@ contract PredictionMarketStatelessFuzzTest is Test {
         netAmount = amount - ((amount * MarketConstants.MINT_COMPLETE_SETS_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS);
     }
 
+    function _fundAndApproveCollateral(address user, uint256 amount) internal {
+        collateral.mint(user, amount);
+        vm.prank(user);
+        collateral.approve(address(market), type(uint256).max);
+    }
+
     function _resolveAndFinalize(Resolution outcome, string memory proofUrl) internal {
         market.resolve(outcome, proofUrl);
         vm.warp(block.timestamp + market.disputeWindow() + 1);
@@ -100,7 +108,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
     }
 
     function testFuzz_MintCompleteSets_MintsEqualOutcomeTokens(uint96 amountRaw) external {
-        uint256 amount = bound(uint256(amountRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 amount = bound(uint256(amountRaw), MarketConstants.MINIMUM_AMOUNT, dynamicCap);
 
         uint256 expectedNet = _mintAndApprove(alice, amount);
 
@@ -110,7 +120,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
     }
 
     function testFuzz_RedeemCompleteSets_ReturnsExpectedCollateral(uint96 mintRaw, uint96 redeemRaw) external {
-        uint256 mintAmount = bound(uint256(mintRaw), 2e6, MarketConstants.MAX_RISK_EXPOSURE);
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 mintAmount = bound(uint256(mintRaw), 2e6, dynamicCap);
         uint256 mintedNet = _mintAndApprove(alice, mintAmount);
 
         uint256 redeemAmount = bound(uint256(redeemRaw), MarketConstants.MINIMUM_AMOUNT, mintedNet);
@@ -127,88 +139,90 @@ contract PredictionMarketStatelessFuzzTest is Test {
         assertEq(market.noToken().balanceOf(alice), mintedNet - redeemAmount);
     }
 
-    function testFuzz_AddLiquidity_UpdatesSharesAndReserves(uint96 amountRaw) external {
-        uint256 amount = bound(uint256(amountRaw), 2e6, MarketConstants.MAX_RISK_EXPOSURE);
-        uint256 mintedNet = _mintAndApprove(alice, amount);
+    function testFuzz_LMSRBuy_UpdatesExposureAndMints(uint96 costRaw, uint96 sharesRaw, uint8 outcomeRaw) external {
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 costDelta =
+            bound(uint256(costRaw), MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, dynamicCap);
+        uint256 sharesDelta =
+            bound(uint256(sharesRaw), MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 50_000e6);
+        uint8 outcomeIndex = uint8(bound(uint256(outcomeRaw), 0, 1));
 
-        uint256 yesReserveBefore = market.yesReserve();
-        uint256 noReserveBefore = market.noReserve();
-        uint256 totalSharesBefore = market.totalShares();
+        _fundAndApproveCollateral(alice, costDelta);
 
-        vm.prank(alice);
-        market.addLiquidity(mintedNet, mintedNet, 0);
+        uint64 nonce = market.tradeNonce();
+        bytes memory report = abi.encode(
+            "LMSRBuy",
+            abi.encode(alice, outcomeIndex, sharesDelta, costDelta, 600_000, 400_000, nonce)
+        );
+        vm.prank(FORWARDER);
+        IReceiver(address(market)).onReport("", report);
 
-        assertEq(market.lpShares(alice), mintedNet);
-        assertEq(market.totalShares(), totalSharesBefore + mintedNet);
-        assertEq(market.yesReserve(), yesReserveBefore + mintedNet);
-        assertEq(market.noReserve(), noReserveBefore + mintedNet);
+        uint256 fee = FeeLib.calculateFee(
+            costDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 actualCost = costDelta - fee;
+
+        if (outcomeIndex == 0) {
+            assertEq(market.yesToken().balanceOf(alice), sharesDelta);
+        } else {
+            assertEq(market.noToken().balanceOf(alice), sharesDelta);
+        }
+        assertEq(market.userRiskExposure(alice), actualCost);
     }
 
-    function testFuzz_RemoveLiquidity_ReturnsProportionalTokens(uint96 sharesRaw) external {
-        uint256 shares = bound(uint256(sharesRaw), 1, INITIAL_LIQUIDITY);
+    function testFuzz_LMSRSell_RefundsAndReducesExposure(
+        uint96 costRaw,
+        uint96 sharesRaw,
+        uint96 refundRaw
+    ) external {
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 costDelta =
+            bound(uint256(costRaw), MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, dynamicCap);
+        uint256 sharesDelta =
+            bound(uint256(sharesRaw), MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 50_000e6);
+        uint256 refundDelta =
+            bound(uint256(refundRaw), MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, costDelta);
 
-        uint256 yesBefore = market.yesToken().balanceOf(address(this));
-        uint256 noBefore = market.noToken().balanceOf(address(this));
+        _fundAndApproveCollateral(alice, costDelta);
 
-        market.removeLiquidity(shares, 0, 0);
+        uint64 nonce = market.tradeNonce();
+        bytes memory buyReport = abi.encode(
+            "LMSRBuy",
+            abi.encode(alice, uint8(0), sharesDelta, costDelta, 600_000, 400_000, nonce)
+        );
+        vm.prank(FORWARDER);
+        IReceiver(address(market)).onReport("", buyReport);
 
-        assertEq(market.yesToken().balanceOf(address(this)), yesBefore + shares);
-        assertEq(market.noToken().balanceOf(address(this)), noBefore + shares);
-        assertEq(market.totalShares(), INITIAL_LIQUIDITY - shares);
-    }
+        uint256 exposureBefore = market.userRiskExposure(alice);
+        uint256 collateralBefore = collateral.balanceOf(alice);
 
-    function testFuzz_TransferShares_ConservesShares(uint96 sharesRaw) external {
-        uint256 shares = bound(uint256(sharesRaw), 0, INITIAL_LIQUIDITY);
+        nonce = market.tradeNonce();
+        bytes memory sellReport = abi.encode(
+            "LMSRSell",
+            abi.encode(alice, uint8(0), sharesDelta, refundDelta, 590_000, 410_000, nonce)
+        );
+        vm.prank(FORWARDER);
+        IReceiver(address(market)).onReport("", sellReport);
 
-        uint256 beforeSum = market.lpShares(address(this)) + market.lpShares(bob);
-        market.transferShares(bob, shares);
-        uint256 afterSum = market.lpShares(address(this)) + market.lpShares(bob);
+        uint256 fee = FeeLib.calculateFee(
+            refundDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 netRefund = refundDelta - fee;
 
-        assertEq(afterSum, beforeSum);
-    }
-
-    function testFuzz_SwapYesForNo_QuoteMatchesAndKNonDecreasing(uint96 mintRaw, uint96 yesInRaw) external {
-        uint256 mintAmount = bound(uint256(mintRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
-        uint256 mintedNet = _mintAndApprove(alice, mintAmount);
-
-        uint256 yesIn = bound(uint256(yesInRaw), MarketConstants.MINIMUM_SWAP_AMOUNT, mintedNet);
-
-        uint256 kBefore = market.yesReserve() * market.noReserve();
-        uint256 noBefore = market.noToken().balanceOf(alice);
-
-        (uint256 quoteOut,) = market.getYesForNoQuote(yesIn);
-
-        vm.prank(alice);
-        market.swapYesForNo(yesIn, quoteOut);
-
-        uint256 kAfter = market.yesReserve() * market.noReserve();
-
-        assertEq(market.noToken().balanceOf(alice), noBefore + quoteOut);
-        assertGe(kAfter, kBefore);
-    }
-
-    function testFuzz_SwapNoForYes_QuoteMatchesAndKNonDecreasing(uint96 mintRaw, uint96 noInRaw) external {
-        uint256 mintAmount = bound(uint256(mintRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
-        uint256 mintedNet = _mintAndApprove(alice, mintAmount);
-
-        uint256 noIn = bound(uint256(noInRaw), MarketConstants.MINIMUM_SWAP_AMOUNT, mintedNet);
-
-        uint256 kBefore = market.yesReserve() * market.noReserve();
-        uint256 yesBefore = market.yesToken().balanceOf(alice);
-
-        (uint256 quoteOut,) = market.getNoForYesQuote(noIn);
-
-        vm.prank(alice);
-        market.swapNoForYes(noIn, quoteOut);
-
-        uint256 kAfter = market.yesReserve() * market.noReserve();
-
-        assertEq(market.yesToken().balanceOf(alice), yesBefore + quoteOut);
-        assertGe(kAfter, kBefore);
+        assertEq(collateral.balanceOf(alice), collateralBefore + netRefund);
+        assertEq(market.userRiskExposure(alice), exposureBefore > refundDelta ? exposureBefore - refundDelta : 0);
     }
 
     function testFuzz_ResolveAndRedeemYes(uint96 mintRaw, uint96 redeemRaw) external {
-        uint256 mintAmount = bound(uint256(mintRaw), 2e6, MarketConstants.MAX_RISK_EXPOSURE);
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 mintAmount = bound(uint256(mintRaw), 2e6, dynamicCap);
         uint256 mintedNet = _mintAndApprove(alice, mintAmount);
         uint256 redeemAmount = bound(uint256(redeemRaw), MarketConstants.MINIMUM_AMOUNT, mintedNet);
 
@@ -227,7 +241,9 @@ contract PredictionMarketStatelessFuzzTest is Test {
     }
 
     function testFuzz_WithdrawProtocolFees_AfterResolution(uint96 mintRaw) external {
-        uint256 mintAmount = bound(uint256(mintRaw), MarketConstants.MINIMUM_AMOUNT, MarketConstants.MAX_RISK_EXPOSURE);
+        uint256 dynamicCap =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 mintAmount = bound(uint256(mintRaw), MarketConstants.MINIMUM_AMOUNT, dynamicCap);
         _mintAndApprove(alice, mintAmount);
 
         vm.warp(market.resolutionTime() + 1);
@@ -271,21 +287,4 @@ contract PredictionMarketStatelessFuzzTest is Test {
         market.syncCanonicalPriceFromHub(600_000, 400_000, block.timestamp + 1 days, staleNonce);
     }
 
-    function testFuzz_GetYesForNoQuote_CanonicalFormula(uint96 yesInRaw, uint32 yesPriceRaw) external {
-        uint256 yesIn = bound(uint256(yesInRaw), MarketConstants.MINIMUM_SWAP_AMOUNT, 100_000e6);
-        uint256 yesPrice = bound(uint256(yesPriceRaw), 495_000, 505_000);
-        uint256 noPrice = MarketConstants.PRICE_PRECISION - yesPrice;
-
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(yesPrice, noPrice, block.timestamp + 1 days, 1);
-
-        (uint256 netOut, uint256 fee) = market.getYesForNoQuote(yesIn);
-
-        (uint256 expectedNetOut, uint256 expectedFee,,) = AMMLib.getAmountOut(
-            market.yesReserve(), market.noReserve(), yesIn, MarketConstants.SWAP_FEE_BPS, MarketConstants.FEE_PRECISION_BPS
-        );
-
-        assertEq(fee, expectedFee);
-        assertEq(netOut, expectedNetOut);
-    }
 }

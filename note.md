@@ -15,4 +15,6 @@ need to implement logic so market need to validate or compare price before accep
 
 really need to make sure those my wandex and wad work well and no logic flows
 
+need to fix some broken invaraint tests
+
 

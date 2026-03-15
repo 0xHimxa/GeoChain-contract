@@ -8,20 +8,16 @@ import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol"
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants, Resolution} from "../../src/libraries/MarketTypes.sol";
+import {FeeLib} from "../../src/libraries/FeeLib.sol";
 
 interface IMockMarket {
     function i_collateral() external view returns (address);
     function yesToken() external view returns (address);
     function noToken() external view returns (address);
-    function lpShares(address account) external view returns (uint256);
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;
     function redeem(uint256 amount) external;
     function resolution() external view returns (uint8);
-    function swapYesForNo(uint256 yesIn, uint256 minNoOut) external;
-    function swapNoForYes(uint256 noIn, uint256 minYesOut) external;
-    function addLiquidity(uint256 yesAmount, uint256 noAmount, uint256 minShares) external;
-    function removeLiquidity(uint256 shares, uint256 minYesOut, uint256 minNoOut) external;
     function balanceOf(address account) external view returns (uint256);
 }
 
@@ -70,6 +66,7 @@ contract PredictionMarketRouterVaultTest is Test {
     address internal marketFactory = makeAddr("marketFactory");
 
     uint256 internal constant INITIAL_DEPOSIT = 1000e6;
+    uint256 internal constant LIQUIDITY_PARAM = 10_000e6;
 
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
@@ -99,7 +96,8 @@ contract PredictionMarketRouterVaultTest is Test {
         market.transferOwnership(address(this));
 
         collateral.mint(address(market), 10_000e6);
-        market.seedLiquidity(10_000e6);
+        market.initializeMarket(LIQUIDITY_PARAM);
+        market.setRouterVault(address(router));
 
         vm.prank(owner);
         router.setMarketAllowed(address(market), true);
@@ -258,20 +256,6 @@ contract PredictionMarketRouterVaultTest is Test {
         router.mintCompleteSetsFor(alice, address(market), 50e6);
 
         vm.prank(bob);
-        router.swapYesForNoFor(alice, address(market), 10e6, 0);
-
-        vm.prank(bob);
-        router.swapNoForYesFor(alice, address(market), 5e6, 0);
-
-        vm.prank(bob);
-        router.addLiquidityFor(alice, address(market), 5e6, 5e6, 0);
-        assertGt(router.lpShareCredits(alice, address(market)), 0);
-
-        uint256 shares = router.lpShareCredits(alice, address(market));
-        vm.prank(bob);
-        router.removeLiquidityFor(alice, address(market), shares / 2, 0, 0);
-
-        vm.prank(bob);
         router.redeemCompleteSetsFor(alice, address(market), 5e6);
 
         vm.warp(block.timestamp + 3 days);
@@ -409,9 +393,28 @@ contract PredictionMarketRouterVaultTest is Test {
         router.depositCollateral(100e6);
 
         vm.mockCall(fakeMarket, abi.encodeWithSignature("i_collateral()"), abi.encode(address(0)));
+        vm.mockCall(fakeMarket, abi.encodeWithSignature("liquidityParam()"), abi.encode(LIQUIDITY_PARAM));
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSignature("Router__CollateralMismatch()"));
+        router.mintCompleteSets(fakeMarket, 50e6);
+
+        vm.clearMockedCalls();
+    }
+
+    function testMintCompleteSetsRevertMarketNotInitialized() external {
+        address fakeMarket = makeAddr("fakeMarket");
+        vm.prank(owner);
+        router.setMarketAllowed(fakeMarket, true);
+
+        vm.prank(alice);
+        router.depositCollateral(100e6);
+
+        vm.mockCall(fakeMarket, abi.encodeWithSignature("i_collateral()"), abi.encode(address(collateral)));
+        vm.mockCall(fakeMarket, abi.encodeWithSignature("liquidityParam()"), abi.encode(uint256(0)));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotInitialized()"));
         router.mintCompleteSets(fakeMarket, 50e6);
 
         vm.clearMockedCalls();
@@ -427,7 +430,8 @@ contract PredictionMarketRouterVaultTest is Test {
     }
 
     function testMintCompleteSetsRevertRiskExposureExceeded() external {
-        uint256 maxExposure = MarketConstants.MAX_RISK_EXPOSURE;
+        uint256 maxExposure =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
 
         vm.prank(alice);
         router.depositCollateral(maxExposure);
@@ -443,6 +447,7 @@ contract PredictionMarketRouterVaultTest is Test {
     function testMintCompleteSetsRiskExemptSucceeds() external {
         vm.prank(owner);
         router.setRiskExempt(alice, true);
+        market.setRiskExempt(alice, true);
 
         collateral.mint(alice, 15000e6);
         vm.prank(alice);
@@ -454,7 +459,7 @@ contract PredictionMarketRouterVaultTest is Test {
         vm.prank(alice);
         router.mintCompleteSets(address(market), 10000e6);
 
-        assertEq(router.userRiskExposure(alice), 10000e6);
+        assertEq(router.userRiskExposure(alice), 0);
     }
 
     function testReentrancyGuardDeposit() external {
@@ -566,197 +571,127 @@ contract PredictionMarketRouterVaultTest is Test {
         router.redeem(address(market), 40e6);
     }
 
-    function testSwapYesForNoSuccess() external {
+    function testOnReportBuyUpdatesCreditsAndExposure() external {
         uint256 depositAmount = 100e6;
-        uint256 mintAmount = 50e6;
-        uint256 swapAmount = 10e6;
+        uint256 sharesDelta = 2e6;
+        uint256 costDelta = 10e6;
+        uint256 newYesPriceE6 = 600_000;
+        uint256 newNoPriceE6 = 400_000;
 
         vm.prank(alice);
         router.depositCollateral(depositAmount);
 
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), mintAmount);
+        bytes memory buyReport = abi.encode(
+            "routerBuy",
+            abi.encode(alice, address(market), uint8(0), sharesDelta, costDelta, newYesPriceE6, newNoPriceE6, uint64(0))
+        );
+        vm.prank(forwarder);
+        router.onReport("", buyReport);
 
-        (address yesToken, address noToken) = _getMockMarketTokens(address(market));
+        (address yesToken,) = _getMockMarketTokens(address(market));
+        uint256 fee = FeeLib.calculateFee(
+            costDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 actualCost = costDelta - fee;
 
-        vm.prank(alice);
-        router.swapYesForNo(address(market), swapAmount, 0);
-
-        uint256 expectedNetMint = mintAmount - ((mintAmount * 300) / 10000);
-        assertEq(router.tokenCredits(alice, yesToken), expectedNetMint - swapAmount);
-        assertGt(router.tokenCredits(alice, noToken), expectedNetMint - swapAmount);
+        assertEq(router.tokenCredits(alice, yesToken), sharesDelta);
+        assertEq(router.userRiskExposure(alice), actualCost);
     }
 
-    function testSwapYesForNoRevertMarketNotAllowed() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 50e6);
-
-        address disallowedMarket = makeAddr("disallowedMarket");
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotAllowed()"));
-        router.swapYesForNo(disallowedMarket, 10e6, 0);
-    }
-
-    function testSwapYesForNoRevertInsufficientBalance() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 30e6);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
-        router.swapYesForNo(address(market), 50e6, 0);
-    }
-
-    function testSwapNoForYesSuccess() external {
-        uint256 depositAmount = 100e6;
-        uint256 mintAmount = 50e6;
-        uint256 swapAmount = 10e6;
+    function testOnReportBuyRevertRiskExposureExceeded() external {
+        uint256 maxExposure =
+            (LIQUIDITY_PARAM * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 sharesDelta = 2e6;
+        uint256 costDelta =
+            (maxExposure * MarketConstants.FEE_PRECISION_BPS)
+                / (MarketConstants.FEE_PRECISION_BPS - MarketConstants.LMSR_TRADE_FEE_BPS)
+                + 1;
+        uint256 depositAmount = costDelta;
 
         vm.prank(alice);
         router.depositCollateral(depositAmount);
 
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), mintAmount);
-
-        (address yesToken, address noToken) = _getMockMarketTokens(address(market));
-
-        vm.prank(alice);
-        router.swapNoForYes(address(market), swapAmount, 0);
-
-        uint256 expectedNetMint = mintAmount - ((mintAmount * 300) / 10000);
-        assertEq(router.tokenCredits(alice, noToken), expectedNetMint - swapAmount);
-        assertGt(router.tokenCredits(alice, yesToken), expectedNetMint - swapAmount);
+        bytes memory buyReport = abi.encode(
+            "routerBuy",
+            abi.encode(alice, address(market), uint8(0), sharesDelta, costDelta, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__RiskExposureExceeded()"));
+        router.onReport("", buyReport);
     }
 
-    function testSwapNoForYesRevertMarketNotAllowed() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 50e6);
-
-        address disallowedMarket = makeAddr("disallowedMarket");
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotAllowed()"));
-        router.swapNoForYes(disallowedMarket, 10e6, 0);
-    }
-
-    function testSwapNoForYesRevertInsufficientBalance() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 30e6);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
-        router.swapNoForYes(address(market), 50e6, 0);
-    }
-
-    function testAddLiquiditySuccess() external {
+    function testOnReportSellUpdatesCreditsAndExposure() external {
         uint256 depositAmount = 100e6;
-        uint256 mintAmount = 50e6;
+        uint256 sharesDelta = 4e6;
+        uint256 costDelta = 12e6;
 
         vm.prank(alice);
         router.depositCollateral(depositAmount);
 
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), mintAmount);
+        bytes memory buyReport = abi.encode(
+            "routerBuy",
+            abi.encode(alice, address(market), uint8(0), sharesDelta, costDelta, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        router.onReport("", buyReport);
 
-        uint256 expectedNetMint = mintAmount - ((mintAmount * 300) / 10000);
-        vm.prank(alice);
-        router.addLiquidity(address(market), expectedNetMint, expectedNetMint, 0);
+        uint256 sellShares = 2e6;
+        uint256 refundDelta = 5e6;
+        bytes memory sellReport = abi.encode(
+            "routerSell",
+            abi.encode(alice, address(market), uint8(0), sellShares, refundDelta, 590_000, 410_000, uint64(1))
+        );
 
-        assertEq(router.lpShareCredits(alice, address(market)), expectedNetMint);
+        uint256 aliceCollateralBefore = router.collateralCredits(alice);
+        uint256 aliceExposureBefore = router.userRiskExposure(alice);
+
+        vm.prank(forwarder);
+        router.onReport("", sellReport);
+
+        uint256 fee = FeeLib.calculateFee(
+            refundDelta,
+            MarketConstants.LMSR_TRADE_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 netRefund = refundDelta - fee;
+
+        assertEq(router.collateralCredits(alice), aliceCollateralBefore + netRefund);
+        assertEq(router.userRiskExposure(alice), aliceExposureBefore - refundDelta);
     }
 
-    function testAddLiquidityRevertMarketNotAllowed() external {
+    function testOnReportAgentBuyRevertUnauthorized() external {
+        vm.prank(alice);
+        router.depositCollateral(50e6);
+
+        bytes memory buyReport = abi.encode(
+            "routerAgentBuy",
+            abi.encode(alice, bob, address(market), uint8(0), 2e6, 10e6, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentNotAuthorized()"));
+        router.onReport("", buyReport);
+    }
+
+    function testOnReportAgentBuySellSuccess() external {
         vm.prank(alice);
         router.depositCollateral(100e6);
+        _setAgentPermissionAll(alice, bob, 100e6);
 
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 50e6);
+        bytes memory buyReport = abi.encode(
+            "routerAgentBuy",
+            abi.encode(alice, bob, address(market), uint8(0), 2e6, 10e6, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        router.onReport("", buyReport);
 
-        address disallowedMarket = makeAddr("disallowedMarket");
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotAllowed()"));
-        router.addLiquidity(disallowedMarket, 50e6, 50e6, 0);
-    }
-
-    function testAddLiquidityRevertInsufficientTokenBalance() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 30e6);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
-        router.addLiquidity(address(market), 30e6 + 1, 30e6 + 1, 0);
-    }
-
-    function testRemoveLiquiditySuccess() external {
-        uint256 depositAmount = 100e6;
-        uint256 mintAmount = 50e6;
-
-        vm.prank(alice);
-        router.depositCollateral(depositAmount);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), mintAmount);
-
-        uint256 expectedNetMint = mintAmount - ((mintAmount * 300) / 10000);
-        vm.prank(alice);
-        router.addLiquidity(address(market), expectedNetMint, expectedNetMint, 0);
-
-        uint256 lpSharesBefore = router.lpShareCredits(alice, address(market));
-
-        vm.prank(alice);
-        router.removeLiquidity(address(market), lpSharesBefore / 2, 0, 0);
-
-        assertEq(router.lpShareCredits(alice, address(market)), lpSharesBefore / 2);
-    }
-
-    function testRemoveLiquidityRevertMarketNotAllowed() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 50e6);
-
-        uint256 expectedNetMint = 50e6 - ((50e6 * 300) / 10000);
-        vm.prank(alice);
-        router.addLiquidity(address(market), expectedNetMint, expectedNetMint, 0);
-
-        address disallowedMarket = makeAddr("disallowedMarket");
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__MarketNotAllowed()"));
-        router.removeLiquidity(disallowedMarket, 25e6, 0, 0);
-    }
-
-    function testRemoveLiquidityRevertInsufficientShares() external {
-        vm.prank(alice);
-        router.depositCollateral(100e6);
-
-        vm.prank(alice);
-        router.mintCompleteSets(address(market), 30e6);
-
-        uint256 expectedNetMint = 30e6 - ((30e6 * 300) / 10000);
-        vm.prank(alice);
-        router.addLiquidity(address(market), expectedNetMint, expectedNetMint, 0);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientBalance()"));
-        router.removeLiquidity(address(market), expectedNetMint + 1, 0, 0);
+        bytes memory sellReport = abi.encode(
+            "routerAgentSell",
+            abi.encode(alice, bob, address(market), uint8(0), 1e6, 4e6, 590_000, 410_000, uint64(1))
+        );
+        vm.prank(forwarder);
+        router.onReport("", sellReport);
     }
 
     function testWithdrawOutcomeTokenSuccess() external {

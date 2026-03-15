@@ -532,7 +532,11 @@ abstract contract PredictionMarketRouterVaultOperations is
         address market,
         uint256 additionalExposure
     ) internal view {
-        uint256 dynamicCap = (IPredictionMarketLike(market).liquidityParam() *
+        uint256 liquidityParam = IPredictionMarketLike(market).liquidityParam();
+        if (liquidityParam == 0) {
+            revert Router__MarketNotInitialized();
+        }
+        uint256 dynamicCap = (liquidityParam *
             MarketConstants.MAX_EXPOSURE_BPS) /
             MarketConstants.MAX_EXPOSURE_PRECISION;
         uint256 currentExposure = userRiskExposure[user];

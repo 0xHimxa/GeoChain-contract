@@ -77,6 +77,7 @@ abstract contract PredictionMarketRouterVaultBase is
     error Router__EthDepositAlreadyProcessed();
     error Router__ActionNotRecognized();
     error Router__RiskExposureExceeded();
+    error Router__MarketNotInitialized();
     error Router__MarketNotResolved();
     error Router__AgentNotAuthorized();
     error Router__AgentPermissionExpired();

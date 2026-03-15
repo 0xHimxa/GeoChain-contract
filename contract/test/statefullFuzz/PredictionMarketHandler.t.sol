@@ -5,16 +5,20 @@ import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {FeeLib} from "../../src/libraries/FeeLib.sol";
+import {IReceiver} from "../../script/interfaces/IReceiver.sol";
 
 contract PredictionMarketHandler is Test {
     PredictionMarket public market;
     OutcomeToken public collateral;
+    address public forwarder;
 
     address[] internal actors;
 
-    constructor(PredictionMarket _market, OutcomeToken _collateral, address ownerActor) {
+    constructor(PredictionMarket _market, OutcomeToken _collateral, address _forwarder, address ownerActor) {
         market = _market;
         collateral = _collateral;
+        forwarder = _forwarder;
 
         actors.push(ownerActor);
         actors.push(address(this));
@@ -69,94 +73,56 @@ contract PredictionMarketHandler is Test {
         vm.stopPrank();
     }
 
-    function addLiquidity(uint256 actorSeed, uint256 yesRaw, uint256 noRaw) external {
+    function lmsrBuy(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256 costRaw) external {
         address actor = _actor(actorSeed);
-        uint256 yesBal = market.yesToken().balanceOf(actor);
-        uint256 noBal = market.noToken().balanceOf(actor);
+        uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
+        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 50_000e6);
+        uint256 dynamicCap =
+            (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 costDelta = bound(costRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, dynamicCap);
 
-        if (yesBal < MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE || noBal < MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE) {
-            return;
+        if (!market.isRiskExempt(actor)) {
+            uint256 fee = FeeLib.calculateFee(
+                costDelta,
+                MarketConstants.LMSR_TRADE_FEE_BPS,
+                MarketConstants.FEE_PRECISION_BPS
+            );
+            uint256 actualCost = costDelta - fee;
+            if (market.userRiskExposure(actor) + actualCost > dynamicCap) {
+                return;
+            }
         }
 
-        uint256 yesAmount = bound(yesRaw, MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE, yesBal);
-        uint256 noAmount = bound(noRaw, MarketConstants.MINIMUM_ADD_LIQUIDITY_SHARE, noBal);
+        collateral.mint(actor, costDelta);
         _ensureApprovals(actor);
 
-        vm.startPrank(actor);
-        (bool ok,) =
-            address(market).call(abi.encodeWithSelector(PredictionMarket.addLiquidity.selector, yesAmount, noAmount, 0));
-        ok;
-        vm.stopPrank();
+        uint64 nonce = market.tradeNonce();
+        bytes memory report = abi.encode(
+            "LMSRBuy",
+            abi.encode(actor, outcomeIndex, sharesDelta, costDelta, 500_000, 500_000, nonce)
+        );
+
+        vm.prank(forwarder);
+        IReceiver(address(market)).onReport("", report);
     }
 
-    function removeLiquidity(uint256 actorSeed, uint256 sharesRaw) external {
+    function lmsrSell(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256 refundRaw) external {
         address actor = _actor(actorSeed);
-        uint256 sharesBal = market.lpShares(actor);
-        if (sharesBal == 0) return;
+        uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
 
-        uint256 shares = bound(sharesRaw, 1, sharesBal);
+        uint256 available = outcomeIndex == 0 ? market.userBoughtYesShares(actor) : market.userBoughtNoShares(actor);
+        if (available < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
 
-        vm.startPrank(actor);
-        (bool ok,) = address(market).call(abi.encodeWithSelector(PredictionMarket.removeLiquidity.selector, shares, 0, 0));
-        ok;
-        vm.stopPrank();
-    }
+        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, available);
+        uint256 refundDelta = bound(refundRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 200_000e6);
 
-    function removeLiquidityAndRedeemCollateral(uint256 actorSeed, uint256 sharesRaw) external {
-        address actor = _actor(actorSeed);
-        uint256 sharesBal = market.lpShares(actor);
-        if (sharesBal == 0) return;
+        uint64 nonce = market.tradeNonce();
+        bytes memory report = abi.encode(
+            "LMSRSell",
+            abi.encode(actor, outcomeIndex, sharesDelta, refundDelta, 500_000, 500_000, nonce)
+        );
 
-        uint256 shares = bound(sharesRaw, 1, sharesBal);
-
-        vm.startPrank(actor);
-        (bool ok,) =
-            address(market).call(abi.encodeWithSelector(PredictionMarket.removeLiquidityAndRedeemCollateral.selector, shares, 0));
-        ok;
-        vm.stopPrank();
-    }
-
-    function swapYesForNo(uint256 actorSeed, uint256 amountRaw) external {
-        address actor = _actor(actorSeed);
-        uint256 yesBal = market.yesToken().balanceOf(actor);
-        if (yesBal < MarketConstants.MINIMUM_SWAP_AMOUNT) return;
-
-        uint256 yesIn = bound(amountRaw, MarketConstants.MINIMUM_SWAP_AMOUNT, yesBal);
-        _ensureApprovals(actor);
-
-        vm.startPrank(actor);
-        (bool ok,) = address(market).call(abi.encodeWithSelector(PredictionMarket.swapYesForNo.selector, yesIn, 0));
-        ok;
-        vm.stopPrank();
-    }
-
-    function swapNoForYes(uint256 actorSeed, uint256 amountRaw) external {
-        address actor = _actor(actorSeed);
-        uint256 noBal = market.noToken().balanceOf(actor);
-        if (noBal < MarketConstants.MINIMUM_SWAP_AMOUNT) return;
-
-        uint256 noIn = bound(amountRaw, MarketConstants.MINIMUM_SWAP_AMOUNT, noBal);
-        _ensureApprovals(actor);
-
-        vm.startPrank(actor);
-        (bool ok,) = address(market).call(abi.encodeWithSelector(PredictionMarket.swapNoForYes.selector, noIn, 0));
-        ok;
-        vm.stopPrank();
-    }
-
-    function transferShares(uint256 fromSeed, uint256 toSeed, uint256 sharesRaw) external {
-        address from = _actor(fromSeed);
-        address to = _actor(toSeed);
-        if (from == to) return;
-
-        uint256 sharesBal = market.lpShares(from);
-        if (sharesBal == 0) return;
-
-        uint256 shares = bound(sharesRaw, 1, sharesBal);
-
-        vm.startPrank(from);
-        (bool ok,) = address(market).call(abi.encodeWithSelector(PredictionMarket.transferShares.selector, to, shares));
-        ok;
-        vm.stopPrank();
+        vm.prank(forwarder);
+        IReceiver(address(market)).onReport("", report);
     }
 }

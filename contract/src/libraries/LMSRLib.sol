@@ -27,12 +27,12 @@ library LMSRLib {
         valid = sum >= PRICE_PRECISION - PRICE_TOLERANCE && sum <= PRICE_PRECISION + PRICE_TOLERANCE;
     }
 
-    /// @notice Validates monotonic trade nonce ordering.
-    /// @dev Each CRE trade report must carry a nonce strictly greater than the last accepted nonce.
-    ///      This prevents replay attacks and stale report execution.
+    /// @notice Validates trade nonce ordering.
+    /// @dev Each CRE trade report must carry a nonce equal to the current on-chain nonce.
+    ///      The contract increments its nonce after accepting the report.
     /// @param currentNonce The last accepted trade nonce on-chain.
     /// @param reportNonce The nonce carried by the incoming CRE report.
-    /// @return valid True if reportNonce > currentNonce.
+    /// @return valid True if reportNonce == currentNonce.
     function validateTradeNonce(uint64 currentNonce, uint64 reportNonce) internal pure returns (bool valid) {
         valid = reportNonce == currentNonce;
     }

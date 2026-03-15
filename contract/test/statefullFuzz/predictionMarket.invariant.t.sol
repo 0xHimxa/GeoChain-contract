@@ -7,6 +7,7 @@ import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol"
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {LMSRLib} from "../../src/libraries/LMSRLib.sol";
 import {PredictionMarketHandler} from "./PredictionMarketHandler.t.sol";
 
 contract MockMarketFactoryInvariant {
@@ -33,6 +34,7 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
     MockMarketFactoryInvariant internal mockFactory;
 
     uint256 internal constant INITIAL_LIQUIDITY = 10_000e6;
+    uint256 internal constant LIQUIDITY_PARAM = 10_000e6;
     address internal constant FORWARDER = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
     function setUp() external {
@@ -57,66 +59,49 @@ contract PredictionMarketInvariantTest is StdInvariant, Test {
         market.transferOwnership(address(this));
 
         collateral.mint(address(market), INITIAL_LIQUIDITY);
-        market.seedLiquidity(INITIAL_LIQUIDITY);
+        market.initializeMarket(LIQUIDITY_PARAM);
 
-        handler = new PredictionMarketHandler(market, collateral, address(this));
+        handler = new PredictionMarketHandler(market, collateral, FORWARDER, address(this));
 
         // Let the handler mint collateral for actor accounts in fuzz actions.
         collateral.transferOwnership(address(handler));
 
-        // Move initial LP shares to the handler-owned actor set for exact share accounting.
-        market.transferShares(address(handler), INITIAL_LIQUIDITY);
-
         targetContract(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](8);
+        bytes4[] memory selectors = new bytes4[](4);
         selectors[0] = PredictionMarketHandler.mintCompleteSets.selector;
         selectors[1] = PredictionMarketHandler.redeemCompleteSets.selector;
-        selectors[2] = PredictionMarketHandler.addLiquidity.selector;
-        selectors[3] = PredictionMarketHandler.removeLiquidity.selector;
-        selectors[4] = PredictionMarketHandler.removeLiquidityAndRedeemCollateral.selector;
-        selectors[5] = PredictionMarketHandler.swapYesForNo.selector;
-        selectors[6] = PredictionMarketHandler.swapNoForYes.selector;
-        selectors[7] = PredictionMarketHandler.transferShares.selector;
+        selectors[2] = PredictionMarketHandler.lmsrBuy.selector;
+        selectors[3] = PredictionMarketHandler.lmsrSell.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
-    function invariant_reservesMatchPoolBalances() external view {
-        assertEq(market.yesReserve(), market.yesToken().balanceOf(address(market)));
-        assertEq(market.noReserve(), market.noToken().balanceOf(address(market)));
-    }
-
-    function invariant_totalSharesEqualsTrackedLpShares() external view {
-        address[] memory actors = handler.getActors();
-        uint256 sum;
-        for (uint256 i = 0; i < actors.length; i++) {
-            sum += market.lpShares(actors[i]);
-        }
-        assertEq(market.totalShares(), sum);
-    }
-
-    function invariant_seededRemainsTrue() external view {
-        assertTrue(market.seeded());
+    function invariant_initializedRemainsTrue() external view {
+        assertTrue(market.initialized());
     }
 
     function invariant_protocolFeesBackedByCollateral() external view {
         assertLe(market.protocolCollateralFees(), collateral.balanceOf(address(market)));
     }
 
-    function invariant_yesAndNoSuppliesStayEqualInOpenState() external view {
-        assertEq(market.yesToken().totalSupply(), market.noToken().totalSupply());
+    function invariant_pricesRemainValid() external view {
+        assertTrue(LMSRLib.validatePriceSum(market.lastYesPriceE6(), market.lastNoPriceE6()));
     }
 
-    function invariant_poolReservesCannotExceedOutcomeSupply() external view {
-        assertLe(market.yesReserve(), market.yesToken().totalSupply());
-        assertLe(market.noReserve(), market.noToken().totalSupply());
+    function invariant_outstandingSharesBoundedBySupply() external view {
+        assertLe(market.yesSharesOutstanding(), market.yesToken().totalSupply());
+        assertLe(market.noSharesOutstanding(), market.noToken().totalSupply());
     }
 
     function invariant_actorRiskExposureNeverExceedsCap() external view {
         address[] memory actors = handler.getActors();
+        uint256 dynamicCap =
+            (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
         for (uint256 i = 0; i < actors.length; i++) {
-            assertLe(market.userRiskExposure(actors[i]), MarketConstants.MAX_RISK_EXPOSURE);
+            if (!market.isRiskExempt(actors[i])) {
+                assertLe(market.userRiskExposure(actors[i]), dynamicCap);
+            }
         }
     }
 }

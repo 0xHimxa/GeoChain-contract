@@ -302,7 +302,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.PredictionMarket__MintCompleteSets_InsufficientTokenBalance();
         }
 
-        uint256 exposure = userRiskExposure[msg.sender];
+    
         if (
             msg.sender != address(marketFactory) &&
             !isRiskExempt[msg.sender] 
