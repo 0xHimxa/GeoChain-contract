@@ -454,9 +454,9 @@ abstract contract PredictionMarketRouterVaultOperations is
 
         tokenCredits[user][token] += tokenDelta;
 
-        emit SwappedYesForNo(user, market, costDelta, tokenDelta);
+        emit BoughtSideCompleted(user, market, costDelta, tokenDelta);
     }
-
+ 
     /// @dev Executes LMSR sell trade via router vault accounting.
     function _sell(
         address user,
@@ -497,7 +497,7 @@ abstract contract PredictionMarketRouterVaultOperations is
         collateralCredits[user] += collateralDelta;
         totalCollateralCredits += collateralDelta;
 
-        emit SwappedNoForYes(user, market, sharesDelta, collateralDelta);
+        emit SideSoldCompleted(user, market, sharesDelta, collateralDelta);
     }
 
     // NOTE: _swapYesForNo, _swapNoForYes, _addLiquidity, _removeLiquidity

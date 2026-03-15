@@ -85,32 +85,13 @@ library MarketEvents {
     event CompleteSetsRedeemed(address indexed user, uint256 amount);
     /// @dev One-time pool bootstrap event.
     event LiquiditySeeded(uint256 amount);
-    /// @dev LP added balanced liquidity.
-    event LiquidityAdded(
-        address indexed user,
-        uint256 yesAmount,
-        uint256 noAmount,
-        uint256 shares
-    );
-    /// @dev LP removed proportional liquidity.
-    event LiquidityRemoved(
-        address indexed user,
-        uint256 yesAmount,
-        uint256 noAmount,
-        uint256 shares
-    );
-    /// @dev LP share transfer between accounts.
-    event SharesTransferred(
-        address indexed from,
-        address indexed to,
-        uint256 shares
-    );
-    /// @dev LP collateral withdrawal after resolution.
-    event WithDrawnLiquidity(
-        address indexed user,
-        uint256 amount,
-        uint256 shares
-    );
+
+event OutcomeTokensSet(address indexed yesToken, address indexed noToken);
+event RiskExemptSet(address indexed account, bool exempt);
+event RouterVaultSet(address indexed routerVault);
+
+
+ 
     /// @dev Market marked for manual review due to inconclusive resolution.
     event IsUnderManualReview(Resolution indexed outcome);
     /// @dev Cross-chain controller configured.
@@ -163,23 +144,11 @@ library MarketErrors {
     error PredictionMarket__InitailConstantLiquidityNotSetYet();
     error PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
     error PredictionMarket__InitailConstantLiquidityAlreadySet();
-    error PredictionMarket__FundingInitailAountGreaterThanAmountSent();
-    error PredictionMarket__AddLiquidity_YesAndNoCantBeZero();
-    error PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares();
-    error PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum();
-    error PredictionMarket__AddLiquidity_InsuffientTokenBalance();
-    error PredictionMarket__WithDrawLiquidity_SlippageExceeded();
-    error PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance();
-    error PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn();
-    error PredictionMarket__TransferShares_CantbeSendtoZeroAddress();
-    error PredictionMarket__TransferShares_InsufficientShares();
+  
     error PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
     error PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
     error PredictionMarket__AmountCantBeZero();
     error PredictionMarket__AmountLessThanMinSwapAllwed();
-    error PredictionMarket__SwapingExceedSlippage();
-    error PredictionMarket__SwapYesFoNo_YesExeedBalannce();
-    error PredictionMarket__SwapNoFoYes_NoExeedBalannce();
     error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
     error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
     error PredictionMarket__NotOwner_Or_CrossChainController();

@@ -297,6 +297,7 @@ mapping(address => uint256) public userBoughtNoShares;
 
         yesToken = OutcomeToken(yesTokenAddress);
         noToken = OutcomeToken(noTokenAddress);
+        emit MarketEvents.OutcomeTokensSet(yesTokenAddress, noTokenAddress);
     }
 
     /// @dev Ensures the market is still tradable and not paused/reviewing/resolved.
@@ -330,6 +331,7 @@ mapping(address => uint256) public userBoughtNoShares;
         if (account == address(0))
             revert PredictionMarket__RiskExposureExemptZeroAddress();
         isRiskExempt[account] = exempt;
+        emit MarketEvents.RiskExemptSet(account, exempt);
     }
 
     /// @notice Sets the authorized router vault for buy/sell operations.
@@ -338,6 +340,8 @@ mapping(address => uint256) public userBoughtNoShares;
         if (_routerVault == address(0)) revert PredictionMarket__RouterVaultZeroAddress();
         if (routerVault != address(0)) revert PredictionMarket__RouterVaultAlreadySet();
         routerVault = _routerVault;
+        emit MarketEvents.RouterVaultSet(_routerVault);
+
     }
 
     /// @dev Auto-transitions Open -> Closed after close time.

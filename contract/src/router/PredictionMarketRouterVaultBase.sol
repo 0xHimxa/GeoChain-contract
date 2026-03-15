@@ -180,32 +180,19 @@ abstract contract PredictionMarketRouterVaultBase is
         uint256 amount,
         uint256 collateralOut
     );
-    event SwappedYesForNo(
+    event BoughtSideCompleted(
         address indexed user,
         address indexed market,
         uint256 yesIn,
         uint256 noOut
     );
-    event SwappedNoForYes(
+    event SideSoldCompleted(
         address indexed user,
         address indexed market,
         uint256 noIn,
         uint256 yesOut
     );
-    event LiquidityAdded(
-        address indexed user,
-        address indexed market,
-        uint256 yesIn,
-        uint256 noIn,
-        uint256 sharesOut
-    );
-    event LiquidityRemoved(
-        address indexed user,
-        address indexed market,
-        uint256 sharesIn,
-        uint256 yesOut,
-        uint256 noOut
-    );
+
     event CollateralCreditedFromFiat(address indexed user, uint256 amount);
     event EthReceived(address indexed sender, uint256 amountWei);
     event EthWithdrawn(address indexed recipient, uint256 amountWei);
