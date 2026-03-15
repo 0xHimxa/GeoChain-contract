@@ -3,10 +3,9 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
-import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketBase.sol";
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
-import {AMMLib} from "../../src/libraries/AMMLib.sol";
+import {LMSRLib} from "../../src/libraries/LMSRLib.sol";
 import {MarketErrors, MarketConstants, Resolution, State} from "../../src/libraries/MarketTypes.sol";
 
 contract MockMarketFactory {
@@ -69,7 +68,7 @@ contract PredictionMarketTest is Test {
     address internal bob = makeAddr("bob");
     address internal constant FORWARDER = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
-    uint256 internal constant INITIAL_LIQUIDITY = 10_000e6;
+    uint256 internal constant LIQUIDITY_PARAM = 100_000e6;
 
     function setUp() external {
         collateral = new OutcomeToken("USDC", "USDC", address(this));
@@ -91,8 +90,9 @@ contract PredictionMarketTest is Test {
         vm.prank(address(mockFactory));
         market.transferOwnership(address(this));
 
-        collateral.mint(address(market), INITIAL_LIQUIDITY);
-        market.seedLiquidity(INITIAL_LIQUIDITY);
+        uint256 subsidy = LMSRLib.maxSubsidyLoss(LIQUIDITY_PARAM);
+        collateral.mint(address(market), subsidy);
+        market.initializeMarket(LIQUIDITY_PARAM);
     }
 
     function _fundAndApproveCollateral(address user, uint256 amount) internal {
@@ -108,13 +108,6 @@ contract PredictionMarketTest is Test {
 
         (, uint256 fee) = _deductFee(amount, MarketConstants.MINT_COMPLETE_SETS_FEE_BPS, MarketConstants.FEE_PRECISION_BPS);
         netAmount = amount - fee;
-    }
-
-    function _approveOutcomeTokens(address user) internal {
-        vm.startPrank(user);
-        market.yesToken().approve(address(market), type(uint256).max);
-        market.noToken().approve(address(market), type(uint256).max);
-        vm.stopPrank();
     }
 
     function _deductFee(uint256 amount, uint256 feeBps, uint256 precision)
@@ -136,11 +129,11 @@ contract PredictionMarketTest is Test {
         market.finalizeResolutionAfterDisputeWindow();
     }
 
-    function _newUnseededMarket() internal returns (PredictionMarket m) {
+    function _newUninitializedMarket() internal returns (PredictionMarket m) {
         m = PredictionMarket(
             mockFactory.deployMarket(
                 marketDeployer,
-                "Unseeded market",
+                "Uninitialized market",
                 address(collateral),
                 block.timestamp + 1 days,
                 block.timestamp + 2 days,
@@ -149,6 +142,40 @@ contract PredictionMarketTest is Test {
         );
         vm.prank(address(mockFactory));
         m.transferOwnership(address(this));
+    }
+
+    function _reportLmsrBuy(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        bytes memory report = abi.encode(
+            "LMSRBuy",
+            abi.encode(trader, outcomeIndex, sharesDelta, costDelta, newYesPriceE6, newNoPriceE6, nonce)
+        );
+        vm.prank(FORWARDER);
+        market.onReport("", report);
+    }
+
+    function _reportLmsrSell(
+        address trader,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        bytes memory report = abi.encode(
+            "LMSRSell",
+            abi.encode(trader, outcomeIndex, sharesDelta, refundDelta, newYesPriceE6, newNoPriceE6, nonce)
+        );
+        vm.prank(FORWARDER);
+        market.onReport("", report);
     }
 
     function testConstructorRevertInvalidArguments() external {
@@ -162,22 +189,35 @@ contract PredictionMarketTest is Test {
         mockFactory.deployMarket(marketDeployer, "q", address(collateral), 3, 2, FORWARDER);
     }
 
-    function testSeedLiquidityRevertWhenAlreadySeeded() external {
-        collateral.mint(address(market), 100e6);
-        vm.expectRevert(MarketErrors.PredictionMarket__InitailConstantLiquidityAlreadySet.selector);
-        market.seedLiquidity(100e6);
+    function testInitializeMarketSuccess() external {
+        PredictionMarket uninitialized = _newUninitializedMarket();
+        uint256 subsidy = LMSRLib.maxSubsidyLoss(50_000e6);
+        collateral.mint(address(uninitialized), subsidy);
+
+        uninitialized.initializeMarket(50_000e6);
+
+        assertEq(uninitialized.liquidityParam(), 50_000e6);
+        assertEq(uninitialized.subsidyDeposit(), subsidy);
+        assertEq(uninitialized.lastYesPriceE6(), 500_000);
+        assertEq(uninitialized.lastNoPriceE6(), 500_000);
+        assertEq(uninitialized.tradeNonce(), 0);
     }
 
-    function testSeedLiquidityRevertWhenAmountZero() external {
-        PredictionMarket unseeded = _newUnseededMarket();
-        vm.expectRevert(MarketErrors.PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero.selector);
-        unseeded.seedLiquidity(0);
+    function testInitializeMarketRevertWhenAlreadyInitialized() external {
+        vm.expectRevert(MarketErrors.LMSR__AlreadyInitialized.selector);
+        market.initializeMarket(LIQUIDITY_PARAM);
     }
 
-    function testSeedLiquidityRevertWhenFundingGreaterThanBalance() external {
-        PredictionMarket unseeded = _newUnseededMarket();
-        vm.expectRevert(MarketErrors.PredictionMarket__FundingInitailAountGreaterThanAmountSent.selector);
-        unseeded.seedLiquidity(1e6);
+    function testInitializeMarketRevertWhenAmountZero() external {
+        PredictionMarket uninitialized = _newUninitializedMarket();
+        vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
+        uninitialized.initializeMarket(0);
+    }
+
+    function testInitializeMarketRevertWhenInsufficientSubsidy() external {
+        PredictionMarket uninitialized = _newUninitializedMarket();
+        vm.expectRevert(MarketErrors.LMSR__InsufficientSubsidy.selector);
+        uninitialized.initializeMarket(10_000e6);
     }
 
     function testMintCompleteSetsSuccess() external {
@@ -191,8 +231,7 @@ contract PredictionMarketTest is Test {
     }
 
     function testMintCompleteSetsRevertRiskExposureExceeded() external {
-        uint256 cap = MarketConstants.MAX_RISK_EXPOSURE;
-
+        uint256 cap = (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
         _mintCompleteSets(alice, cap);
 
         _fundAndApproveCollateral(alice, 1e6);
@@ -218,337 +257,13 @@ contract PredictionMarketTest is Test {
         assertEq(collateral.balanceOf(alice), beforeCollateral + expectedCollateralOut);
     }
 
-    function testAddLiquiditySuccess() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        uint256 yesReserveBefore = market.yesReserve();
-        uint256 noReserveBefore = market.noReserve();
-
-        vm.prank(alice);
-        market.addLiquidity(mintedNet, mintedNet, 0);
-
-        assertEq(market.lpShares(alice), mintedNet);
-        assertEq(market.totalShares(), INITIAL_LIQUIDITY + mintedNet);
-        assertEq(market.yesReserve(), yesReserveBefore + mintedNet);
-        assertEq(market.noReserve(), noReserveBefore + mintedNet);
-    }
-
-    function testAddLiquidityRevertWhenNotSeeded() external {
-        PredictionMarket unseeded = _newUnseededMarket();
-        vm.expectRevert(MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet.selector);
-        unseeded.addLiquidity(50, 50, 0);
-    }
-
-    function testAddLiquidityRevertWhenAmountsZero() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__AddLiquidity_YesAndNoCantBeZero.selector);
-        market.addLiquidity(0, 0, 0);
-    }
-
-    function testAddLiquidityRevertWhenBelowMinimumShare() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AddLiquidity_Yes_No_LessThanMiniMum.selector);
-        market.addLiquidity(mintedNet, 49, 0);
-    }
-
-    function testAddLiquidityRevertWhenInsufficientTokenBalance() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AddLiquidity_InsuffientTokenBalance.selector);
-        market.addLiquidity(mintedNet + 1, mintedNet, 0);
-    }
-
-    function testAddLiquidityRevertWhenMinSharesTooHigh() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AddLiquidity_ShareSendingIsLessThanMinShares.selector);
-        market.addLiquidity(mintedNet, mintedNet, mintedNet + 1);
-    }
-
-    function testRemoveLiquiditySuccess() external {
-        uint256 sharesToRemove = 100e6;
-
-        uint256 beforeYes = market.yesToken().balanceOf(address(this));
-        uint256 beforeNo = market.noToken().balanceOf(address(this));
-
-        market.removeLiquidity(sharesToRemove, 0, 0);
-
-        assertEq(market.yesToken().balanceOf(address(this)), beforeYes + sharesToRemove);
-        assertEq(market.noToken().balanceOf(address(this)), beforeNo + sharesToRemove);
-        assertEq(market.lpShares(address(this)), INITIAL_LIQUIDITY - sharesToRemove);
-        assertEq(market.totalShares(), INITIAL_LIQUIDITY - sharesToRemove);
-    }
-
-    function testRemoveLiquidityRevertWhenZeroShares() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn.selector);
-        market.removeLiquidity(0, 0, 0);
-    }
-
-    function testRemoveLiquidityRevertWhenInsufficientShares() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance.selector);
-        market.removeLiquidity(INITIAL_LIQUIDITY + 1, 0, 0);
-    }
-
-    function testRemoveLiquidityRevertWhenSlippageExceeded() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_SlippageExceeded.selector);
-        market.removeLiquidity(100e6, 101e6, 0);
-    }
-
-    function testRemoveLiquidityAndRedeemCollateralSuccess() external {
-        uint256 sharesToRemove = 100e6;
-        uint256 beforeCollateral = collateral.balanceOf(address(this));
-
-        market.removeLiquidityAndRedeemCollateral(sharesToRemove, 0);
-
-        uint256 expectedOut = sharesToRemove - ((sharesToRemove * 200) / 10_000);
-        assertEq(collateral.balanceOf(address(this)), beforeCollateral + expectedOut);
-        assertEq(market.lpShares(address(this)), INITIAL_LIQUIDITY - sharesToRemove);
-    }
-
-    function testRemoveLiquidityAndRedeemCollateralRevertWhenZeroShares() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn.selector);
-        market.removeLiquidityAndRedeemCollateral(0, 0);
-    }
-
-    function testRemoveLiquidityAndRedeemCollateralRevertWhenInsufficientShares() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance.selector);
-        market.removeLiquidityAndRedeemCollateral(INITIAL_LIQUIDITY + 1, 0);
-    }
-
-    function testRemoveLiquidityAndRedeemCollateralRevertWhenSlippageExceeded() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_SlippageExceeded.selector);
-        market.removeLiquidityAndRedeemCollateral(100e6, 100e6);
-    }
-
-    function testRemoveLiquidityAndRedeemCollateralReturnsLeftoverTokens() external {
-        _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        market.swapYesForNo(1e6, 0);
-
-        uint256 yesBefore = market.yesToken().balanceOf(address(this));
-        uint256 noBefore = market.noToken().balanceOf(address(this));
-        market.removeLiquidityAndRedeemCollateral(5_000e6, 0);
-        uint256 yesAfter = market.yesToken().balanceOf(address(this));
-        uint256 noAfter = market.noToken().balanceOf(address(this));
-
-        assertTrue(yesAfter > yesBefore || noAfter > noBefore);
-    }
-
-    function testTransferSharesSuccess() external {
-        uint256 transferAmount = 250e6;
-
-        market.transferShares(bob, transferAmount);
-
-        assertEq(market.lpShares(address(this)), INITIAL_LIQUIDITY - transferAmount);
-        assertEq(market.lpShares(bob), transferAmount);
-    }
-
-    function testTransferSharesRevertZeroAddress() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__TransferShares_CantbeSendtoZeroAddress.selector);
-        market.transferShares(address(0), 1);
-    }
-
-    function testTransferSharesRevertInsufficientShares() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__TransferShares_InsufficientShares.selector);
-        vm.prank(alice);
-        market.transferShares(bob, 1);
-    }
-
-    function testSwapYesForNoSuccess() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        uint256 yesIn = 1e6;
-        uint256 noBefore = market.noToken().balanceOf(alice);
-        uint256 yesReserveBefore = market.yesReserve();
-        uint256 noReserveBefore = market.noReserve();
-
-        (uint256 quoteOut,) = market.getYesForNoQuote(yesIn);
-
-        vm.prank(alice);
-        market.swapYesForNo(yesIn, quoteOut);
-
-        assertEq(market.noToken().balanceOf(alice), noBefore + quoteOut);
-        assertEq(market.yesReserve(), yesReserveBefore + yesIn);
-        assertEq(market.noReserve(), noReserveBefore - quoteOut);
-        assertEq(market.yesToken().balanceOf(alice), mintedNet - yesIn);
-    }
-
-    function testSwapNoForYesSuccess() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        uint256 noIn = 1e6;
-        uint256 yesBefore = market.yesToken().balanceOf(alice);
-        uint256 yesReserveBefore = market.yesReserve();
-        uint256 noReserveBefore = market.noReserve();
-
-        (uint256 quoteOut,) = market.getNoForYesQuote(noIn);
-
-        vm.prank(alice);
-        market.swapNoForYes(noIn, quoteOut);
-
-        assertEq(market.yesToken().balanceOf(alice), yesBefore + quoteOut);
-        assertEq(market.noReserve(), noReserveBefore + noIn);
-        assertEq(market.yesReserve(), yesReserveBefore - quoteOut);
-        assertEq(market.noToken().balanceOf(alice), mintedNet - noIn);
-    }
-
-    function testProbabilitySumAfterMintAndSwapIs1e6() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        market.swapYesForNo(mintedNet, 0);
-
-        uint256 yesProbability = market.getYesPriceProbability();
-        uint256 noProbability = market.getNoPriceProbability();
-
-        assertEq(yesProbability + noProbability, 1_000_000);
-    }
-
-    function testDirectReserveProbabilityMathSumAfterMintAndSwap() external {
-        uint256 mintedNet = _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        market.swapYesForNo(mintedNet, 0);
-
-        uint256 yesReserve = market.yesReserve();
-        uint256 noReserve = market.noReserve();
-        uint256 total = yesReserve + noReserve;
-
-        uint256 yesFromReserve = (noReserve * 1_000_000) / total;
-        uint256 noFromReserve = (yesReserve * 1_000_000) / total;
-
-        assertEq(yesFromReserve + noFromReserve, 999_999);
-
-        uint256 noAsComplement = 1_000_000 - yesFromReserve;
-        assertEq(yesFromReserve + noAsComplement, 1_000_000);
-    }
-
-    function testSwapRevertWhenBelowMinimumAmount() external {
-        _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed.selector);
-        market.swapYesForNo(100, 0);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountLessThanMinSwapAllwed.selector);
-        market.swapNoForYes(100, 0);
-    }
-
-    function testSwapYesForNoRevertWhenInsufficientYesBalance() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__SwapYesFoNo_YesExeedBalannce.selector);
-        vm.prank(alice);
-        market.swapYesForNo(1e6, 0);
-    }
-
-    function testSwapNoForYesRevertWhenInsufficientNoBalance() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__SwapNoFoYes_NoExeedBalannce.selector);
-        vm.prank(alice);
-        market.swapNoForYes(1e6, 0);
-    }
-
-    function testSwapYesForNoRevertWhenSlippageExceeded() external {
-        _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        (uint256 quoteOut,) = market.getYesForNoQuote(1e6);
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__SwapingExceedSlippage.selector);
-        market.swapYesForNo(1e6, quoteOut + 1);
-    }
-
-    function testSwapNoForYesRevertWhenSlippageExceeded() external {
-        _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        (uint256 quoteOut,) = market.getNoForYesQuote(1e6);
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__SwapingExceedSlippage.selector);
-        market.swapNoForYes(1e6, quoteOut + 1);
-    }
-
-    function testSwapYesForNoRevertWhenCanonicalDeviationTooHigh() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(900_000, 100_000, block.timestamp + 1 days, 1);
-        uint256 mintedNet = _mintCompleteSets(alice, 3_000e6);
-        _approveOutcomeTokens(alice);
-        assertGt(mintedNet, 2_000e6);
-
-        vm.prank(alice);
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
-        market.swapYesForNo(2_000e6, 0);
-    }
-
-    function testSwapNoForYesCanonicalSuccess() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
-        _mintCompleteSets(alice, 10e6);
-        _approveOutcomeTokens(alice);
-
-        uint256 beforeYes = market.yesToken().balanceOf(alice);
-        (uint256 quoteOut,) = market.getNoForYesQuote(1e6);
-        vm.prank(alice);
-        market.swapNoForYes(1e6, quoteOut);
-        assertEq(market.yesToken().balanceOf(alice), beforeYes + quoteOut);
-    }
-
-    function testSwapNoForYesRevertWhenCanonicalDeviationTooHigh() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(100_000, 900_000, block.timestamp + 1 days, 1);
-        _mintCompleteSets(alice, 3_000e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
-        market.swapNoForYes(2_000e6, 0);
-    }
-
-    function testSwapRevertWhenTradeExceedsStressBandLimit() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
-        _mintCompleteSets(alice, 1_000e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__TradeSizeExceedsBandLimit()")));
-        market.swapNoForYes(500e6, 0);
-    }
-
-    function testUnsafeBandAllowsOnlyConvergingDirection() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
-        _mintCompleteSets(alice, 50e6);
-        _approveOutcomeTokens(alice);
-
-        vm.prank(alice);
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__TradeDirectionNotAllowedInUnsafeBand()")));
-        market.swapNoForYes(1e6, 0);
-
-        vm.prank(alice);
-        market.swapYesForNo(1e6, 0);
-    }
-
     function testMintRevertWhenMarketClosed() external {
         vm.warp(market.closeTime() + 1);
 
         _fundAndApproveCollateral(alice, 2e6);
 
         vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__Isclosed.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__IsClosed.selector);
         market.mintCompleteSets(2e6);
     }
 
@@ -561,13 +276,13 @@ contract PredictionMarketTest is Test {
     function testMintRevertWhenAmountBelowMinimum() external {
         _fundAndApproveCollateral(alice, 900_000);
         vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__MintingCompleteset__AmountLessThanMinimu.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__MintingCompleteSet__AmountLessThanMinimum.selector);
         market.mintCompleteSets(900_000);
     }
 
     function testMintRevertWhenInsufficientCollateralBalance() external {
         vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__MintCompleteSets_InsuffientTokenBalance.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__MintCompleteSets_InsufficientTokenBalance.selector);
         market.mintCompleteSets(2e6);
     }
 
@@ -589,6 +304,85 @@ contract PredictionMarketTest is Test {
         vm.prank(alice);
         vm.expectRevert(MarketErrors.PredictionMarket__AlreadyResolved.selector);
         market.mintCompleteSets(2e6);
+    }
+
+    function testRedeemCompleteSetsReverts() external {
+        vm.prank(alice);
+        vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
+        market.redeemCompleteSets(0);
+
+        _mintCompleteSets(alice, 2e6);
+        vm.prank(alice);
+        vm.expectRevert(MarketErrors.PredictionMarket__RedeemCompleteSetLessThanMinAllowed.selector);
+        market.redeemCompleteSets(100);
+
+        vm.prank(alice);
+        vm.expectRevert(MarketErrors.PredictionMarket__RedeemCompleteSets_InsufficientTokenBalance.selector);
+        market.redeemCompleteSets(3e6);
+    }
+
+    function testLmsrBuyViaReportSuccess() external {
+        uint256 costDelta = 1_000e6;
+        uint256 sharesDelta = 1_000e6;
+        _fundAndApproveCollateral(alice, costDelta);
+
+        _reportLmsrBuy(alice, 0, sharesDelta, costDelta, 520_000, 480_000, 0);
+
+        uint256 fee = (costDelta * MarketConstants.LMSR_TRADE_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        uint256 actualCost = costDelta - fee;
+
+        assertEq(market.yesToken().balanceOf(alice), sharesDelta);
+        assertEq(market.userBoughtYesShares(alice), sharesDelta);
+        assertEq(market.yesSharesOutstanding(), sharesDelta);
+        assertEq(market.lastYesPriceE6(), 520_000);
+        assertEq(market.lastNoPriceE6(), 480_000);
+        assertEq(market.tradeNonce(), 1);
+        assertEq(market.protocolCollateralFees(), fee);
+        assertEq(market.userRiskExposure(alice), actualCost);
+    }
+
+    function testLmsrBuyRevertWhenBelowMinimumTrade() external {
+        _fundAndApproveCollateral(alice, 1_000e6);
+        vm.prank(FORWARDER);
+        vm.expectRevert(MarketErrors.LMSR__TradeBelowMinimum.selector);
+        market.onReport("", abi.encode("LMSRBuy", abi.encode(alice, 0, 100, 1_000e6, 500_000, 500_000, 0)));
+    }
+
+    function testLmsrBuyRevertWhenInvalidPriceSum() external {
+        _fundAndApproveCollateral(alice, 1_000e6);
+        vm.prank(FORWARDER);
+        vm.expectRevert(MarketErrors.LMSR__InvalidPriceSum.selector);
+        market.onReport("", abi.encode("LMSRBuy", abi.encode(alice, 0, 1_000e6, 1_000e6, 700_000, 100_000, 0)));
+    }
+
+    function testLmsrSellRevertWhenInsufficientBoughtShares() external {
+        uint256 mintAmount = 2_000e6;
+        _mintCompleteSets(alice, mintAmount);
+
+        vm.prank(FORWARDER);
+        vm.expectRevert(MarketErrors.LMSR__InsufficientBoughtShares.selector);
+        market.onReport("", abi.encode("LMSRSell", abi.encode(alice, 0, 1_000e6, 500e6, 520_000, 480_000, 0)));
+    }
+
+    function testLmsrSellViaReportSuccess() external {
+        uint256 costDelta = 1_000e6;
+        uint256 sharesDelta = 1_000e6;
+        _fundAndApproveCollateral(alice, costDelta);
+        _reportLmsrBuy(alice, 0, sharesDelta, costDelta, 520_000, 480_000, 0);
+
+        uint256 beforeCollateral = collateral.balanceOf(alice);
+        uint256 refundDelta = 500e6;
+
+        _reportLmsrSell(alice, 0, sharesDelta, refundDelta, 500_000, 500_000, 1);
+
+        uint256 fee = (refundDelta * MarketConstants.LMSR_TRADE_FEE_BPS) / MarketConstants.FEE_PRECISION_BPS;
+        uint256 netRefund = refundDelta - fee;
+
+        assertEq(market.yesToken().balanceOf(alice), 0);
+        assertEq(market.userBoughtYesShares(alice), 0);
+        assertEq(market.yesSharesOutstanding(), 0);
+        assertEq(market.tradeNonce(), 2);
+        assertEq(collateral.balanceOf(alice), beforeCollateral + netRefund);
     }
 
     function testResolveRevertConditions() external {
@@ -729,7 +523,7 @@ contract PredictionMarketTest is Test {
     function testManualResolveRevertProofEmpty() external {
         _warpAfterResolution();
         market.resolve(Resolution.Inconclusive, "ipfs://initial");
-        vm.expectRevert(MarketErrors.PredictionMarket__ProofUrlCantBeEmpty.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty.selector);
         market.manualResolveMarket(Resolution.Yes, "");
     }
 
@@ -787,54 +581,6 @@ contract PredictionMarketTest is Test {
         market.redeem(0);
     }
 
-    function testWithdrawLiquidityCollateralAfterResolveYes() external {
-        _warpAfterResolution();
-        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
-
-        uint256 sharesToWithdraw = 100e6;
-        uint256 beforeCollateral = collateral.balanceOf(address(this));
-
-        market.withdrawLiquidityCollateral(sharesToWithdraw);
-
-        assertEq(collateral.balanceOf(address(this)), beforeCollateral + sharesToWithdraw);
-        assertEq(market.lpShares(address(this)), INITIAL_LIQUIDITY - sharesToWithdraw);
-    }
-
-    function testWithdrawLiquidityCollateralAfterResolveNo() external {
-        _warpAfterResolution();
-        _resolveAndFinalize(Resolution.No, "ipfs://proof");
-        uint256 beforeCollateral = collateral.balanceOf(address(this));
-        market.withdrawLiquidityCollateral(100e6);
-        assertEq(collateral.balanceOf(address(this)), beforeCollateral + 100e6);
-    }
-
-    function testWithdrawLiquidityCollateralRevertWhenNotResolved() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity.selector);
-        market.withdrawLiquidityCollateral(1);
-    }
-
-    function testWithdrawLiquidityCollateralRevertWhenZeroShares() external {
-        _warpAfterResolution();
-        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_ZeroSharesPassedIn.selector);
-        market.withdrawLiquidityCollateral(0);
-    }
-
-    function testWithdrawLiquidityCollateralRevertWhenInsufficientShares() external {
-        _warpAfterResolution();
-        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_InsufficientSharesBalance.selector);
-        vm.prank(alice);
-        market.withdrawLiquidityCollateral(1);
-    }
-
-    function testWithdrawLiquidityCollateralRevertWhenInvalidFinalOutcome() external {
-        _warpAfterResolution();
-        market.resolve(Resolution.Inconclusive, "ipfs://proof");
-        vm.expectRevert(MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity.selector);
-        market.withdrawLiquidityCollateral(1);
-    }
-
     function testWithdrawProtocolFeesSuccessAfterResolution() external {
         uint256 amount = 10e6;
         _mintCompleteSets(alice, amount);
@@ -864,7 +610,7 @@ contract PredictionMarketTest is Test {
 
     function testWithdrawProtocolFeesRevertStateNotResolved() external {
         market.setCrossChainController(address(this));
-        vm.expectRevert(MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__StateNeedsToBeResolvedToWithdrawLiquidity.selector);
         market.withdrawProtocolFees();
     }
 
@@ -875,7 +621,7 @@ contract PredictionMarketTest is Test {
         market.setCrossChainController(address(this));
         uint256 burnAmount = collateral.balanceOf(address(market)) - (market.protocolCollateralFees() - 1);
         collateral.burn(address(market), burnAmount);
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_Insufficientfee.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__WithdrawLiquidity_InsufficientFee.selector);
         market.withdrawProtocolFees();
     }
 
@@ -891,7 +637,7 @@ contract PredictionMarketTest is Test {
         uint256 burnAmount = collateral.balanceOf(address(market)) - keep;
         collateral.burn(address(market), burnAmount);
 
-        vm.expectRevert(MarketErrors.PredictionMarket__WithDrawLiquidity_Insufficientfee.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__WithdrawLiquidity_InsufficientFee.selector);
         market.withdrawProtocolFees();
     }
 
@@ -928,7 +674,7 @@ contract PredictionMarketTest is Test {
     function testResolveFromHubRevertConditions() external {
         market.setCrossChainController(address(this));
 
-        vm.expectRevert(MarketErrors.PredictionMarket__ProofUrlCantBeEmpty.selector);
+        vm.expectRevert(MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty.selector);
         market.resolveFromHub(Resolution.Yes, "");
 
         vm.expectRevert(MarketErrors.PredictionMarket__InvalidFinalOutcome.selector);
@@ -958,81 +704,6 @@ contract PredictionMarketTest is Test {
         assertEq(market.canonicalPriceNonce(), 2);
     }
 
-    function testCanonicalPricingQuoteAndStaleGuard() external {
-        market.setCrossChainController(alice);
-
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
-        market.getYesForNoQuote(1e6);
-
-        vm.prank(alice);
-        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
-
-        (uint256 netOut, uint256 fee) = market.getYesForNoQuote(1e6);
-        (uint256 expectedOut, uint256 expectedFee,,) =
-            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, 500, MarketConstants.FEE_PRECISION_BPS);
-
-        assertEq(netOut, expectedOut);
-        assertEq(fee, expectedFee);
-    }
-
-    function testGetYesForNoQuoteReverts() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
-        market.getYesForNoQuote(0);
-
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountLessThanMinAllwed.selector);
-        market.getYesForNoQuote(100);
-    }
-
-    function testGetNoForYesQuoteReverts() external {
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
-        market.getNoForYesQuote(0);
-
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountLessThanMinAllwed.selector);
-        market.getNoForYesQuote(100);
-    }
-
-    function testGetNoForYesQuoteCanonicalAndStale() external {
-        market.setCrossChainController(address(this));
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceStale()")));
-        market.getNoForYesQuote(1e6);
-
-        market.syncCanonicalPriceFromHub(520_000, 480_000, block.timestamp + 1 days, 1);
-        (uint256 netOut, uint256 fee) = market.getNoForYesQuote(1e6);
-        (uint256 expectedOut, uint256 expectedFee,,) =
-            AMMLib.getAmountOut(10_000e6, 10_000e6, 1e6, 500, MarketConstants.FEE_PRECISION_BPS);
-        assertEq(netOut, expectedOut);
-        assertEq(fee, expectedFee);
-    }
-
-    function testCanonicalQuoteRevertsWhenDeviationTooHigh() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(700_000, 300_000, block.timestamp + 1 days, 1);
-
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__CanonicalPriceDeviationTooHigh()")));
-        market.getYesForNoQuote(1e6);
-    }
-
-    function testDeviationStatusReflectsBandAndControls() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
-
-        (
-            PredictionMarketBase.DeviationBand band,
-            uint256 deviationBps,
-            uint256 effectiveFeeBps,
-            uint256 maxOutBps,
-            bool allowYesForNo,
-            bool allowNoForYes
-        ) = market.getDeviationStatus();
-
-        assertEq(uint256(band), uint256(PredictionMarketBase.DeviationBand.Unsafe));
-        assertEq(deviationBps, 400);
-        assertEq(effectiveFeeBps, 500);
-        assertEq(maxOutBps, 50);
-        assertEq(allowYesForNo, true);
-        assertEq(allowNoForYes, false);
-    }
-
     function testSetDeviationPolicyValidationAndPass() external {
         vm.expectRevert(bytes4(keccak256("PredictionMarket__DeviationPolicyInvalid()")));
         market.setDeviationPolicy(300, 200, 500, 100, 200, 50);
@@ -1046,17 +717,6 @@ contract PredictionMarketTest is Test {
         assertEq(market.unsafeMaxOutBps(), 100);
     }
 
-    function testCanonicalQuoteRevertWhenInvalidPrice() external {
-        market.setCrossChainController(address(this));
-        market.syncCanonicalPriceFromHub(0, 1_000_000, block.timestamp + 1 days, 1);
-
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidCanonicalPrice()")));
-        market.getYesForNoQuote(1e6);
-
-        vm.expectRevert(bytes4(keccak256("PredictionMarket__InvalidCanonicalPrice()")));
-        market.getNoForYesQuote(1e6);
-    }
-
     function testCheckResolutionTime() external {
         bool readyBefore = market.checkResolutionTime();
         assertEq(readyBefore, false);
@@ -1068,9 +728,9 @@ contract PredictionMarketTest is Test {
     }
 
     function testYesPriceProbabilityPaths() external {
-        PredictionMarket unseeded = _newUnseededMarket();
-        vm.expectRevert(MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet.selector);
-        unseeded.getYesPriceProbability();
+        PredictionMarket uninitialized = _newUninitializedMarket();
+        vm.expectRevert(MarketErrors.LMSR__NotInitialized.selector);
+        uninitialized.getYesPriceProbability();
 
         assertEq(market.getYesPriceProbability(), 500_000);
 
@@ -1083,9 +743,9 @@ contract PredictionMarketTest is Test {
     }
 
     function testNoPriceProbabilityPaths() external {
-        PredictionMarket unseeded = _newUnseededMarket();
-        vm.expectRevert(MarketErrors.PredictionMarket__InitailConstantLiquidityNotSetYet.selector);
-        unseeded.getNoPriceProbability();
+        PredictionMarket uninitialized = _newUninitializedMarket();
+        vm.expectRevert(MarketErrors.LMSR__NotInitialized.selector);
+        uninitialized.getNoPriceProbability();
 
         assertEq(market.getNoPriceProbability(), 500_000);
 
@@ -1095,21 +755,6 @@ contract PredictionMarketTest is Test {
 
         market.syncCanonicalPriceFromHub(610_000, 390_000, block.timestamp + 1 days, 1);
         assertEq(market.getNoPriceProbability(), 390_000);
-    }
-
-    function testRedeemCompleteSetsReverts() external {
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__AmountCantBeZero.selector);
-        market.redeemCompleteSets(0);
-
-        _mintCompleteSets(alice, 2e6);
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__RedeemCompletesetLessThanMinAllowed.selector);
-        market.redeemCompleteSets(100);
-
-        vm.prank(alice);
-        vm.expectRevert(MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance.selector);
-        market.redeemCompleteSets(3e6);
     }
 
     function testSetMarketIdByOwnerPass() external {

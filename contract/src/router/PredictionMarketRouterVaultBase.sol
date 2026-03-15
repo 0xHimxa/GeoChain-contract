@@ -27,6 +27,7 @@ interface IPredictionMarketLike {
     function yesToken() external view returns (address);
     function noToken() external view returns (address);
     function resolution() external view returns (uint8);
+    function liquidityParam() external view returns (uint256);
 
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;

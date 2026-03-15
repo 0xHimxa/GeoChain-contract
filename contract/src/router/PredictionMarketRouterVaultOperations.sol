@@ -10,6 +10,7 @@ import {
     PredictionMarketRouterVaultBase,
     IPredictionMarketLike
 } from "./PredictionMarketRouterVaultBase.sol";
+import {FeeLib} from "../libraries/FeeLib.sol";
 
 /// @title PredictionMarketRouterVaultOperations
 /// @notice User-facing actions and report-driven execution logic for router vault accounting.
@@ -311,12 +312,8 @@ abstract contract PredictionMarketRouterVaultOperations is
         _validateMarket(market);
         _ensureCollateralMatch(market);
 
-        uint256 exposure = userRiskExposure[user];
-        if (
-            !isRiskExempt[user] &&
-            exposure + amount > MarketConstants.MAX_RISK_EXPOSURE
-        ) {
-            revert Router__RiskExposureExceeded();
+        if (!isRiskExempt[user]) {
+            _checkUserExposure(user, market, amount);
         }
 
         uint256 userCollateral = collateralCredits[user];
@@ -337,7 +334,10 @@ abstract contract PredictionMarketRouterVaultOperations is
         uint256 yesDelta = yesAfter - yesBefore;
         uint256 noDelta = noAfter - noBefore;
 
-        userRiskExposure[user] = exposure + amount;
+        if (!isRiskExempt[user]) {
+            uint256 exposure = userRiskExposure[user];
+            userRiskExposure[user] = exposure + amount;
+        }
         tokenCredits[user][yes] += yesDelta;
         tokenCredits[user][no] += noDelta;
 
@@ -426,6 +426,17 @@ abstract contract PredictionMarketRouterVaultOperations is
         _validateMarket(market);
         _ensureCollateralMatch(market);
 
+        uint256 actualCost = costDelta;
+        if (!isRiskExempt[user]) {
+            uint256 fee = FeeLib.calculateFee(
+                costDelta,
+                MarketConstants.LMSR_TRADE_FEE_BPS,
+                MarketConstants.FEE_PRECISION_BPS
+            );
+            actualCost = costDelta - fee;
+            _checkUserExposure(user, market, actualCost);
+        }
+
         // costDelta is inclusive (CRE already subtracted fee)
         uint256 userCollateral = collateralCredits[user];
         if (userCollateral < costDelta) revert Router__InsufficientBalance();
@@ -453,6 +464,10 @@ abstract contract PredictionMarketRouterVaultOperations is
         uint256 tokenDelta = tokenAfter - tokenBefore;
 
         tokenCredits[user][token] += tokenDelta;
+        if (!isRiskExempt[user]) {
+            uint256 exposure = userRiskExposure[user];
+            userRiskExposure[user] = exposure + actualCost;
+        }
 
         emit BoughtSideCompleted(user, market, costDelta, tokenDelta);
     }
@@ -496,8 +511,34 @@ abstract contract PredictionMarketRouterVaultOperations is
 
         collateralCredits[user] += collateralDelta;
         totalCollateralCredits += collateralDelta;
+        if (!isRiskExempt[user]) {
+            uint256 exposure = userRiskExposure[user];
+            userRiskExposure[user] = exposure > refundDelta
+                ? exposure - refundDelta
+                : 0;
+        }
 
         emit SideSoldCompleted(user, market, sharesDelta, collateralDelta);
+    }
+
+    /// @notice Validates that a user's total exposure does not exceed the dynamic risk cap.
+    /// @dev Ensures user exposure stays within 5% of total market liquidity (500 BPS).
+    ///      Reverts with Router__RiskExposureExceeded if the new exposure would exceed the cap.
+    /// @param user The address of the user to check exposure for.
+    /// @param market The market used to derive the dynamic cap.
+    /// @param additionalExposure The additional exposure amount to add to current exposure.
+    function _checkUserExposure(
+        address user,
+        address market,
+        uint256 additionalExposure
+    ) internal view {
+        uint256 dynamicCap = (IPredictionMarketLike(market).liquidityParam() *
+            MarketConstants.MAX_EXPOSURE_BPS) /
+            MarketConstants.MAX_EXPOSURE_PRECISION;
+        uint256 currentExposure = userRiskExposure[user];
+        if (currentExposure + additionalExposure > dynamicCap) {
+            revert Router__RiskExposureExceeded();
+        }
     }
 
     // NOTE: _swapYesForNo, _swapNoForYes, _addLiquidity, _removeLiquidity
