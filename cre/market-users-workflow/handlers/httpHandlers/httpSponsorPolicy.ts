@@ -3,6 +3,8 @@ import { type Config } from "../../Constant-variable/config";
 import { createApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
 import { validateSessionAuthorization, type SessionAuthorization } from "../utils/sessionValidation";
 import { AGENT_ACTION_TO_ROUTER_ACTION_TYPE, type AgentAction } from "../utils/agentAction";
+import { HEX_ADDRESS_REGEX } from "../utils/evmUtils";
+import { parseDecimalBigInt, parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type SponsorRequest = {
   requestId?: string;
@@ -24,7 +26,6 @@ type SponsorDecision = {
   approvalExpiresAtUnix?: number;
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const PRICISION = 1000000n
 const DEFAULT_MAX_AMOUNT_USDC = 10000n  * PRICISION;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
@@ -49,23 +50,8 @@ const ZERO_AMOUNT_ALLOWED_ACTIONS = new Set([
   "disputeProposedResolution",
 ]);
 
-const decodePayloadInput = (payload: HTTPPayload): string => {
-  return new TextDecoder().decode(payload.input);
-};
-
-const parseRequest = (raw: string): SponsorRequest => {
-  if (!raw.trim()) {
-    throw new Error("empty payload");
-  }
-  return JSON.parse(raw) as SponsorRequest;
-};
-
-const toBigIntAmount = (value?: string): bigint => {
-  if (!value) return 0n;
-  if (!/^\d+$/.test(value)) {
-    throw new Error("amountUsdc must be a numeric string");
-  }
-  return BigInt(value);
+const parseRequest = (payload: HTTPPayload): SponsorRequest => {
+  return parseJsonPayload<SponsorRequest>(payload);
 };
 
 const makeDecision = (
@@ -106,7 +92,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
 
   let request: SponsorRequest;
   try {
-    request = parseRequest(decodePayloadInput(payload));
+    request = parseRequest(payload);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "invalid payload";
     return JSON.stringify(makeDecision(`req_${runtime.now().toString()}`, reason));
@@ -152,7 +138,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;
   let amount: bigint;
   try {
-    amount = toBigIntAmount(request.amountUsdc);
+    amount = parseDecimalBigInt(request.amountUsdc, "amountUsdc", true);
   } catch (error) {
     return JSON.stringify(makeDecision(requestId, error instanceof Error ? error.message : "invalid amountUsdc"));
   }

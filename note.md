@@ -10,3 +10,9 @@ test how the burn logic works if router call market
 
 
 need to implement logic so market need to validate or compare price before accepting it , to avoid blindfold trust
+
+
+
+really need to make sure those my wandex and wad work well and no logic flows
+
+

@@ -1,8 +1,6 @@
 import {
-  EVMClient,
   encodeCallMsg,
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   TxStatus,
   type Runtime,
@@ -11,6 +9,7 @@ import { decodeFunctionResult, encodeAbiParameters, encodeFunctionData, parseAbi
 import { MarketFactoryAbi } from "../../contractsAbi/marketFactory";
 import { PredictionMarketAbi } from "../../contractsAbi/predictionMarket";
 import { sender, type Config } from "../../Constant-variable/config";
+import { createEvmClient } from "../utils/evmUtils";
 
 const MARKET_STATE_OPEN = 0;
 
@@ -26,29 +25,11 @@ export const syncCanonicalPrice = (runtime: Runtime<Config>): string => {
 
   const hubConfig = runtime.config.evms[0];
   const spokeConfigs = runtime.config.evms.slice(1);
-  const hubNetwork = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: hubConfig.chainName,
-    isTestnet: true,
-  });
-
-  if (!hubNetwork) {
-    throw new Error(`Unknown chain name: ${hubConfig.chainName}`);
-  }
-
-  const hubClient = new EVMClient(hubNetwork.chainSelector.selector);
+  const hubClient = createEvmClient(runtime, hubConfig);
   const spokeClients = spokeConfigs.map((spokeConfig) => {
-    const spokeNetwork = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: spokeConfig.chainName,
-      isTestnet: true,
-    });
-    if (!spokeNetwork) {
-      throw new Error(`Unknown chain name: ${spokeConfig.chainName}`);
-    }
     return {
       config: spokeConfig,
-      client: new EVMClient(spokeNetwork.chainSelector.selector),
+      client: createEvmClient(runtime, spokeConfig),
     };
   });
 

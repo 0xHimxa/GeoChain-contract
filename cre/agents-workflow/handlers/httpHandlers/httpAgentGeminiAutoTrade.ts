@@ -5,6 +5,7 @@ import { AGENT_ACTION_TO_ROUTER_ACTION_TYPE, type AgentAction } from "../utils/a
 import { agentPlanTradeHttpHandler } from "./httpAgentPlanTrade";
 import { agentSponsorTradeHttpHandler } from "./httpAgentSponsorTrade";
 import { agentExecuteTradeHttpHandler } from "./httpAgentExecuteTrade";
+import { parseJsonPayload } from "../utils/httpHandlerUtils";
 
 export type GeminiAutoTradeRequest = {
   requestId?: string;
@@ -59,9 +60,7 @@ Rules:
 4) No markdown, no prose, no extra keys.`;
 
 const decodeInput = (payload: HTTPPayload): GeminiAutoTradeRequest => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as GeminiAutoTradeRequest;
+  return parseJsonPayload<GeminiAutoTradeRequest>(payload);
 };
 
 const parseDecision = (raw: string): GeminiDecision => {

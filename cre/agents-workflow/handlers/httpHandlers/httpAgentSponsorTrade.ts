@@ -3,6 +3,7 @@ import { type Config } from "../../Constant-variable/config";
 import { sponsorUserOpPolicyHandler } from "./httpSponsorPolicy";
 import { type SessionAuthorization } from "../utils/sessionValidation";
 import { type AgentAction, AGENT_ACTION_TO_ROUTER_ACTION_TYPE } from "../utils/agentAction";
+import { parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type AgentSponsorRequest = {
   requestId?: string;
@@ -27,9 +28,7 @@ export const agentSponsorTradeHttpHandler = async (runtime: Runtime<Config>, pay
 
   let req: AgentSponsorRequest;
   try {
-    const raw = new TextDecoder().decode(payload.input);
-    if (!raw.trim()) throw new Error("empty payload");
-    req = JSON.parse(raw) as AgentSponsorRequest;
+    req = parseJsonPayload<AgentSponsorRequest>(payload);
   } catch (error) {
     return JSON.stringify({ approved: false, reason: error instanceof Error ? error.message : "invalid payload", requestId: requestIdFallback });
   }

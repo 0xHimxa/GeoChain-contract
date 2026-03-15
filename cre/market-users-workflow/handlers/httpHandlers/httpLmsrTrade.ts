@@ -16,6 +16,8 @@ import {
 } from "viem";
 import { type Config } from "../../Constant-variable/config";
 import { consumeApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
+import { HEX_ADDRESS_REGEX, toChainId, txExplorer } from "../utils/evmUtils";
+import { parseDecimalBigInt, parseJsonPayload } from "../utils/httpHandlerUtils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,7 +54,6 @@ type LmsrTradeResponse = {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const PRICE_PRECISION = 1_000_000n;
 const FEE_PRECISION_BPS = 10_000n;
 const LMSR_TRADE_FEE_BPS = 400n; // 4% fee - must match PredictionMarket constants
@@ -293,31 +294,8 @@ function lmsrPriceBigInt(shares: bigint[], b: bigint, i: number): bigint {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const toChainId = (chainName: string): number | null => {
-  if (chainName.includes("arbitrum")) return 421614;
-  if (chainName.includes("base")) return 84532;
-  if (chainName === "ethereum-testnet-sepolia") return 11155111;
-  return null;
-};
-
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  if (chainName.includes("base")) return `https://sepolia.basescan.org/tx/${txHash}`;
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
-};
-
 const parseRequest = (payload: HTTPPayload): LmsrTradeRequest => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as LmsrTradeRequest;
-};
-
-const toBigIntAmount = (value?: string): bigint => {
-  if (!value) return 0n;
-  if (!/^\d+$/.test(value)) {
-    throw new Error("amount must be a numeric string");
-  }
-  return BigInt(value);
+  return parseJsonPayload<LmsrTradeRequest>(payload);
 };
 
 const normalizeRequest = (req: LmsrTradeRequest): LmsrTradeRequest => {
@@ -414,7 +392,7 @@ export const lmsrTradeHttpHandler = async (
 
   let sharesDelta: bigint;
   try {
-    sharesDelta = toBigIntAmount(req.amount);
+    sharesDelta = parseDecimalBigInt(req.amount, "amount", false);
   } catch (error) {
     return fail(requestId, error instanceof Error ? error.message : "invalid amount");
   }

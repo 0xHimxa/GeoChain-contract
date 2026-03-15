@@ -1,8 +1,5 @@
 import {
-  EVMClient,
- 
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   TxStatus,
   type Runtime,
@@ -22,6 +19,7 @@ import {
  
   WITHDRAW_BATCH_SIZE,
 } from "../../Constant-variable/config";
+import { createEvmClient } from "../utils/evmUtils";
 
 
 /**
@@ -34,17 +32,7 @@ export const processPendingWithdrawalsHandler = (runtime: Runtime<Config>): stri
   let successfulWrites = 0;
 
   for (const evmConfig of runtime.config.evms) {
-    const network = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: evmConfig.chainName,
-      isTestnet: true,
-    });
-
-    if (!network) {
-      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-    }
-
-    const evmClient = new EVMClient(network.chainSelector.selector);
+    const evmClient = createEvmClient(runtime, evmConfig);
     const payload = encodeAbiParameters(parseAbiParameters("uint256 maxItems"), [WITHDRAW_BATCH_SIZE]);
     const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
       PROCESS_PENDING_WITHDRAWALS_ACTION,

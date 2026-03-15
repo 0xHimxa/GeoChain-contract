@@ -2,6 +2,8 @@ import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { type Config } from "../../Constant-variable/config";
 import { type SessionAuthorization } from "../utils/sessionValidation";
 import { type AgentAction, AGENT_ACTION_TO_ROUTER_ACTION_TYPE } from "../utils/agentAction";
+import { HEX_ADDRESS_REGEX } from "../utils/evmUtils";
+import { parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type AgentPlanRequest = {
   requestId?: string;
@@ -52,13 +54,10 @@ type AgentPlanResponse = {
   };
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const ZERO_AMOUNT_ALLOWED_ACTIONS = new Set<AgentAction>(["disputeProposedResolution"]);
 
 const parseRequest = (payload: HTTPPayload): AgentPlanRequest => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as AgentPlanRequest;
+  return parseJsonPayload<AgentPlanRequest>(payload);
 };
 
 const validateUintString = (value: string | undefined, field: string): string => {

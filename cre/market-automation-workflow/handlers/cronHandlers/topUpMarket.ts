@@ -1,8 +1,6 @@
 import {
-  EVMClient,
   encodeCallMsg,
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   TxStatus,
   type Runtime,
@@ -22,6 +20,7 @@ import {
   type Config,
  
 } from "../../Constant-variable/config";
+import { createEvmClient } from "../utils/evmUtils";
 
 const USDC_DECIMALS = 1_000_000n;
 const BRIDGE_BALANCE_THRESHOLD = 500_000n * USDC_DECIMALS;
@@ -61,17 +60,7 @@ export const marketFactoryBalanceTopUp = (runtime: Runtime<Config>): string => {
   });
 
   const chainSummaries = runtime.config.evms.map((evmConfig) => {
-    const network = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: evmConfig.chainName,
-      isTestnet: true,
-    });
-
-    if (!network) {
-      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-    }
-
-    const evmClient = new EVMClient(network.chainSelector.selector);
+    const evmClient = createEvmClient(runtime, evmConfig);
 
     const callResult = evmClient
       .callContract(runtime, {

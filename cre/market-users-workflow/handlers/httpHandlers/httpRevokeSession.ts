@@ -3,6 +3,8 @@ import { verifyTypedData } from "viem";
 import { type Config } from "../../Constant-variable/config";
 import { getFirestoreIdToken, revokeSessionRecord } from "../../firebase/sessionStore";
 import { createSessionEip712Domain, SESSION_REVOKE_TYPES } from "../utils/sessionMessage";
+import { HEX_ADDRESS_REGEX } from "../utils/evmUtils";
+import { parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type RevokeRequest = {
   requestId?: string;
@@ -18,16 +20,10 @@ type RevokeResponse = {
   reason?: string;
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 
-const decodePayloadInput = (payload: HTTPPayload): string => {
-  return new TextDecoder().decode(payload.input);
-};
-
-const parseRequest = (raw: string): RevokeRequest => {
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as RevokeRequest;
+const parseRequest = (payload: HTTPPayload): RevokeRequest => {
+  return parseJsonPayload<RevokeRequest>(payload);
 };
 
 const makeResponse = (requestId: string, reason: string): string => {
@@ -52,7 +48,7 @@ export const revokeSessionHttpHandler = async (runtime: Runtime<Config>, payload
 
   let request: RevokeRequest;
   try {
-    request = parseRequest(decodePayloadInput(payload));
+    request = parseRequest(payload);
   } catch (error) {
     return makeResponse(requestIdFallback, error instanceof Error ? error.message : "invalid payload");
   }

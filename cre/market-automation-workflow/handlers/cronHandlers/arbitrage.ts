@@ -1,8 +1,6 @@
 import {
-  EVMClient,
   encodeCallMsg,
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   TxStatus,
   type Runtime,
@@ -24,6 +22,7 @@ import {
   type Config,
 
 } from "../../Constant-variable/config";
+import { createEvmClient } from "../utils/evmUtils";
 
 
 
@@ -70,17 +69,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
   let correctedMarkets = 0;
 
   for (const evmConfig of runtime.config.evms) {
-    const network = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: evmConfig.chainName,
-      isTestnet: true,
-    });
-
-    if (!network) {
-      throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-    }
-
-    const evmClient = new EVMClient(network.chainSelector.selector);
+    const evmClient = createEvmClient(runtime, evmConfig);
 
     let activeMarketList: `0x${string}`[] = [];
     try {

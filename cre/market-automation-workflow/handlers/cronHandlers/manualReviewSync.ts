@@ -1,9 +1,10 @@
-import { EVMClient, bytesToHex, encodeCallMsg, getNetwork, type Runtime } from "@chainlink/cre-sdk";
+import { bytesToHex, encodeCallMsg, type Runtime } from "@chainlink/cre-sdk";
 import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { type Config, sender } from "../../Constant-variable/config";
 import { isHubFactoryConfig } from "../utils/isHub";
 import { signUpWorkFlow } from "../../firebase/signUp";
 import { upsertManualReviewMarketToFirestore } from "../../firebase/write";
+import { createEvmClient } from "../utils/evmUtils";
 
 const factoryAbi = [
   {
@@ -37,16 +38,7 @@ type DisputeResolutionSnapshot = readonly [number, number, boolean, bigint, bigi
 
 export const syncManualReviewMarketsToFirebase = (runtime: Runtime<Config>): string => {
   const sepoConfig = runtime.config.evms[0];
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: sepoConfig.chainName,
-    isTestnet: true,
-  });
-  if (!network) {
-    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
-  }
-
-  const evmClient = new EVMClient(network.chainSelector.selector);
+  const evmClient = createEvmClient(runtime, sepoConfig);
   const isHub = isHubFactoryConfig(runtime, sepoConfig, evmClient);
   if (!isHub) {
     return `Configured manual-review sync chain is not hub: ${sepoConfig.chainName}`;

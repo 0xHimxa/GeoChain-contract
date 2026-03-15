@@ -1,8 +1,6 @@
 import {
-  EVMClient,
   encodeCallMsg,
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   TxStatus,
   type Runtime,
@@ -22,6 +20,8 @@ import {
   type Config,
 } from "../../Constant-variable/config";
 import { askGemeniResolve } from "../../gemini/resolveEvent";
+import { toOutcomeCode, toIsoUtc } from "../utils/disputeUtils";
+import { createEvmClient } from "../utils/evmUtils";
 
 const marketSnapshotAbi = [
   {
@@ -51,19 +51,6 @@ type DisputeResolutionSnapshot = readonly [
   number[]
 ];
 
-const toOutcomeCode = (result: string): number => {
-  const normalized = (result || "").trim().toUpperCase();
-  if (normalized === "YES") return 1;
-  if (normalized === "NO") return 2;
-  return 3;
-};
-
-const toIsoUtc = (unixSeconds: bigint): string => {
-  return new Date(Number(unixSeconds) * 1000).toISOString();
-};
-
-
-
 /**
  * Loads active markets from the configured hub factory, checks each market for
  * resolution eligibility, and sends `ResolveMarket` reports for ready markets.
@@ -87,17 +74,7 @@ export const resoloveEvent = (runtime: Runtime<Config>): string => {
   });
 
   const sepoConfig = runtime.config.evms[0];
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: sepoConfig.chainName,
-    isTestnet: true,
-  });
-
-  if (!network) {
-    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
-  }
-
-  const evmClient = new EVMClient(network.chainSelector.selector);
+  const evmClient = createEvmClient(runtime, sepoConfig);
   const hubFlag = isHubFactoryConfig(runtime, sepoConfig, evmClient);
   if (!hubFlag) {
     return `Configured resolver chain is not hub: ${sepoConfig.chainName}`;

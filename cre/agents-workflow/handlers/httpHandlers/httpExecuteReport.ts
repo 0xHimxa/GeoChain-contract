@@ -10,6 +10,8 @@ import {
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { type Config } from "../../Constant-variable/config";
 import { consumeApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
+import { HEX_ADDRESS_REGEX, toChainId, txExplorer } from "../utils/evmUtils";
+import { parseDecimalBigInt, parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type ExecuteRequest = {
   requestId?: string;
@@ -39,7 +41,6 @@ type ExecuteResponse = {
   explorerUrl?: string;
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 const ROUTER_ACTION_PREFIX = "router";
 const ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
@@ -51,40 +52,12 @@ const ZERO_AMOUNT_ALLOWED_ACTION_TYPES = new Set([
  * Parses decimal-string USDC amounts into bigint without allowing floats, signs, or formatting.
  * The handler uses this to keep approval matching deterministic across HTTP payloads and Firestore.
  */
-const toBigIntAmount = (value?: string): bigint => {
-  if (!value) return 0n;
-  if (!/^\d+$/.test(value)) {
-    throw new Error("amountUsdc must be a numeric string");
-  }
-  return BigInt(value);
-};
-
-/**
- * Normalizes CRE config chain names into app-level numeric chain IDs used by policy checks.
- */
-const toChainId = (chainName: string): number | null => {
-  if (chainName.includes("arbitrum")) return 421614;
-  if (chainName.includes("base")) return 84532;
-  if (chainName === "ethereum-testnet-sepolia") return 11155111;
-  return null;
-};
-
-/**
- * Produces the correct testnet explorer URL for the transaction that `writeReport` submitted.
- */
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  if (chainName.includes("base")) return `https://sepolia.basescan.org/tx/${txHash}`;
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
-};
 
 /**
  * Decodes raw HTTP request bytes as JSON execute payload.
  */
 const parseRequest = (payload: HTTPPayload): ExecuteRequest => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as ExecuteRequest;
+  return parseJsonPayload<ExecuteRequest>(payload);
 };
 
 /**
@@ -163,7 +136,7 @@ export const executeReportHttpHandler = async (runtime: Runtime<Config>, payload
 
   let amount: bigint;
   try {
-    amount = toBigIntAmount(req.amountUsdc);
+    amount = parseDecimalBigInt(req.amountUsdc, "amountUsdc", true);
   } catch (error) {
     return JSON.stringify({
       submitted: false,

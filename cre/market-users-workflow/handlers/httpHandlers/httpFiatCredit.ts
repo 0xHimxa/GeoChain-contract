@@ -10,6 +10,8 @@ import {
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { type Config } from "../../Constant-variable/config";
 import { consumeFiatPaymentRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
+import { HEX_ADDRESS_REGEX, toChainId, txExplorer } from "../utils/evmUtils";
+import { parseDecimalBigInt, parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type FiatCreditRequest = {
   requestId?: string;
@@ -30,35 +32,12 @@ type FiatCreditResponse = {
   explorerUrl?: string;
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const USDC_INTEGER_REGEX = /^\d+$/;
 const ACTION_TYPE = "routerCreditFromFiat";
 const DEFAULT_MAX_AMOUNT_USDC = 10_000n * 1_000_000n;
 
-const toBigIntAmount = (value?: string): bigint => {
-  if (!value || !USDC_INTEGER_REGEX.test(value)) {
-    throw new Error("amountUsdc must be a numeric string");
-  }
-  return BigInt(value);
-};
-
-const toChainId = (chainName: string): number | null => {
-  if (chainName.includes("arbitrum")) return 421614;
-  if (chainName.includes("base")) return 84532;
-  if (chainName === "ethereum-testnet-sepolia") return 11155111;
-  return null;
-};
-
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  if (chainName.includes("base")) return `https://sepolia.basescan.org/tx/${txHash}`;
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
-};
-
 const parseRequest = (payload: HTTPPayload): FiatCreditRequest => {
-  const raw = new TextDecoder().decode(payload.input);
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as FiatCreditRequest;
+  return parseJsonPayload<FiatCreditRequest>(payload);
 };
 
 /**
@@ -126,7 +105,7 @@ export const fiatCreditHttpHandler = async (runtime: Runtime<Config>, payload: H
 
   let amount: bigint;
   try {
-    amount = toBigIntAmount(req.amountUsdc);
+    amount = parseDecimalBigInt(req.amountUsdc, "amountUsdc", false);
   } catch (error) {
     return JSON.stringify({
       submitted: false,

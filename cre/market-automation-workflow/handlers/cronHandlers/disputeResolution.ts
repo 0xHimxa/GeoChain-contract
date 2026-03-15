@@ -3,7 +3,6 @@ import {
   TxStatus,
   bytesToHex,
   encodeCallMsg,
-  getNetwork,
   prepareReportRequest,
   type Runtime,
 } from "@chainlink/cre-sdk";
@@ -16,6 +15,8 @@ import {
 import { askGeminiAdjudicateDispute } from "../../gemini/adjudicateDispute";
 import { type Config, sender } from "../../Constant-variable/config";
 import { isHubFactoryConfig } from "../utils/isHub";
+import { toOutcomeCode, toOutcomeLabel, toIsoUtc } from "../utils/disputeUtils";
+import { createEvmClient } from "../utils/evmUtils";
 
 const ACTION_FINALIZE = "FinalizeResolutionAfterDisputeWindow";
 const ACTION_ADJUDICATE = "AdjudicateDisputedResolution";
@@ -47,23 +48,6 @@ const marketAbi = [
     stateMutability: "view",
   },
 ] as const;
-
-const toOutcomeLabel = (outcome: number): string => {
-  if (outcome === 1) return "YES";
-  if (outcome === 2) return "NO";
-  if (outcome === 3) return "INCONCLUSIVE";
-  return "UNSET";
-};
-
-const toOutcomeCode = (value: string): number => {
-  const normalized = value.trim().toUpperCase();
-  if (normalized === "YES") return 1;
-  if (normalized === "NO") return 2;
-  if (normalized === "INCONCLUSIVE") return 3;
-  return 3;
-};
-
-const toIsoUtc = (unixSeconds: bigint): string => new Date(Number(unixSeconds) * 1000).toISOString();
 
 type DisputeResolutionSnapshot = readonly [
   number,
@@ -140,17 +124,7 @@ const sendMarketReport = (
 
 export const adjudicateExpiredDisputeWindows = (runtime: Runtime<Config>): string => {
   const sepoConfig = runtime.config.evms[0];
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: sepoConfig.chainName,
-    isTestnet: true,
-  });
-
-  if (!network) {
-    throw new Error(`Unknown chain name: ${sepoConfig.chainName}`);
-  }
-
-  const evmClient = new EVMClient(network.chainSelector.selector);
+  const evmClient = createEvmClient(runtime, sepoConfig);
   const isHub = isHubFactoryConfig(runtime, sepoConfig, evmClient);
   if (!isHub) {
     return `Configured dispute resolver chain is not hub: ${sepoConfig.chainName}`;

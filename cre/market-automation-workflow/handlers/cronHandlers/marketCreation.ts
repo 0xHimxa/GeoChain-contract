@@ -1,8 +1,6 @@
 import {
-  EVMClient,
   TxStatus,
   bytesToHex,
-  getNetwork,
   prepareReportRequest,
   type Runtime,
 } from "@chainlink/cre-sdk";
@@ -13,6 +11,7 @@ import { writeToFirestore } from "../../firebase/write";
 import { askGemeni } from "../../gemini/uniqueEvent";
 import { type GeminiResponse, type SignupNewUserResponse } from "../../type";
 import { type Config } from "../../Constant-variable/config";
+import { createEvmClient, txExplorer } from "../utils/evmUtils";
 
 /**
  * Verifies that Firebase authentication is working for this workflow run by requesting
@@ -25,30 +24,13 @@ export const authWorkflow = (runtime: Runtime<Config>): string => {
   return `returned data:  ${response.expiresIn}`;
 };
 
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) {
-    return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  }
-  return `https://sepolia.basescan.org//tx/${txHash}`;
-};
-
 const sendActionReport = (
   runtime: Runtime<Config>,
   evmConfig: Config["evms"][number],
   actionType: string,
   payload: `0x${string}`
 ): string => {
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: evmConfig.chainName,
-    isTestnet: true,
-  });
-
-  if (!network) {
-    throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
-  }
-
-  const evmClient = new EVMClient(network.chainSelector.selector);
+  const evmClient = createEvmClient(runtime, evmConfig);
   const encodedReport = encodeAbiParameters(parseAbiParameters("string actionType, bytes payload"), [
     actionType,
     payload,

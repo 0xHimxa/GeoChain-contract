@@ -14,19 +14,12 @@ import {
   parseAbiParameters,
 } from "viem";
 import { type Config, type EvmConfig } from "../../Constant-variable/config";
+import { HEX_ADDRESS_REGEX, toChainId } from "../utils/evmUtils";
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const DECIMAL_REGEX = /^\d+$/;
 const ETH_RECEIVED_EVENT_SIG = keccak256(encodePacked(["string"], ["EthReceived(address,uint256)"]));
 const ACTION_TYPE = "routerCreditFromEth";
 const DEFAULT_MAX_AMOUNT_USDC = 10_000n * 1_000_000n;
-
-const toChainId = (chainName: string): number | null => {
-  if (chainName.includes("arbitrum")) return 421614;
-  if (chainName.includes("base")) return 84532;
-  if (chainName === "ethereum-testnet-sepolia") return 11155111;
-  return null;
-};
 
 const senderFromTopic = (topicHex: string): `0x${string}` => {
   if (!/^0x[a-fA-F0-9]{64}$/.test(topicHex)) {

@@ -11,6 +11,8 @@ import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { verifyTypedData } from "viem";
 import { type Config } from "../../Constant-variable/config";
 import { createSessionEip712Domain, SESSION_REVOKE_TYPES } from "../utils/sessionMessage";
+import { HEX_ADDRESS_REGEX, toChainId, txExplorer } from "../utils/evmUtils";
+import { parseJsonPayload } from "../utils/httpHandlerUtils";
 
 type RevokeRequest = {
   requestId?: string;
@@ -31,30 +33,10 @@ type RevokeResponse = {
   explorerUrl?: string;
 };
 
-const HEX_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const HEX_BYTES_REGEX = /^0x([a-fA-F0-9]{2})*$/;
 const ROUTER_AGENT_REVOKE_ACTION_TYPE = "routerAgentRevokePermission";
-
-const toChainId = (chainName: string): number | null => {
-  if (chainName.includes("arbitrum")) return 421614;
-  if (chainName.includes("base")) return 84532;
-  if (chainName === "ethereum-testnet-sepolia") return 11155111;
-  return null;
-};
-
-const txExplorer = (chainName: string, txHash: string): string => {
-  if (chainName.includes("arbitrum")) return `https://sepolia.arbiscan.io/tx/${txHash}`;
-  if (chainName.includes("base")) return `https://sepolia.basescan.org/tx/${txHash}`;
-  return `https://sepolia.etherscan.io/tx/${txHash}`;
-};
-
-const decodePayloadInput = (payload: HTTPPayload): string => {
-  return new TextDecoder().decode(payload.input);
-};
-
-const parseRequest = (raw: string): RevokeRequest => {
-  if (!raw.trim()) throw new Error("empty payload");
-  return JSON.parse(raw) as RevokeRequest;
+const parseRequest = (payload: HTTPPayload): RevokeRequest => {
+  return parseJsonPayload<RevokeRequest>(payload);
 };
 
 const makeResponse = (requestId: string, reason: string): string => {
@@ -72,7 +54,7 @@ export const revokeAgentPermissionHttpHandler = async (runtime: Runtime<Config>,
 
   let request: RevokeRequest;
   try {
-    request = parseRequest(decodePayloadInput(payload));
+    request = parseRequest(payload);
   } catch (error) {
     return makeResponse(requestIdFallback, error instanceof Error ? error.message : "invalid payload");
   }
