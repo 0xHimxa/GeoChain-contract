@@ -34,7 +34,7 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
     /// @notice Adds/removes a chain selector from the supported selector allowlist.
     /// @dev A selector must be supported before `setTrustedRemote` can bind a remote address to it.
     function setSupportedChainSelector(uint64 chainSelector, bool isSupported) external onlyOwner {
-        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantBeZero();
         s_supportedChainSelector[chainSelector] = isSupported;
         emit ChainSelectorSupportUpdated(chainSelector, isSupported);
     }
@@ -50,10 +50,10 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
     /// will include that chain in fan-out loops.
     function setTrustedRemote(uint64 chainSelector, address remoteFactory) external onlyOwner {
         if (remoteFactory == address(0)) revert MarketFactory__ZeroAddress();
-        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantBeZero();
 
         if (!s_supportedChainSelector[chainSelector]) {
-            revert MarketFactory__ChainSelectornNotSupported();
+            revert MarketFactory__ChainSelectorNotSupported();
         }
 
         trustedRemoteBySelector[chainSelector] = abi.encode(remoteFactory);
@@ -69,9 +69,9 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
     /// @dev Also removes selector from `s_spokeSelectors` (swap-and-pop) so future hub broadcasts
     /// stop attempting delivery to that chain.
     function removeTrustedRemote(uint64 chainSelector) external onlyOwner {
-        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantbezero();
+        if (chainSelector == 0) revert MarketFactory__ChainSelectorCantBeZero();
         if (!s_supportedChainSelector[chainSelector]) {
-            revert MarketFactory__ChainSelectornNotSupported();
+            revert MarketFactory__ChainSelectorNotSupported();
         }
 
         delete trustedRemoteBySelector[chainSelector];
@@ -222,7 +222,7 @@ abstract contract MarketFactoryCcip is MarketFactoryBase {
 
         delete marketToIndex[market];
         isActiveMarket[market] = false;
-        emit MarkertFactor_ReslovedEventReomved(marketId);
+        emit MarketFactoryResolvedEventRemoved(marketId);
     }
 
     /// @notice Marks a market as awaiting manual review.

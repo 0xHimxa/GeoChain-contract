@@ -188,10 +188,7 @@ mapping(address => uint256) public userBoughtNoShares;
     error PredictionMarket__StaleSyncMessage();
     error PredictionMarket__CanonicalPriceStale();
     error PredictionMarket__LocalResolutionDisabled();
-    error PredictionMarket__CanonicalPriceDeviationTooHigh();
     error PredictionMarket__DeviationPolicyInvalid();
-    error PredictionMarket__TradeDirectionNotAllowedInUnsafeBand();
-    error PredictionMarket__TradeSizeExceedsBandLimit();
     error PredictionMarket__RiskExposureExemptZeroAddress();
     error PredictionMarket__InvalidMarketId();
     error PredictionMarket__MarketIdAlreadySet();
@@ -358,7 +355,7 @@ mapping(address => uint256) public userBoughtNoShares;
             revert MarketErrors.PredictionMarket__AlreadyResolved();
         }
         if (state == State.Closed) {
-            revert MarketErrors.PredictionMarket__Isclosed();
+            revert MarketErrors.PredictionMarket__IsClosed();
         }
         if (state == State.Review) {
             revert MarketErrors.PredictionMarket__IsUnderManualReview();

@@ -191,9 +191,8 @@ abstract contract MarketFactoryBase is
     event WithdrawDequeued(uint256 indexed marketId);
     event WithdrawProcessed(uint256 indexed marketId);
     event WithdrawRequeued(uint256 indexed marketId);
-    event WithdrawSkippedNoShares(uint256 indexed marketId);
     event WithdrawSkippedNotResolved(uint256 indexed marketId);
-    event MarkertFactor_ReslovedEventReomved(uint256 indexed marketId);
+    event MarketFactoryResolvedEventRemoved(uint256 indexed marketId);
     event MarketMarkedForManualReview(
         uint256 indexed marketId,
         address indexed market
@@ -242,14 +241,13 @@ abstract contract MarketFactoryBase is
     error MarketFactory__MarketNotFound();
     error MarketFactory__InvalidResolutionOutcome();
     error MarketFactory__StaleResolutionNonce();
-    error MarketFactory__ChainSelectorCantbezero();
-    error MarketFactory__ChainSelectornNotSupported();
+    error MarketFactory__ChainSelectorCantBeZero();
+    error MarketFactory__ChainSelectorNotSupported();
     error MarketFactory__ActionNotRecognized();
     error MarketFactory__OnlyRegisteredMarket();
     error MarketFactory__ArbNotUnsafe();
     error MarketFactory__ArbZeroAmount();
     error MarketFactory__ArbNoDirection();
-    error MarketFactory__ArbInsufficientImprovement();
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
     error MarketFactory__NotSpokeFactory();
     error MarketFactory__InvalidMaxBatch();

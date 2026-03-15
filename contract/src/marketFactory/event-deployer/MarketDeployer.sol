@@ -14,12 +14,12 @@ contract MarketDeployer {
     /// @notice Admin address allowed to manage deployer configuration.
     address public owner;
 
-    event NewPrediction_ImplementationSet(address indexed market);
+    event NewPredictionImplementationSet(address indexed market);
     event MarketDeployer__NewOwnerSet(address indexed owner);
 
     error MarketDeployer__ZeroImplementation();
     error MarketDeployer__OnlyOwner();
-    error MarketDeployer__NewOwnerCantbeAddressZero();
+    error MarketDeployer__NewOwnerCantBeAddressZero();
 
     /// @dev Restricts management and deployment calls to deployer owner.
     modifier onlyOnwer() {
@@ -40,13 +40,13 @@ contract MarketDeployer {
     function setImplementation(address _marketImplementation) external onlyOnwer {
         if (_marketImplementation == address(0)) revert MarketDeployer__ZeroImplementation();
         marketImplementation = _marketImplementation;
-        emit NewPrediction_ImplementationSet(marketImplementation);
+        emit NewPredictionImplementationSet(marketImplementation);
     }
 
     /// @notice Transfers deployer admin role to a new address.
     /// @dev Required when factory ownership or deployment authority changes.
     function setNewOwner(address _owner) external onlyOnwer {
-        if (_owner == address(0)) revert MarketDeployer__NewOwnerCantbeAddressZero();
+        if (_owner == address(0)) revert MarketDeployer__NewOwnerCantBeAddressZero();
         owner = _owner;
         emit MarketDeployer__NewOwnerSet(_owner);
     }

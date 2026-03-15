@@ -294,12 +294,12 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         zeroAmountCheck(amount)
     {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
-            revert MarketErrors.PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
+            revert MarketErrors.PredictionMarket__MintingCompleteSet__AmountLessThanMinimum();
         }
 
         uint256 userCollateralBalance = i_collateral.balanceOf(msg.sender);
         if (userCollateralBalance < amount) {
-            revert MarketErrors.PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
+            revert MarketErrors.PredictionMarket__MintCompleteSets_InsufficientTokenBalance();
         }
 
         uint256 exposure = userRiskExposure[msg.sender];
@@ -341,12 +341,12 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 amount
     ) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
-            revert MarketErrors.PredictionMarket__RedeemCompletesetLessThanMinAllowed();
+            revert MarketErrors.PredictionMarket__RedeemCompleteSetLessThanMinAllowed();
         }
         uint256 userNoBalance = noToken.balanceOf(msg.sender);
         uint256 userYesBalance = yesToken.balanceOf(msg.sender);
         if (userNoBalance < amount || userYesBalance < amount) {
-            revert MarketErrors.PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
+            revert MarketErrors.PredictionMarket__RedeemCompleteSets_InsufficientTokenBalance();
         }
 
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(

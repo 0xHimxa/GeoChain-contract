@@ -184,14 +184,14 @@ contract PredictionMarket is PredictionMarketResolution {
             revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
         }
         if (state != State.Resolved) {
-            revert MarketErrors.PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+            revert MarketErrors.PredictionMarket__StateNeedsToBeResolvedToWithdrawLiquidity();
         }
         if (protocolCollateralFees == 0) return;
 
         uint256 contractBalance = i_collateral.balanceOf(address(this));
 
         if (contractBalance < protocolCollateralFees) {
-            revert MarketErrors.PredictionMarket__WithDrawLiquidity_Insufficientfee();
+            revert MarketErrors.PredictionMarket__WithdrawLiquidity_InsufficientFee();
         }
 
         uint256 fees = protocolCollateralFees;

@@ -62,7 +62,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
 
         if (bytes(proofUrl).length == 0) {
-            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+            revert MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty();
         }
 
         proposedResolution = _outcome;
@@ -193,7 +193,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
 
         if (bytes(proofUrl).length == 0) {
-            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+            revert MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty();
         }
 
         _finalizeResolution(adjudicatedOutcome, proofUrl, true, true);
@@ -237,7 +237,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     ) external onlyOwner {
         _revertIfLocalResolutionDisabled();
         if (bytes(proofUrl).length == 0) {
-            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+            revert MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty();
         }
 
         if (state != State.Review) {
@@ -286,7 +286,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         string calldata proofUrl
     ) external onlyCrossChainController {
         if (bytes(proofUrl).length == 0) {
-            revert MarketErrors.PredictionMarket__ProofUrlCantBeEmpty();
+            revert MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty();
         }
         if (
             _outcome == Resolution.Unset || _outcome == Resolution.Inconclusive

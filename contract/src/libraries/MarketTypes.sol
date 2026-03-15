@@ -30,12 +30,8 @@ library MarketConstants {
     uint256 internal constant REDEEM_COMPLETE_SETS_FEE_BPS = 200;
     /// @dev Basis-point denominator (100%).
     uint256 internal constant FEE_PRECISION_BPS = 10_000;
-    /// @dev Minimum per-side token amount for add-liquidity calls.
-    uint256 internal constant MINIMUM_ADD_LIQUIDITY_SHARE = 50;
     /// @dev Minimum amount for complete-set mint/redeem.
     uint256 internal constant MINIMUM_AMOUNT = 1e6;
-    /// @dev Minimum swap input amount.
-    uint256 internal constant MINIMUM_SWAP_AMOUNT = 970_000;
     /// @dev Price precision for probabilities/canonical prices.
     uint256 internal constant PRICE_PRECISION = 1e6;
     /// @dev Per-user exposure cap for non-exempt mintCompleteSets callers.
@@ -48,8 +44,6 @@ library MarketConstants {
     // ── LMSR Constants ───────────────────────────────────────────────
     /// @dev ln(2) scaled to 1e6. Used to compute max market-maker subsidy for binary markets.
     uint256 internal constant LMSR_LN2_E6 = 693_147;
-    /// @dev Tolerance for CRE-reported price sum validation (0.1%).
-    uint256 internal constant LMSR_PRICE_TOLERANCE = 1_000;
     /// @dev Minimum trade size for LMSR buy/sell (1 USDC).
     uint256 internal constant MINIMUM_LMSR_TRADE_AMOUNT = 1e6;
 }
@@ -83,22 +77,15 @@ library MarketEvents {
     event CompleteSetsMinted(address indexed user, uint256 amount);
     /// @dev User redeemed YES+NO pair into collateral.
     event CompleteSetsRedeemed(address indexed user, uint256 amount);
-    /// @dev One-time pool bootstrap event.
-    event LiquiditySeeded(uint256 amount);
-
-event OutcomeTokensSet(address indexed yesToken, address indexed noToken);
-event RiskExemptSet(address indexed account, bool exempt);
-event RouterVaultSet(address indexed routerVault);
-
-
- 
+    event OutcomeTokensSet(address indexed yesToken, address indexed noToken);
+    event RiskExemptSet(address indexed account, bool exempt);
+    event RouterVaultSet(address indexed routerVault);
     /// @dev Market marked for manual review due to inconclusive resolution.
     event IsUnderManualReview(Resolution indexed outcome);
     /// @dev Cross-chain controller configured.
     event CrossChainControllerSet(address indexed controller);
     /// @dev Market id assigned.
     event MarketIdSet(uint256 indexed marketId);
-    event MarketIdAlreadySet();
     /// @dev Canonical price snapshot synced from hub.
     event SyncCanonicalPrice(
         uint256 indexed yesPriceE6,
@@ -139,32 +126,26 @@ event RouterVaultSet(address indexed routerVault);
 library MarketErrors {
     error PredictionMarket__CloseTimeGreaterThanResolutionTime();
     error PredictionMarket__InvalidArguments_PassedInConstructor();
-    error PredictionMarket__Isclosed();
+    error PredictionMarket__IsClosed();
     error PredictionMarket__IsPaused();
-    error PredictionMarket__InitailConstantLiquidityNotSetYet();
-    error PredictionMarket__InitailConstantLiquidityFundedAmountCantBeZero();
-    error PredictionMarket__InitailConstantLiquidityAlreadySet();
-  
-    error PredictionMarket__MintCompleteSets_InsuffientTokenBalance();
-    error PredictionMarket__redeemCompleteSets_InsuffientTokenBalance();
+    error PredictionMarket__MintCompleteSets_InsufficientTokenBalance();
+    error PredictionMarket__RedeemCompleteSets_InsufficientTokenBalance();
     error PredictionMarket__AmountCantBeZero();
-    error PredictionMarket__AmountLessThanMinSwapAllwed();
-    error PredictionMarket__RedeemCompletesetLessThanMinAllowed();
-    error PredictionMarket__MintingCompleteset__AmountLessThanMinimu();
+    error PredictionMarket__RedeemCompleteSetLessThanMinAllowed();
+    error PredictionMarket__MintingCompleteSet__AmountLessThanMinimum();
     error PredictionMarket__NotOwner_Or_CrossChainController();
-    error PredictionMarket__AmountLessThanMinAllwed();
     error PredictionMarket__RiskExposureExceeded();
     error PredictionMarket__ResolveTimeNotReached();
     error PredictionMarket__AlreadyResolved();
     error PredictionMarket__MarketNotClosed();
     error PredictionMarket__NotResolved();
-    error PredictionMarket__ProofUrlCantBeEmpty();
+    error PredictionMarket__ProofUrlCannotBeEmpty();
     error PredictionMarket__IsUnderManualReview();
-    error PredictionMarket__StateNeedToResolvedToWithdrawLiquidity();
+    error PredictionMarket__StateNeedsToBeResolvedToWithdrawLiquidity();
     error PredictionMarket__InvalidFinalOutcome();
     error PredictionMarket__ManualReviewNeeded();
     error PredictionMarket__MarketNotInReview();
-    error PredictionMarket__WithDrawLiquidity_Insufficientfee();
+    error PredictionMarket__WithdrawLiquidity_InsufficientFee();
     error PredictionMarket__InvalidReport();
     error PredictionMarket__MarketFactoryAddressCantBeZero();
     error PredictionMarket__CrossChainControllerCantBeZero();
@@ -172,7 +153,6 @@ library MarketErrors {
     error PredictionMarket__NoPendingResolution();
     error PredictionMarket__DisputeWindowNotPassed();
     error PredictionMarket__DisputeWindowClosed();
-    error PredictionMarket__ResolutionAlreadyDisputed();
     error PredictionMarket__DisputeAlreadySubmittedByUser();
 
     // ── LMSR Errors ──────────────────────────────────────────────────
@@ -195,6 +175,5 @@ library MarketErrors {
     /// @dev Trader address cannot be zero.
     error LMSR__TraderCannotBeZero();
 
-    error MarketErrors__InsufficientBoughtShares();
     error LMSR__InsufficientBoughtShares();
 }
