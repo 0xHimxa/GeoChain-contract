@@ -18,3 +18,4 @@ really need to make sure those my wandex and wad work well and no logic flows
 need to fix some broken invaraint tests
 
 
+hash the data offchain before sending it onchain then compare the hash

@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
-import {FeeLib} from "../../src/libraries/FeeLib.sol";
 import {IReceiver} from "../../script/interfaces/IReceiver.sol";
+import {LMSRTestMath} from "../utils/LMSRTestMath.sol";
 
 contract PredictionMarketHandler is Test {
     PredictionMarket public market;
@@ -73,22 +73,35 @@ contract PredictionMarketHandler is Test {
         vm.stopPrank();
     }
 
-    function lmsrBuy(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256 costRaw) external {
+    function lmsrBuy(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256) external {
         address actor = _actor(actorSeed);
         uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
-        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 50_000e6);
-        uint256 dynamicCap =
-            (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
-        uint256 costDelta = bound(costRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, dynamicCap);
+        uint256 maxShares = market.liquidityParam() / 10; // keep q/b small for test math stability
+        if (maxShares < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) {
+            maxShares = MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT;
+        }
+        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, maxShares);
+
+        uint256 qYes = market.yesSharesOutstanding();
+        uint256 qNo = market.noSharesOutstanding();
+        uint256 b = market.liquidityParam();
+
+        uint256 costBefore = LMSRTestMath.cost(qYes, qNo, b);
+        uint256 qYesNew = outcomeIndex == 0 ? qYes + sharesDelta : qYes;
+        uint256 qNoNew = outcomeIndex == 1 ? qNo + sharesDelta : qNo;
+        uint256 costAfter = LMSRTestMath.cost(qYesNew, qNoNew, b);
+        if (costAfter <= costBefore) return;
+        uint256 costDelta = costAfter - costBefore;
+        if (costDelta < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
+
+        uint256 yesPriceE6 = LMSRTestMath.yesPriceE6(qYesNew, qNoNew, b);
+        uint256 noPriceE6 = 1_000_000 - yesPriceE6;
 
         if (!market.isRiskExempt(actor)) {
-            uint256 fee = FeeLib.calculateFee(
-                costDelta,
-                MarketConstants.LMSR_TRADE_FEE_BPS,
-                MarketConstants.FEE_PRECISION_BPS
-            );
-            uint256 actualCost = costDelta - fee;
-            if (market.userRiskExposure(actor) + actualCost > dynamicCap) {
+            // Market enforces exposure with costDelta (pre-fee), so mirror that here
+            uint256 dynamicCap =
+                (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
+            if (market.userRiskExposure(actor) + costDelta > dynamicCap) {
                 return;
             }
         }
@@ -99,27 +112,47 @@ contract PredictionMarketHandler is Test {
         uint64 nonce = market.tradeNonce();
         bytes memory report = abi.encode(
             "LMSRBuy",
-            abi.encode(actor, outcomeIndex, sharesDelta, costDelta, 500_000, 500_000, nonce)
+            abi.encode(actor, outcomeIndex, sharesDelta, costDelta, yesPriceE6, noPriceE6, nonce)
         );
 
         vm.prank(forwarder);
         IReceiver(address(market)).onReport("", report);
     }
 
-    function lmsrSell(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256 refundRaw) external {
+    function lmsrSell(uint256 actorSeed, uint256 outcomeSeed, uint256 sharesRaw, uint256) external {
         address actor = _actor(actorSeed);
         uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
 
-        uint256 available = outcomeIndex == 0 ? market.userBoughtYesShares(actor) : market.userBoughtNoShares(actor);
+        uint256 bought = outcomeIndex == 0 ? market.userBoughtYesShares(actor) : market.userBoughtNoShares(actor);
+        uint256 tokenBal = outcomeIndex == 0 ? market.yesToken().balanceOf(actor) : market.noToken().balanceOf(actor);
+        uint256 available = bought < tokenBal ? bought : tokenBal;
         if (available < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
 
         uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, available);
-        uint256 refundDelta = bound(refundRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, 200_000e6);
+
+        uint256 qYes = market.yesSharesOutstanding();
+        uint256 qNo = market.noSharesOutstanding();
+        uint256 b = market.liquidityParam();
+
+        uint256 costBefore = LMSRTestMath.cost(qYes, qNo, b);
+        uint256 qYesNew = outcomeIndex == 0 ? qYes - sharesDelta : qYes;
+        uint256 qNoNew = outcomeIndex == 1 ? qNo - sharesDelta : qNo;
+        uint256 costAfter = LMSRTestMath.cost(qYesNew, qNoNew, b);
+        if (costBefore <= costAfter) return;
+        uint256 refundDelta = costBefore - costAfter;
+        if (refundDelta < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
+
+        uint256 marketBal = collateral.balanceOf(address(market));
+       // if (marketBal < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
+        if (refundDelta > marketBal) refundDelta = marketBal;
+
+        uint256 yesPriceE6 = LMSRTestMath.yesPriceE6(qYesNew, qNoNew, b);
+        uint256 noPriceE6 = 1_000_000 - yesPriceE6;
 
         uint64 nonce = market.tradeNonce();
         bytes memory report = abi.encode(
             "LMSRSell",
-            abi.encode(actor, outcomeIndex, sharesDelta, refundDelta, 500_000, 500_000, nonce)
+            abi.encode(actor, outcomeIndex, sharesDelta, refundDelta, yesPriceE6, noPriceE6, nonce)
         );
 
         vm.prank(forwarder);

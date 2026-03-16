@@ -71,6 +71,7 @@ contract PredictionMarketRouterVaultInvariantTest is StdInvariant, Test {
         collateral.mint(address(market), LIQUIDITY_PARAM);
         market.initializeMarket(LIQUIDITY_PARAM);
         market.setRouterVault(address(router));
+        market.setRiskExempt(address(router), true);
 
         vm.prank(owner);
         router.setMarketAllowed(address(market), true);
