@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {
     Initializable
@@ -85,6 +85,8 @@ abstract contract PredictionMarketRouterVaultBase is
     error Router__AgentAmountExceeded();
     error Router__EthTransferFailed();
     error PredictionMarketRouterVault__NotAuthorizedMarketMapper();
+    error Router__InsufficientAMMBoughtShares();
+
 
     bytes32 internal constant HASHED_DEPOSIT_FOR =
         keccak256(abi.encode("routerDepositFor"));
@@ -144,10 +146,9 @@ abstract contract PredictionMarketRouterVaultBase is
     address public marketFactory;
 
     mapping(address => bool) public allowedMarkets;
-
+mapping(address => mapping(address => mapping(uint8 => uint256))) public userAMMBoughtShares;
     mapping(address => uint256) public collateralCredits;
     mapping(address => mapping(address => uint256)) public tokenCredits;
-    mapping(address => mapping(address => uint256)) public lpShareCredits;
     mapping(address => uint256) public userRiskExposure;
     mapping(address => bool) public isRiskExempt;
     //agent Permision

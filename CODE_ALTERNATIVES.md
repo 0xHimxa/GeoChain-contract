@@ -56,7 +56,7 @@ Where:
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {UD60x18, ud, ln, exp, wrap, unwrap} from "@prb/math/src/UD60x18.sol";
 

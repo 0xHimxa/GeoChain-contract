@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 library Client {
     /// @dev Tag used by CCIP router when decoding V1 extra args payload.

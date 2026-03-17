@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -597,6 +597,7 @@ contract PredictionMarketRouterVaultTest is Test {
         uint256 actualCost = costDelta - fee;
 
         assertEq(router.tokenCredits(alice, yesToken), sharesDelta);
+        assertEq(router.userAMMBoughtShares(alice, address(market), 0), sharesDelta);
         assertEq(router.userRiskExposure(alice), actualCost);
     }
 
@@ -659,6 +660,52 @@ contract PredictionMarketRouterVaultTest is Test {
 
         assertEq(router.collateralCredits(alice), aliceCollateralBefore + netRefund);
         assertEq(router.userRiskExposure(alice), aliceExposureBefore - refundDelta);
+        assertEq(router.userAMMBoughtShares(alice, address(market), 0), sharesDelta - sellShares);
+    }
+
+    function testOnReportSellRevertWhenNotAMMBought() external {
+        uint256 depositAmount = 100e6;
+        uint256 mintAmount = 20e6;
+
+        vm.prank(alice);
+        router.depositCollateral(depositAmount);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), mintAmount);
+
+        bytes memory sellReport = abi.encode(
+            "routerSell",
+            abi.encode(alice, address(market), uint8(0), 5e6, 4e6, 590_000, 410_000, uint64(0))
+        );
+
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientAMMBoughtShares()"));
+        router.onReport("", sellReport);
+    }
+
+    function testRedeemCompleteSetsReducesAMMBoughtShares() external {
+        uint256 depositAmount = 200e6;
+        uint256 sharesDelta = 5e6;
+        uint256 costDelta = 10e6;
+        uint256 mintAmount = 50e6;
+
+        vm.prank(alice);
+        router.depositCollateral(depositAmount);
+
+        bytes memory buyReport = abi.encode(
+            "routerBuy",
+            abi.encode(alice, address(market), uint8(0), sharesDelta, costDelta, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        router.onReport("", buyReport);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), mintAmount);
+
+        vm.prank(alice);
+        router.redeemCompleteSets(address(market), sharesDelta);
+
+        assertEq(router.userAMMBoughtShares(alice, address(market), 0), 0);
     }
 
     function testOnReportAgentBuyRevertUnauthorized() external {

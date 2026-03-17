@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
@@ -118,6 +118,18 @@ contract PredictionMarketRouterVaultInvariantTest is StdInvariant, Test {
         }
         assertLe(sumYes, OutcomeToken(yes).balanceOf(address(router)));
         assertLe(sumNo, OutcomeToken(no).balanceOf(address(router)));
+    }
+
+    function invariant_ammBoughtSharesWithinCredits() external view {
+        address[] memory actors = handler.getActors();
+        address yes = address(market.yesToken());
+        address no = address(market.noToken());
+        for (uint256 i = 0; i < actors.length; i++) {
+            uint256 yesBought = router.userAMMBoughtShares(actors[i], address(market), 0);
+            uint256 noBought = router.userAMMBoughtShares(actors[i], address(market), 1);
+            assertLe(yesBought, router.tokenCredits(actors[i], yes));
+            assertLe(noBought, router.tokenCredits(actors[i], no));
+        }
     }
 
     function invariant_riskExposureWithinDynamicCap() external view {

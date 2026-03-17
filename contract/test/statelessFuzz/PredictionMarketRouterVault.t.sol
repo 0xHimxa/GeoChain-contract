@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -882,6 +882,7 @@ contract PredictionMarketRouterVaultStatelessFuzzTest is Test {
         uint256 actualCost = costDelta - fee;
 
         assertEq(router.tokenCredits(alice, yesToken), sharesDelta);
+        assertEq(router.userAMMBoughtShares(alice, address(market), 0), sharesDelta);
         assertEq(router.userRiskExposure(alice), actualCost);
     }
 
@@ -921,6 +922,25 @@ contract PredictionMarketRouterVaultStatelessFuzzTest is Test {
 
         assertEq(router.collateralCredits(alice), collateralBefore + netRefund);
         assertEq(router.userRiskExposure(alice), exposureBefore > refundDelta ? exposureBefore - refundDelta : 0);
+        assertEq(router.userAMMBoughtShares(alice, address(market), 0), sellSharesDelta - sellSharesDelta);
+    }
+
+    function testFuzz_OnReportSellRevertWhenNotAMMBought(uint256 mintAmount) external {
+        mintAmount = bound(mintAmount, MarketConstants.MINIMUM_AMOUNT, 100e6);
+
+        vm.prank(alice);
+        router.depositCollateral(mintAmount);
+
+        vm.prank(alice);
+        router.mintCompleteSets(address(market), mintAmount);
+
+        bytes memory sellReport = abi.encode(
+            "routerSell",
+            abi.encode(alice, address(market), uint8(0), mintAmount, mintAmount, 590_000, 410_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__InsufficientAMMBoughtShares()"));
+        router.onReport("", sellReport);
     }
 
     function testFuzz_OnReportRevokeAgentPermission(address agent) external {

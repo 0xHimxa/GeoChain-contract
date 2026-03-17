@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
@@ -104,19 +104,6 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
-         if(!isRiskExempt[trader]){
-            _checkUserExposure(trader, costDelta);
-        } 
-
-
-
-
-        // ── State update ─────────────────────────────────────────────
-        tradeNonce += 1;
-        lastYesPriceE6 = newYesPriceE6;
-        lastNoPriceE6 = newNoPriceE6;
-    
-
         // Extract fee from inclusive amount (CRE sends cost with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
             costDelta,
@@ -124,22 +111,30 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             MarketConstants.FEE_PRECISION_BPS
         );
         uint256 actualCost = costDelta - fee; // costDelta is already inclusive (CRE subtracted fee)
+
+        if (!isRiskExempt[trader]) {
+            // Check exactly what we track as exposure to avoid fee-mismatch drift.
+            _checkUserExposure(trader, actualCost);
+        }
+
+        // ── State update ─────────────────────────────────────────────
+        tradeNonce += 1;
+        lastYesPriceE6 = newYesPriceE6;
+        lastNoPriceE6 = newNoPriceE6;
+
         protocolCollateralFees += fee;
-        if(!isRiskExempt[trader]){
-
+        if (!isRiskExempt[trader]) {
             userRiskExposure[trader] += actualCost;
-
         }
 
     
         // Mint outcome tokens to trader and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding += sharesDelta;
-            userBoughtYesShares[trader] += sharesDelta;
+          
             yesToken.mint(trader, sharesDelta);
         } else {
             noSharesOutstanding += sharesDelta;
-            userBoughtNoShares[trader] += sharesDelta;
             noToken.mint(trader, sharesDelta);
         }
 
@@ -218,20 +213,14 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         // Check router has enough tokens to sell
         OutcomeToken token = outcomeIndex == 0 ? yesToken : noToken;
 
-        //checked the share is from AMM and not from mint complete set
-        uint256 availableToSell = outcomeIndex == 0 
-    ? userBoughtYesShares[trader] 
-    : userBoughtNoShares[trader];
+
 
 
 
         if (token.balanceOf(trader) < sharesDelta)
             revert MarketErrors.LMSR__InsufficientShares();
 
-
-        if (sharesDelta > availableToSell) {
-    revert MarketErrors.LMSR__InsufficientBoughtShares();
-}    
+     
 
         // ── State update ─────────────────────────────────────────────
         tradeNonce += 1;
@@ -241,11 +230,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         // Burn outcome tokens from router and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding -= sharesDelta;
-            userBoughtYesShares[trader] -= sharesDelta;
+          
             yesToken.burn(trader, sharesDelta);
         } else {
             noSharesOutstanding -= sharesDelta;
-            userBoughtNoShares[trader] -= sharesDelta;
+          
             noToken.burn(trader, sharesDelta);
         }
 
@@ -305,10 +294,10 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     
         if (
             msg.sender != address(marketFactory) &&
-            !isRiskExempt[msg.sender] 
+            msg.sender != routerVault &&
+            !isRiskExempt[msg.sender]
         ) {
             _checkUserExposure(msg.sender, amount);
-
         }
 
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
@@ -319,16 +308,16 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
 
         protocolCollateralFees += fee;
         
-        if(!isRiskExempt[msg.sender]){
-
+        if (msg.sender != routerVault && !isRiskExempt[msg.sender]) {
             userRiskExposure[msg.sender] += amount;
-
         }
 
         i_collateral.safeTransferFrom(msg.sender, address(this), amount);
 
         yesToken.mint(msg.sender, netAmount);
         noToken.mint(msg.sender, netAmount);
+        yesSharesOutstanding += netAmount;
+        noSharesOutstanding += netAmount;
 
 
         emit MarketEvents.CompleteSetsMinted(msg.sender, netAmount);
@@ -356,15 +345,15 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         );
 
         protocolCollateralFees += fee;
-    if(!isRiskExempt[msg.sender]){
-
-        userRiskExposure[msg.sender] = userRiskExposure[msg.sender] > amount
-            ? userRiskExposure[msg.sender] - amount
-            : 0;
-
-    }
+        if (msg.sender != routerVault && !isRiskExempt[msg.sender]) {
+            userRiskExposure[msg.sender] = userRiskExposure[msg.sender] > amount
+                ? userRiskExposure[msg.sender] - amount
+                : 0;
+        }
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
+        yesSharesOutstanding = yesSharesOutstanding > amount ? yesSharesOutstanding - amount : 0;
+        noSharesOutstanding = noSharesOutstanding > amount ? noSharesOutstanding - amount : 0;
         i_collateral.safeTransfer(msg.sender, netAmount);
 
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);

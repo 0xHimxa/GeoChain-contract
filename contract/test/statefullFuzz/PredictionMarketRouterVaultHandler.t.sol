@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarketRouterVault} from "../../src/router/PredictionMarketRouterVault.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {FeeLib} from "../../src/libraries/FeeLib.sol";
 import {IReceiver} from "../../script/interfaces/IReceiver.sol";
 import {LMSRTestMath} from "../utils/LMSRTestMath.sol";
 
@@ -138,9 +139,15 @@ contract PredictionMarketRouterVaultHandler is Test {
         uint256 noPriceE6 = 1_000_000 - yesPriceE6;
 
         if (!router.isRiskExempt(actor)) {
+            uint256 fee = FeeLib.calculateFee(
+                costDelta,
+                MarketConstants.LMSR_TRADE_FEE_BPS,
+                MarketConstants.FEE_PRECISION_BPS
+            );
+            uint256 actualCost = costDelta - fee;
             uint256 dynamicCap =
                 (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
-            if (router.userRiskExposure(actor) + costDelta > dynamicCap) {
+            if (router.userRiskExposure(actor) + actualCost > dynamicCap) {
                 return;
             }
         }
@@ -170,9 +177,11 @@ contract PredictionMarketRouterVaultHandler is Test {
         uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
         address token = outcomeIndex == 0 ? address(market.yesToken()) : address(market.noToken());
         uint256 credits = router.tokenCredits(actor, token);
-        if (credits < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
+        uint256 bought = router.userAMMBoughtShares(actor, address(market), outcomeIndex);
+        uint256 available = credits < bought ? credits : bought;
+        if (available < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
 
-        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, credits);
+        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, available);
 
         uint256 qYes = market.yesSharesOutstanding();
         uint256 qNo = market.noSharesOutstanding();

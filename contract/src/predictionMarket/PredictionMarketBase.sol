@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
@@ -112,12 +112,6 @@ abstract contract PredictionMarketBase is
     /// @notice Accounts exempt from risk exposure cap.
     mapping(address => bool) public isRiskExempt;
 
-/// @notice User-level tracking of shares bought on each side.
-///@dev Used to enforce that users can't sell more shares than they bought from the AMM.
-// this is beacuse mintCompleteSets produced  same amount of no and yes shares which can be sold to the AMM for collateral twice,
-//  to avoid this, we track the number of shares bought in AMM by each user.
-mapping(address => uint256) public userBoughtYesShares;
-mapping(address => uint256) public userBoughtNoShares;
 
 
     /// @notice Current lifecycle state.

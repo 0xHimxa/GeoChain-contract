@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
@@ -123,12 +123,10 @@ contract PredictionMarketHandler is Test {
         address actor = _actor(actorSeed);
         uint8 outcomeIndex = uint8(bound(outcomeSeed, 0, 1));
 
-        uint256 bought = outcomeIndex == 0 ? market.userBoughtYesShares(actor) : market.userBoughtNoShares(actor);
         uint256 tokenBal = outcomeIndex == 0 ? market.yesToken().balanceOf(actor) : market.noToken().balanceOf(actor);
-        uint256 available = bought < tokenBal ? bought : tokenBal;
-        if (available < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
+        if (tokenBal < MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT) return;
 
-        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, available);
+        uint256 sharesDelta = bound(sharesRaw, MarketConstants.MINIMUM_LMSR_TRADE_AMOUNT, tokenBal);
 
         uint256 qYes = market.yesSharesOutstanding();
         uint256 qNo = market.noSharesOutstanding();

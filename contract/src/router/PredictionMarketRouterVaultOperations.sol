@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
@@ -361,6 +361,29 @@ abstract contract PredictionMarketRouterVaultOperations is
         tokenCredits[user][yes] = yesBal - amount;
         tokenCredits[user][no] = noBal - amount;
 
+ // If we didn't reduce this, a user could:
+    //   1. Buy 100 YES via AMM  → userAMMBoughtShares[YES] = 100
+    //   2. Mint 100 complete sets → tokenCredits[YES] = 200, tokenCredits[NO] = 100
+    //   3. Redeem 100 complete sets (burns 100 YES + 100 NO)
+    //   4. userAMMBoughtShares[YES] still = 100 — but they only hold 100 YES total
+    //   5. They could then sell 100 YES to AMM — draining the market incorrectly
+    //      since those 100 YES are the minted ones, not AMM-bought ones.
+
+    uint256 yesAMM = userAMMBoughtShares[user][market][0];
+    uint256 noAMM  = userAMMBoughtShares[user][market][1];
+
+    // Reduce YES AMM balance by up to `amount`, floor at 0
+if (yesAMM > 0) {
+    userAMMBoughtShares[user][market][0] = yesAMM > amount ? yesAMM - amount : 0;
+}
+// Reduce NO AMM balance by up to `amount`, floor at 0
+if (noAMM > 0) {
+    userAMMBoughtShares[user][market][1] = noAMM > amount ? noAMM - amount : 0;
+}
+    
+  
+
+
         uint256 collateralBefore = collateralToken.balanceOf(address(this));
         _ensureAllowance(IERC20(yes), market, amount);
         _ensureAllowance(IERC20(no), market, amount);
@@ -449,6 +472,7 @@ abstract contract PredictionMarketRouterVaultOperations is
 
         uint256 tokenBefore = IERC20(token).balanceOf(address(this));
 
+
         _ensureAllowance(collateralToken, market, costDelta);
         IPredictionMarketLike(market).executeBuy(
            address(this),
@@ -462,6 +486,11 @@ abstract contract PredictionMarketRouterVaultOperations is
 
         uint256 tokenAfter = IERC20(token).balanceOf(address(this));
         uint256 tokenDelta = tokenAfter - tokenBefore;
+
+            // ── Track AMM-bought shares per user for sell validation ──────
+    // Only shares purchased through the AMM are eligible for AMM sells.
+    // Minted complete sets are NOT counted here.
+        userAMMBoughtShares[user][market][outcomeIndex] += tokenDelta;
 
         tokenCredits[user][token] += tokenDelta;
         if (!isRiskExempt[user]) {
@@ -491,6 +520,16 @@ abstract contract PredictionMarketRouterVaultOperations is
 
         uint256 userTokenBal = tokenCredits[user][token];
         if (userTokenBal < sharesDelta) revert Router__InsufficientBalance();
+
+
+    // ── Guard: of those tokens, only AMM-bought shares may be sold back
+    //    to the AMM. Minted complete sets must go through redeemCompleteSets.
+    uint256 availableAMMShares = userAMMBoughtShares[user][market][outcomeIndex];
+    if (sharesDelta > availableAMMShares) revert Router__InsufficientAMMBoughtShares();
+
+
+    // Deduct from AMM-bought tracker so accounting stays consistent
+    userAMMBoughtShares[user][market][outcomeIndex] = availableAMMShares - sharesDelta;
         tokenCredits[user][token] = userTokenBal - sharesDelta;
 
         uint256 collateralBefore = collateralToken.balanceOf(address(this));

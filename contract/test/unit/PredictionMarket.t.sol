@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
@@ -332,7 +332,6 @@ contract PredictionMarketTest is Test {
         uint256 actualCost = costDelta - fee;
 
         assertEq(market.yesToken().balanceOf(alice), sharesDelta);
-        assertEq(market.userBoughtYesShares(alice), sharesDelta);
         assertEq(market.yesSharesOutstanding(), sharesDelta);
         assertEq(market.lastYesPriceE6(), 520_000);
         assertEq(market.lastNoPriceE6(), 480_000);
@@ -355,12 +354,9 @@ contract PredictionMarketTest is Test {
         market.onReport("", abi.encode("LMSRBuy", abi.encode(alice, 0, 1_000e6, 1_000e6, 700_000, 100_000, 0)));
     }
 
-    function testLmsrSellRevertWhenInsufficientBoughtShares() external {
-        uint256 mintAmount = 2_000e6;
-        _mintCompleteSets(alice, mintAmount);
-
+    function testLmsrSellRevertWhenInsufficientShares() external {
         vm.prank(FORWARDER);
-        vm.expectRevert(MarketErrors.LMSR__InsufficientBoughtShares.selector);
+        vm.expectRevert(MarketErrors.LMSR__InsufficientShares.selector);
         market.onReport("", abi.encode("LMSRSell", abi.encode(alice, 0, 1_000e6, 500e6, 520_000, 480_000, 0)));
     }
 
@@ -379,7 +375,6 @@ contract PredictionMarketTest is Test {
         uint256 netRefund = refundDelta - fee;
 
         assertEq(market.yesToken().balanceOf(alice), 0);
-        assertEq(market.userBoughtYesShares(alice), 0);
         assertEq(market.yesSharesOutstanding(), 0);
         assertEq(market.tradeNonce(), 2);
         assertEq(collateral.balanceOf(alice), beforeCollateral + netRefund);
