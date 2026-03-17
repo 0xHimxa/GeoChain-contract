@@ -3,7 +3,7 @@ pragma solidity 0.8.33;
 
 /// @title CanonicalPricingModule
 /// @notice Pure policy engine for classifying deviation bands and swap controls.
-/// @dev The module compares local AMM implied YES price with canonical YES price.
+/// @dev The module compares local LMSR YES price with canonical YES price.
 /// Deviation in bps is mapped into one of four bands:
 /// Normal -> Stress -> Unsafe -> CircuitBreaker.
 /// Band then determines fee uplift, max output cap, and direction permissions.
@@ -16,8 +16,7 @@ library CanonicalPricingModule {
     struct SwapControlsParams {
         bool yesForNo;
         uint256 reserveOut;
-        uint256 yesReserve;
-        uint256 noReserve;
+        uint256 localYesPriceE6;
         uint256 pricePrecision;
         uint256 canonicalYesPriceE6;
         uint16 softDeviationBps;
@@ -31,8 +30,7 @@ library CanonicalPricingModule {
     }
 
     struct DeviationStatusParams {
-        uint256 yesReserve;
-        uint256 noReserve;
+        uint256 localYesPriceE6;
         uint256 pricePrecision;
         uint256 canonicalYesPriceE6;
         uint16 softDeviationBps;
@@ -46,13 +44,12 @@ library CanonicalPricingModule {
     }
 
     /// @notice Computes execution guardrails for a concrete swap direction.
-    /// @param p Parameters containing reserves, canonical price, and policy thresholds.
+    /// @param p Parameters containing local price, canonical price, and policy thresholds.
     /// @return bandId Current deviation band enum id.
     /// @return effectiveFeeBps Swap fee after band adjustment.
     /// @return maxOut Max output token amount allowed for this trade.
     /// @return allowDirection Whether this direction is allowed in current band.
     /// @dev Key calculations:
-    /// `localYes = noReserve * pricePrecision / (yesReserve + noReserve)`
     /// `deviationBps = abs(localYes - canonicalYes) * feePrecisionBps / pricePrecision`.
     /// Band policy:
     /// - Normal: base fee, unlimited output, both directions allowed.
@@ -64,7 +61,7 @@ library CanonicalPricingModule {
         pure
         returns (uint8 bandId, uint256 effectiveFeeBps, uint256 maxOut, bool allowDirection)
     {
-        uint256 localYesPriceE6Value = (p.noReserve * p.pricePrecision) / (p.yesReserve + p.noReserve);
+        uint256 localYesPriceE6Value = p.localYesPriceE6;
         uint256 diff = localYesPriceE6Value > p.canonicalYesPriceE6
             ? localYesPriceE6Value - p.canonicalYesPriceE6
             : p.canonicalYesPriceE6 - localYesPriceE6Value;
@@ -100,7 +97,7 @@ library CanonicalPricingModule {
     }
 
     /// @notice Returns full current deviation status independent of a chosen direction.
-    /// @param p Parameters containing reserves, canonical price, and policy thresholds.
+    /// @param p Parameters containing local price, canonical price, and policy thresholds.
     /// @return bandId Current deviation band enum id.
     /// @return deviationBpsValue Absolute canonical/local deviation in bps.
     /// @return effectiveFeeBps Swap fee after band adjustment.
@@ -121,7 +118,7 @@ library CanonicalPricingModule {
             bool allowNoForYes
         )
     {
-        uint256 localYesPriceE6Value = (p.noReserve * p.pricePrecision) / (p.yesReserve + p.noReserve);
+        uint256 localYesPriceE6Value = p.localYesPriceE6;
         uint256 diff = localYesPriceE6Value > p.canonicalYesPriceE6
             ? localYesPriceE6Value - p.canonicalYesPriceE6
             : p.canonicalYesPriceE6 - localYesPriceE6Value;

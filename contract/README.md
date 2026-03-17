@@ -176,9 +176,9 @@ The CRE report dispatcher — processes all workflow-submitted reports.
 **Price Correction Algorithm:**
 1. Verifies market is in `Unsafe` deviation band
 2. Determines allowed swap direction from canonical pricing controls
-3. Binary searches for optimal collateral spend ≤ `maxSpendCollateral`
-4. Mints complete sets, executes corrective swap
-5. Validates deviation improvement meets `minDeviationImprovementBps`
+3. CRE computes optimal LMSR trade off-chain (price impact + size)
+4. CRE submits `LMSRBuy` / `LMSRSell` report to the market
+5. CRE validates deviation improvement meets `minDeviationImprovementBps`
 
 #### `MarketFactoryCcip.sol`
 

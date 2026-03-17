@@ -142,7 +142,7 @@ Broadcasts market resolution to all spokes.
 #### `arbitrateUnsafeMarket(uint256 marketId, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps)`
 Corrects unsafe price deviation in a market.
 - **Requirements**: Only owner, market in Unsafe band
-- **Effects**: Executes arbitrage swap to improve deviation
+- **Effects**: Emits off-chain arbitrage request; CRE computes and submits LMSR trade
 
 #### `withdrawMarketFactoryCollateralAndFee(uint256 marketId)`
 Withdraws LP collateral and protocol fees from a market.
@@ -201,12 +201,10 @@ The factory processes CRE reports with action types:
 When a market enters the `Unsafe` deviation band:
 
 1. **Verification**: Confirm market is in Unsafe band
-2. **Direction Selection**: Choose allowed swap direction (YES→NO or NO→YES)
-3. **Spend Calculation**: Binary search for optimal collateral spend ≤ maxSpend
-4. **Execution**: 
-   - Mint complete sets with calculated collateral
-   - Execute swap in allowed direction
-5. **Validation**: Ensure deviation improved by at least minDeviationImprovementBps
+2. **Direction Selection**: Choose allowed corrective direction (YES→NO or NO→YES)
+3. **Off-chain Pricing**: CRE computes price impact and optimal LMSR trade size
+4. **Execution**: CRE submits `LMSRBuy` / `LMSRSell` report to the market
+5. **Validation**: CRE ensures deviation improves by at least minDeviationImprovementBps
 
 ## Events
 

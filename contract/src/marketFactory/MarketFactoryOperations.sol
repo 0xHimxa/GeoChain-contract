@@ -146,9 +146,9 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
     }
 
     /// @dev Checks if a market is in unsafe deviation and logs for CRE-based correction.
-    /// In LMSR mode, arbitrage is handled off-chain by the CRE arbitrage handler.
-    /// This function only validates the market is in unsafe band and emits an event.
-    /// The CRE handler will then compute and submit the appropriate LMSR trade.
+    /// In LMSR mode, arbitrage (including price-before and trade sizing) is handled off-chain
+    /// by the CRE arbitrage handler. This function only validates the market is in unsafe band
+    /// and emits an event. The CRE handler will then compute and submit the appropriate LMSR trade.
     function _arbitrateUnsafeMarket(
         uint256 marketId,
         uint256 maxSpendCollateral,

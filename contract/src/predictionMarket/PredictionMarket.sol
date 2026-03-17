@@ -104,17 +104,10 @@ contract PredictionMarket is PredictionMarketResolution {
         _validateCanonicalPrices();
 
         uint8 bandId;
-        // Use LMSR-stored prices instead of reserve-derived prices
-        // For LMSR, we derive synthetic "reserves" from prices for the canonical module
-        // price_yes = noReserve / (yesReserve + noReserve)
-        // So: yesReserve ∝ noPrice, noReserve ∝ yesPrice
-        uint256 syntheticYesReserve = lastNoPriceE6;
-        uint256 syntheticNoReserve = lastYesPriceE6;
 
         CanonicalPricingModule.DeviationStatusParams
             memory p = CanonicalPricingModule.DeviationStatusParams({
-                yesReserve: syntheticYesReserve,
-                noReserve: syntheticNoReserve,
+                localYesPriceE6: lastYesPriceE6,
                 pricePrecision: MarketConstants.PRICE_PRECISION,
                 canonicalYesPriceE6: canonicalYesPriceE6,
                 softDeviationBps: softDeviationBps,
