@@ -934,9 +934,16 @@ contract PredictionMarketRouterVaultStatelessFuzzTest is Test {
         vm.prank(alice);
         router.mintCompleteSets(address(market), mintAmount);
 
+        uint256 fee = FeeLib.calculateFee(
+            mintAmount,
+            MarketConstants.MINT_COMPLETE_SETS_FEE_BPS,
+            MarketConstants.FEE_PRECISION_BPS
+        );
+        uint256 netMint = mintAmount - fee;
+
         bytes memory sellReport = abi.encode(
             "routerSell",
-            abi.encode(alice, address(market), uint8(0), mintAmount, mintAmount, 590_000, 410_000, uint64(0))
+            abi.encode(alice, address(market), uint8(0), netMint, netMint, 590_000, 410_000, uint64(0))
         );
         vm.prank(forwarder);
         vm.expectRevert(abi.encodeWithSignature("Router__InsufficientAMMBoughtShares()"));
