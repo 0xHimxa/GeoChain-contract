@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.33;
 
 /// @title LMSRLib
 /// @notice On-chain validation helpers for CRE-computed LMSR trades.

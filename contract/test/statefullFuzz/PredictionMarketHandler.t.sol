@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {MarketConstants} from "../../src/libraries/MarketTypes.sol";
+import {FeeLib} from "../../src/libraries/FeeLib.sol";
 import {IReceiver} from "../../script/interfaces/IReceiver.sol";
 import {LMSRTestMath} from "../utils/LMSRTestMath.sol";
 
@@ -98,10 +99,16 @@ contract PredictionMarketHandler is Test {
         uint256 noPriceE6 = 1_000_000 - yesPriceE6;
 
         if (!market.isRiskExempt(actor)) {
+            uint256 fee = FeeLib.calculateFee(
+                costDelta,
+                MarketConstants.LMSR_TRADE_FEE_BPS,
+                MarketConstants.FEE_PRECISION_BPS
+            );
+            uint256 actualCost = costDelta - fee;
             // Market enforces exposure with costDelta (pre-fee), so mirror that here
             uint256 dynamicCap =
                 (market.liquidityParam() * MarketConstants.MAX_EXPOSURE_BPS) / MarketConstants.MAX_EXPOSURE_PRECISION;
-            if (market.userRiskExposure(actor) + costDelta > dynamicCap) {
+            if (market.userRiskExposure(actor) + actualCost > dynamicCap) {
                 return;
             }
         }

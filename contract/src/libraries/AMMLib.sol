@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.33;
 
 /// @title AMMLib
 /// @notice Pure math utilities for the constant-product pool used by markets.
