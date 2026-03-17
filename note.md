@@ -1,7 +1,9 @@
     if user have buy same amoutn of yes and no
 
 check the way u transfer token from users hope i user before and after to determine how much the user received 
+deposit collateral not using above
 
+fix the current market that only router been able to dispute instead of users
 
 and redeemcompleset, check hopfully the user can not call sell in AMM again thou the token is burn which will lilly be imposible
 
