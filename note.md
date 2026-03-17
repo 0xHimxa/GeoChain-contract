@@ -1,4 +1,7 @@
-if user have buy same amoutn of yes and no
+    if user have buy same amoutn of yes and no
+
+check the way u transfer token from users hope i user before and after to determine how much the user received 
+
 
 and redeemcompleset, check hopfully the user can not call sell in AMM again thou the token is burn which will lilly be imposible
 
