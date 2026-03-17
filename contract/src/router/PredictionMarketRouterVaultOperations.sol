@@ -595,7 +595,7 @@ if (noAMM > 0) {
     ) internal {
         _validateMarket(market);
         IPredictionMarketLike(market).disputeProposedResolution(
-            proposedOutcome
+           user, proposedOutcome
         );
         emit DisputeSubmitted(user, market, proposedOutcome);
     }

@@ -88,11 +88,11 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
 
     /// @notice Disputes an active provisional resolution while challenge period is open.
     /// @dev Each account can submit at most one dispute for the market.
-    function disputeProposedResolution(Resolution proposedOutcome) external {
+    function disputeProposedResolution(address _disputer,Resolution proposedOutcome) external onlyRouterVault {
         if (state != State.Review || proposedResolution == Resolution.Unset) {
             revert MarketErrors.PredictionMarket__NoPendingResolution();
         }
-        if (hasSubmittedDispute[msg.sender]) {
+        if (hasSubmittedDispute[_disputer]) {
             revert MarketErrors.PredictionMarket__DisputeAlreadySubmittedByUser();
         }
         if (block.timestamp > disputeDeadline) {
@@ -106,10 +106,10 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
         }
 
-        hasSubmittedDispute[msg.sender] = true;
+        hasSubmittedDispute[_disputer] = true;
         disputeSubmissions.push(
             DisputeSubmission({
-                disputer: msg.sender,
+                disputer: _disputer,
                 proposedOutcome: proposedOutcome,
                 submittedAt: block.timestamp
             })
@@ -122,7 +122,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             uniqueDisputedOutcomesCount++;
         }
         resolutionDisputed = true;
-        emit MarketEvents.ResolutionDisputed(msg.sender, proposedOutcome);
+        emit MarketEvents.ResolutionDisputed(_disputer, proposedOutcome);
     }
 
     /// @notice Finalizes a provisional resolution after dispute window if no dispute was raised.
