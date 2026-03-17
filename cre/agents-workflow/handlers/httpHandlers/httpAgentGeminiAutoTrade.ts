@@ -46,13 +46,11 @@ const AUTO_EXEC_ACTIONS = new Set<AgentAction>([
   "mintCompleteSets",
   "redeemCompleteSets",
   "redeem",
-  "swapYesForNo",
-  "swapNoForYes",
 ]);
 
 const SYSTEM_PROMPT = `You are a risk-constrained trading assistant for prediction markets.
 Return a single minified JSON object only.
-Schema: {"action":"mintCompleteSets"|"redeemCompleteSets"|"redeem"|"swapYesForNo"|"swapNoForYes"|"hold","amountUsdc":"<uint-string>","rationale":"<short>","confidenceBps":<0-10000 integer>}
+Schema: {"action":"mintCompleteSets"|"redeemCompleteSets"|"redeem"|"hold","amountUsdc":"<uint-string>","rationale":"<short>","confidenceBps":<0-10000 integer>}
 Rules:
 1) action must be one of ALLOWED_ACTIONS.
 2) amountUsdc must be a base-10 integer string and <= MAX_AMOUNT_USDC.

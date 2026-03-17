@@ -2,7 +2,6 @@ import { type HTTPPayload, type Runtime } from "@chainlink/cre-sdk";
 import { type Config } from "../../Constant-variable/config";
 import { createApprovalRecord, getFirestoreIdToken } from "../../firebase/sessionStore";
 import { validateSessionAuthorization, type SessionAuthorization } from "../utils/sessionValidation";
-import { AGENT_ACTION_TO_ROUTER_ACTION_TYPE, type AgentAction } from "../utils/agentAction";
 import { HEX_ADDRESS_REGEX } from "../utils/evmUtils";
 import { parseDecimalBigInt, parseJsonPayload } from "../utils/httpHandlerUtils";
 
@@ -116,7 +115,6 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
     return JSON.stringify(makeDecision(requestId, "action is not sponsorable"));
   }
   const expectedActionType = ACTION_TO_ROUTER_ACTION_TYPE[request.action];
-  const expectedAgentActionType = AGENT_ACTION_TO_ROUTER_ACTION_TYPE[request.action as AgentAction];
   if (!expectedActionType) {
     return JSON.stringify(makeDecision(requestId, "action is not mappable to execute actionType"));
   }
@@ -125,14 +123,22 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   if (!requestedActionType) {
     return JSON.stringify(makeDecision(requestId, "missing actionType"));
   }
-  if (requestedActionType !== expectedActionType && requestedActionType !== expectedAgentActionType) {
+  if (requestedActionType !== expectedActionType) {
     return JSON.stringify(makeDecision(requestId, "actionType does not match sponsored action"));
   }
-  if (!executePolicy?.enabled) {
-    return JSON.stringify(makeDecision(requestId, "execute policy disabled"));
-  }
-  if (!executePolicy.allowedActionTypes.includes(requestedActionType)) {
-    return JSON.stringify(makeDecision(requestId, "actionType not allowed by execute policy"));
+  const isLmsrAction = request.action === "lmsrBuy" || request.action === "lmsrSell";
+  if (isLmsrAction) {
+    const lmsrPolicy = runtime.config.lmsrTradePolicy;
+    if (!lmsrPolicy?.enabled) {
+      return JSON.stringify(makeDecision(requestId, "lmsr trade policy disabled"));
+    }
+  } else {
+    if (!executePolicy?.enabled) {
+      return JSON.stringify(makeDecision(requestId, "execute policy disabled"));
+    }
+    if (!executePolicy.allowedActionTypes.includes(requestedActionType)) {
+      return JSON.stringify(makeDecision(requestId, "actionType not allowed by execute policy"));
+    }
   }
 
   const maxAmount = /^\d+$/.test(policy.maxAmountUsdc) ? BigInt(policy.maxAmountUsdc) : DEFAULT_MAX_AMOUNT_USDC;

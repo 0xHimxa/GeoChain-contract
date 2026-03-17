@@ -4,8 +4,8 @@
   "requestId": "agent_req_1772988119528",
   "chainId": 421614,
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
-  "action": "swapYesForNo",
-  "actionType": "routerAgentSwapYesForNo",
+  "action": "mintCompleteSets",
+  "actionType": "routerAgentMintCompleteSets",
   "amountUsdc": "10000000",
   "slippageBps": 120,
   "session": {
@@ -14,12 +14,10 @@
     "sessionPublicKey": "0x0414fb631d24183a71f7453c3e7aad488948c94de5cf62180d0e75f34352e7874045356d4f60f4bab4b53346fd33a01643acbb3aa8092b89e6950eb1ee15b4040d",
     "chainId": 421614,
     "allowedActions": [
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
       "redeemCompleteSets",
-      "swapYesForNo",
-      "swapNoForYes",
-      "addLiquidity",
-      "removeLiquidity",
       "redeem",
       "disputeProposedResolution"
     ],

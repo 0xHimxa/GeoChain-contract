@@ -30,25 +30,13 @@ const PRICISION = 1000000n
 const DEFAULT_MAX_AMOUNT_USDC = 10000n  * PRICISION;
 const DEFAULT_MAX_SLIPPAGE_BPS = 300;
 const DEFAULT_ALLOWED_ACTIONS = new Set([
-  "addLiquidity",
-  "removeLiquidity",
-  "swapYesForNo",
-  "swapNoForYes",
+  "lmsrBuy",
+  "lmsrSell",
   "mintCompleteSets",
   "redeemCompleteSets",
   "redeem",
   "disputeProposedResolution",
 ]);
-const ACTION_TO_ROUTER_ACTION_TYPE: Record<string, string> = {
-  addLiquidity: "routerAddLiquidity",
-  removeLiquidity: "routerRemoveLiquidity",
-  swapYesForNo: "routerSwapYesForNo",
-  swapNoForYes: "routerSwapNoForYes",
-  mintCompleteSets: "routerMintCompleteSets",
-  redeemCompleteSets: "routerRedeemCompleteSets",
-  redeem: "routerRedeem",
-  disputeProposedResolution: "routerDisputeProposedResolution",
-};
 
 const ZERO_AMOUNT_ALLOWED_ACTIONS = new Set([
   "disputeProposedResolution",
@@ -119,8 +107,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   if (!request.action || !policy.allowedActions.includes(request.action)) {
     return JSON.stringify(makeDecision(requestId, "action is not sponsorable"));
   }
-  const expectedActionType = ACTION_TO_ROUTER_ACTION_TYPE[request.action];
-  const expectedAgentActionType = AGENT_ACTION_TO_ROUTER_ACTION_TYPE[request.action as AgentAction];
+  const expectedActionType = AGENT_ACTION_TO_ROUTER_ACTION_TYPE[request.action as AgentAction];
   if (!expectedActionType) {
     return JSON.stringify(makeDecision(requestId, "action is not mappable to execute actionType"));
   }
@@ -129,7 +116,7 @@ export const sponsorUserOpPolicyHandler = async (runtime: Runtime<Config>, paylo
   if (!requestedActionType) {
     return JSON.stringify(makeDecision(requestId, "missing actionType"));
   }
-  if (requestedActionType !== expectedActionType && requestedActionType !== expectedAgentActionType) {
+  if (requestedActionType !== expectedActionType) {
     return JSON.stringify(makeDecision(requestId, "actionType does not match sponsored action"));
   }
   if (!executePolicy?.enabled) {

@@ -4,14 +4,12 @@
   "requestId": "agent_req_1772988288172",
   "approvalId": "cre_approval_1772988176355_88119528_A85926",
   "chainId": 421614,
-  "action": "swapYesForNo",
-  "actionType": "routerAgentSwapYesForNo",
+  "action": "mintCompleteSets",
+  "actionType": "routerAgentMintCompleteSets",
   "user": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "sender": "0xA85926f9598AA43A2D8f24246B5e7886C4A5FeEc",
   "agent": "0x56712BE589F479596D20acc05F263Dc8D22297C7",
   "market": "0x00a6f82d7775f64843908b595bfc38de5b960cee",
   "amountUsdc": "10000000",
-  "yesIn": "10000000",
-  "minNoOut": "0",
   "createdAtUnix": 1772988288
 }

@@ -47,16 +47,7 @@
     "enabled": true,
     "allowedActionTypes": [
       "createMarket",
-      "priceCorrection",
-      "addLiquidityToFactory",
       "mintCollateralTo",
-      "WithCollatralAndFee",
-      "processPendingWithdrawals",
-      "broadCastPrice",
-      "broadCastResolution",
-      "syncSpokeCanonicalPrice",
-      "LMSRBuy",
-      "LMSRSell",
       "routerDepositFor",
       "routerWithdrawCollateralFor",
       "routerWithdrawOutcomeFor",
@@ -64,10 +55,6 @@
       "routerRedeemCompleteSets",
       "routerRedeem",
       "routerDisputeProposedResolution",
-      "routerAgentMintCompleteSets",
-      "routerAgentRedeemCompleteSets",
-      "routerAgentRedeem",
-      "routerAgentDisputeProposedResolution",
       "routerCreditFromFiat",
       "routerCreditFromEth"
     ]

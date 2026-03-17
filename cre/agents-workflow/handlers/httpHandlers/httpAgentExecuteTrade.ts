@@ -13,14 +13,13 @@ type AgentExecuteRequest = {
   agent?: `0x${string}`;
   market?: `0x${string}`;
   amountUsdc?: string;
-  yesIn?: string;
-  minNoOut?: string;
-  noIn?: string;
-  minYesOut?: string;
-  yesAmount?: string;
-  noAmount?: string;
-  minShares?: string;
-  shares?: string;
+  outcomeIndex?: string | number;
+  sharesDelta?: string;
+  costDelta?: string;
+  refundDelta?: string;
+  newYesPriceE6?: string;
+  newNoPriceE6?: string;
+  nonce?: string;
   proposedOutcome?: number;
 };
 
@@ -63,14 +62,13 @@ export const agentExecuteTradeHttpHandler = async (runtime: Runtime<Config>, pay
       agent: (req.agent || "") as `0x${string}`,
       market: (req.market || "") as `0x${string}`,
       amountUsdc: req.amountUsdc,
-      yesIn: req.yesIn,
-      minNoOut: req.minNoOut,
-      noIn: req.noIn,
-      minYesOut: req.minYesOut,
-      yesAmount: req.yesAmount,
-      noAmount: req.noAmount,
-      minShares: req.minShares,
-      shares: req.shares,
+      outcomeIndex: req.outcomeIndex,
+      sharesDelta: req.sharesDelta,
+      costDelta: req.costDelta,
+      refundDelta: req.refundDelta,
+      newYesPriceE6: req.newYesPriceE6,
+      newNoPriceE6: req.newNoPriceE6,
+      nonce: req.nonce,
       proposedOutcome: req.proposedOutcome,
     });
   } catch (error) {

@@ -55,7 +55,6 @@ market-users-workflow/
 │   ├── eventsHandler/
 │   │   └── ethCreditFromLogs.ts     # ETH deposit log crediting
 │   └── utils/
-│       ├── agentAction.ts           # Shared action mapping helpers
 │       ├── sessionMessage.ts        # Session message formatting
 │       └── sessionValidation.ts     # EIP-712 validation helpers
 ├── firebase/

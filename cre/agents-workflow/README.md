@@ -154,11 +154,9 @@ Produces a normalized, policy-aligned trade plan from an agent's raw trading int
   "user": "0x...",
   "agent": "0x...",
   "market": "0x...",
-  "action": "swapYesForNo",
+  "action": "mintCompleteSets",
   "amountUsdc": "1000000",
   "slippageBps": 100,
-  "yesIn": "1000000",
-  "minNoOut": "950000",
   "session": { ... }
 }
 ```
@@ -169,17 +167,15 @@ Produces a normalized, policy-aligned trade plan from an agent's raw trading int
   "planned": true,
   "requestId": "agent_plan_001",
   "plan": {
-    "action": "swapYesForNo",
-    "actionType": "routerAgentSwapYesForNo",
+    "action": "mintCompleteSets",
+    "actionType": "routerAgentMintCompleteSets",
     "chainId": 421614,
     "sender": "0x...",
     "user": "0x...",
     "agent": "0x...",
     "market": "0x...",
     "amountUsdc": "1000000",
-    "slippageBps": 100,
-    "yesIn": "1000000",
-    "minNoOut": "950000"
+    "slippageBps": 100
   }
 }
 ```
@@ -188,13 +184,11 @@ Produces a normalized, policy-aligned trade plan from an agent's raw trading int
 
 | Action | Router Action Type | Description |
 |---|---|---|
-| `swapYesForNo` | `routerAgentSwapYesForNo` | Sell YES tokens for NO tokens |
-| `swapNoForYes` | `routerAgentSwapNoForYes` | Sell NO tokens for YES tokens |
+| `lmsrBuy` | `routerAgentBuy` | Execute LMSR buy (CRE-report-driven) |
+| `lmsrSell` | `routerAgentSell` | Execute LMSR sell (CRE-report-driven) |
 | `mintCompleteSets` | `routerAgentMintCompleteSets` | Mint YES+NO token pairs from collateral |
 | `redeemCompleteSets` | `routerAgentRedeemCompleteSets` | Burn YES+NO pairs for collateral |
 | `redeem` | `routerAgentRedeem` | Redeem winning tokens post-resolution |
-| `addLiquidity` | `routerAgentAddLiquidity` | Provide liquidity to the AMM |
-| `removeLiquidity` | `routerAgentRemoveLiquidity` | Remove liquidity from the AMM |
 | `disputeProposedResolution` | `routerAgentDisputeProposedResolution` | Dispute a proposed market resolution |
 
 ---
@@ -255,7 +249,7 @@ End-to-end autonomous trading handler that asks **Google Gemini AI** to make a t
 **Gemini response format:**
 ```json
 {
-  "action": "swapYesForNo",
+  "action": "mintCompleteSets",
   "amountUsdc": "500000",
   "rationale": "Market consensus undervalues YES based on search evidence",
   "confidenceBps": 7500
@@ -265,7 +259,7 @@ End-to-end autonomous trading handler that asks **Google Gemini AI** to make a t
 **Safety constraints:**
 - Action must be in `ALLOWED_ACTIONS` set
 - Amount must be within `agentPolicy.maxAmountUsdc`
-- Only auto-executable actions are processed (`mintCompleteSets`, `redeemCompleteSets`, `redeem`, `swapYesForNo`, `swapNoForYes`)
+- Only auto-executable actions are processed (`mintCompleteSets`, `redeemCompleteSets`, `redeem`)
 - Gemini can return `"hold"` with `amountUsdc: "0"` to skip trading
 
 ---

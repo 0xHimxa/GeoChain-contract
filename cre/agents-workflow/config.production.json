@@ -15,28 +15,13 @@
   "executePolicy": {
     "enabled": false,
     "allowedActionTypes": [
-      "routerDepositFor",
-      "routerWithdrawCollateralFor",
-      "routerWithdrawOutcomeFor",
-      "routerMintCompleteSets",
-      "routerRedeemCompleteSets",
-      "routerRedeem",
-      "routerSwapYesForNo",
-      "routerSwapNoForYes",
-      "routerAddLiquidity",
-      "routerRemoveLiquidity",
-      "routerDisputeProposedResolution",
       "routerAgentMintCompleteSets",
       "routerAgentRedeemCompleteSets",
       "routerAgentRedeem",
-      "routerAgentSwapYesForNo",
-      "routerAgentSwapNoForYes",
-      "routerAgentAddLiquidity",
-      "routerAgentRemoveLiquidity",
+      "routerAgentBuy",
+      "routerAgentSell",
       "routerAgentDisputeProposedResolution",
-      "routerAgentRevokePermission",
-      "routerCreditFromFiat",
-      "routerCreditFromEth"
+      "routerAgentRevokePermission"
     ]
   },
   "agentPolicy": {

@@ -15,14 +15,13 @@ type AgentPlanRequest = {
   action?: AgentAction;
   amountUsdc?: string;
   slippageBps?: number;
-  yesIn?: string;
-  minNoOut?: string;
-  noIn?: string;
-  minYesOut?: string;
-  yesAmount?: string;
-  noAmount?: string;
-  minShares?: string;
-  shares?: string;
+  outcomeIndex?: number | string;
+  sharesDelta?: string | number;
+  costDelta?: string | number;
+  refundDelta?: string | number;
+  newYesPriceE6?: string | number;
+  newNoPriceE6?: string | number;
+  nonce?: string | number;
   proposedOutcome?: number;
   session?: SessionAuthorization;
 };
@@ -41,14 +40,13 @@ type AgentPlanResponse = {
     market: string;
     amountUsdc: string;
     slippageBps: number;
-    yesIn?: string;
-    minNoOut?: string;
-    noIn?: string;
-    minYesOut?: string;
-    yesAmount?: string;
-    noAmount?: string;
-    minShares?: string;
-    shares?: string;
+    outcomeIndex?: number;
+    sharesDelta?: string;
+    costDelta?: string;
+    refundDelta?: string;
+    newYesPriceE6?: string;
+    newNoPriceE6?: string;
+    nonce?: string;
     proposedOutcome?: number;
     session?: SessionAuthorization;
   };
@@ -60,7 +58,13 @@ const parseRequest = (payload: HTTPPayload): AgentPlanRequest => {
   return parseJsonPayload<AgentPlanRequest>(payload);
 };
 
-const validateUintString = (value: string | undefined, field: string): string => {
+const normalizeUintString = (value: string | number | undefined, field: string): string => {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+      throw new Error(`${field} must be a non-negative integer`);
+    }
+    return String(value);
+  }
   const safe = (value || "").trim();
   if (!/^\d+$/.test(safe)) throw new Error(`${field} must be a numeric string`);
   return safe;
@@ -119,9 +123,54 @@ export const agentPlanTradeHttpHandler = async (runtime: Runtime<Config>, payloa
 
   let amountUsdc = (req.amountUsdc || "0").trim();
   try {
-    amountUsdc = validateUintString(amountUsdc, "amountUsdc");
+    amountUsdc = normalizeUintString(amountUsdc, "amountUsdc");
   } catch (error) {
     return JSON.stringify({ planned: false, requestId, reason: error instanceof Error ? error.message : "invalid amountUsdc" } satisfies AgentPlanResponse);
+  }
+
+  const slippageBps = typeof req.slippageBps === "number" ? req.slippageBps : agentPolicy.defaultSlippageBps;
+  if (!Number.isInteger(slippageBps) || slippageBps < 0) {
+    return JSON.stringify({ planned: false, requestId, reason: "invalid slippageBps" } satisfies AgentPlanResponse);
+  }
+  if (slippageBps > agentPolicy.maxSlippageBps) {
+    return JSON.stringify({ planned: false, requestId, reason: "slippage exceeds agent policy" } satisfies AgentPlanResponse);
+  }
+
+  let outcomeIndex: number | undefined;
+  let sharesDelta: string | undefined;
+  let costDelta: string | undefined;
+  let refundDelta: string | undefined;
+  let newYesPriceE6: string | undefined;
+  let newNoPriceE6: string | undefined;
+  let nonce: string | undefined;
+
+  if (action === "lmsrBuy" || action === "lmsrSell") {
+    try {
+      const outcomeIndexRaw = normalizeUintString(req.outcomeIndex, "outcomeIndex");
+      if (outcomeIndexRaw !== "0" && outcomeIndexRaw !== "1") {
+        return JSON.stringify({ planned: false, requestId, reason: "outcomeIndex must be 0 (YES) or 1 (NO)" } satisfies AgentPlanResponse);
+      }
+      outcomeIndex = Number(outcomeIndexRaw);
+      sharesDelta = normalizeUintString(req.sharesDelta, "sharesDelta");
+      newYesPriceE6 = normalizeUintString(req.newYesPriceE6, "newYesPriceE6");
+      newNoPriceE6 = normalizeUintString(req.newNoPriceE6, "newNoPriceE6");
+      nonce = normalizeUintString(req.nonce, "nonce");
+      if (action === "lmsrBuy") {
+        costDelta = normalizeUintString(req.costDelta, "costDelta");
+        if (amountUsdc === "0") amountUsdc = costDelta;
+        if (amountUsdc !== costDelta) {
+          return JSON.stringify({ planned: false, requestId, reason: "amountUsdc must match costDelta for lmsrBuy" } satisfies AgentPlanResponse);
+        }
+      } else {
+        refundDelta = normalizeUintString(req.refundDelta, "refundDelta");
+        if (amountUsdc === "0") amountUsdc = sharesDelta;
+        if (amountUsdc !== sharesDelta) {
+          return JSON.stringify({ planned: false, requestId, reason: "amountUsdc must match sharesDelta for lmsrSell" } satisfies AgentPlanResponse);
+        }
+      }
+    } catch (error) {
+      return JSON.stringify({ planned: false, requestId, reason: error instanceof Error ? error.message : "invalid LMSR fields" } satisfies AgentPlanResponse);
+    }
   }
 
   const allowZeroAmount = ZERO_AMOUNT_ALLOWED_ACTIONS.has(action);
@@ -132,14 +181,6 @@ export const agentPlanTradeHttpHandler = async (runtime: Runtime<Config>, payloa
   const maxAmount = BigInt(agentPolicy.maxAmountUsdc);
   if (BigInt(amountUsdc) > maxAmount) {
     return JSON.stringify({ planned: false, requestId, reason: "amount exceeds agent policy" } satisfies AgentPlanResponse);
-  }
-
-  const slippageBps = typeof req.slippageBps === "number" ? req.slippageBps : agentPolicy.defaultSlippageBps;
-  if (!Number.isInteger(slippageBps) || slippageBps < 0) {
-    return JSON.stringify({ planned: false, requestId, reason: "invalid slippageBps" } satisfies AgentPlanResponse);
-  }
-  if (slippageBps > agentPolicy.maxSlippageBps) {
-    return JSON.stringify({ planned: false, requestId, reason: "slippage exceeds agent policy" } satisfies AgentPlanResponse);
   }
 
   const response: AgentPlanResponse = {
@@ -155,14 +196,13 @@ export const agentPlanTradeHttpHandler = async (runtime: Runtime<Config>, payloa
       market,
       amountUsdc,
       slippageBps,
-      yesIn: req.yesIn,
-      minNoOut: req.minNoOut,
-      noIn: req.noIn,
-      minYesOut: req.minYesOut,
-      yesAmount: req.yesAmount,
-      noAmount: req.noAmount,
-      minShares: req.minShares,
-      shares: req.shares,
+      outcomeIndex,
+      sharesDelta,
+      costDelta,
+      refundDelta,
+      newYesPriceE6,
+      newNoPriceE6,
+      nonce,
       proposedOutcome: req.proposedOutcome,
       session: req.session,
     },

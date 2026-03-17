@@ -12,9 +12,9 @@
     "sessionPublicKey": "0x04698b271e855ab3e81eae40daaf6f8529ac28b2c2934623d3128fdb3624c708ed64eb4c925c9e8c160d8e2c6e0a2ca0e6d6b41f2049db2cd0244f67f4ab3dc26c",
     "chainId": 421614,
     "allowedActions": [
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
-      "swapYesForNo",
-      "swapNoForYes",
       "redeemCompleteSets",
       "redeem",
       "disputeProposedResolution"

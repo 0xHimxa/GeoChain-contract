@@ -31,10 +31,8 @@
       84532
     ],
     "allowedActions": [
-      "addLiquidity",
-      "removeLiquidity",
-      "swapYesForNo",
-      "swapNoForYes",
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
       "redeemCompleteSets",
       "redeem",
@@ -48,37 +46,13 @@
   "executePolicy": {
     "enabled": true,
     "allowedActionTypes": [
-      "createMarket",
-      "priceCorrection",
-      "addLiquidityToFactory",
-      "mintCollateralTo",
-      "WithCollatralAndFee",
-      "processPendingWithdrawals",
-      "broadCastPrice",
-      "broadCastResolution",
-      "syncSpokeCanonicalPrice",
-      "routerDepositFor",
-      "routerWithdrawCollateralFor",
-      "routerWithdrawOutcomeFor",
-      "routerMintCompleteSets",
-      "routerRedeemCompleteSets",
-      "routerRedeem",
-      "routerSwapYesForNo",
-      "routerSwapNoForYes",
-      "routerAddLiquidity",
-      "routerRemoveLiquidity",
-      "routerDisputeProposedResolution",
+     "routerAgentSell",
+     "routerAgentBuy",
       "routerAgentMintCompleteSets",
       "routerAgentRedeemCompleteSets",
       "routerAgentRedeem",
-      "routerAgentSwapYesForNo",
-      "routerAgentSwapNoForYes",
-      "routerAgentAddLiquidity",
-      "routerAgentRemoveLiquidity",
       "routerAgentDisputeProposedResolution",
-      "routerAgentRevokePermission",
-      "routerCreditFromFiat",
-      "routerCreditFromEth"
+      "routerAgentRevokePermission"
     ]
   },
   "agentPolicy": {
@@ -88,10 +62,8 @@
       84532
     ],
     "allowedActions": [
-      "addLiquidity",
-      "removeLiquidity",
-      "swapYesForNo",
-      "swapNoForYes",
+      "lmsrBuy",
+      "lmsrSell",
       "mintCompleteSets",
       "redeemCompleteSets",
       "redeem",
