@@ -32,7 +32,7 @@ interface IPredictionMarketLike {
     function mintCompleteSets(uint256 amount) external;
     function redeemCompleteSets(uint256 amount) external;
     function redeem(uint256 amount) external;
-    function disputeProposedResolution(uint8 proposedOutcome) external;
+    function disputeProposedResolution(address _user,uint8 proposedOutcome) external;
 
     function executeBuy(
         address trader,

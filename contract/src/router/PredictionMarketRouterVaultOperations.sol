@@ -233,10 +233,14 @@ abstract contract PredictionMarketRouterVaultOperations is
         address beneficiary,
         uint256 amount
     ) internal {
+        uint256 balanceBefore = collateralToken.balanceOf(address(this));
         collateralToken.safeTransferFrom(payer, address(this), amount);
-        collateralCredits[beneficiary] += amount;
-        totalCollateralCredits += amount;
-        emit Deposited(beneficiary, amount);
+        uint256 balanceAfter = collateralToken.balanceOf(address(this));
+        if (balanceAfter < balanceBefore) revert Router__InvalidDelta();
+        uint256 balanceDelta = balanceAfter - balanceBefore;
+        collateralCredits[beneficiary] += balanceDelta;
+        totalCollateralCredits += balanceDelta;
+        emit Deposited(beneficiary, balanceDelta);
     }
 
     /// @dev Burns user collateral credits and transfers collateral out.

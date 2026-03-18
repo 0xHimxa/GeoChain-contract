@@ -154,6 +154,7 @@ library MarketErrors {
     error PredictionMarket__DisputeWindowNotPassed();
     error PredictionMarket__DisputeWindowClosed();
     error PredictionMarket__DisputeAlreadySubmittedByUser();
+    error PredictionMarket__DisputerCannotBeZero();
 
     // ── LMSR Errors ──────────────────────────────────────────────────
     /// @dev CRE-reported prices do not sum to ~1e6.
