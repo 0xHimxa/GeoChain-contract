@@ -428,7 +428,7 @@ contract PredictionMarketTest is Test {
         _warpAfterResolution();
         market.resolve(Resolution.Yes, "ipfs://proof");
 
-vm.prank(alice);
+vm.prank(address(this));
 market.setRouterVault(alice);
         vm.prank(alice);
         market.disputeProposedResolution(alice, Resolution.No);
