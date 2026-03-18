@@ -188,9 +188,11 @@ abstract contract PredictionMarketBase is
     error PredictionMarket__MarketIdAlreadySet();
     error PredictionMarket__InvalidOutcomeTokenAddress();
     error PredictionMarket__OutcomeTokensAlreadySet();
-    error PredictionMarket__OnlyRouterVault();
+    error PredictionMarket__OnlyRouterVaultAndFactory();
+    error PredictionMarket__OnlyMarketFactory();
     error PredictionMarket__RouterVaultAlreadySet();
     error PredictionMarket__RouterVaultZeroAddress();
+    error PredictionMarket__InvalidArbTrader();
     error PredictionMarket__TradeDirectionNotAllowedInCurrentBand();
     error PredictionMarket__TradeSizeExceedsBandLimit();
 
@@ -401,11 +403,22 @@ abstract contract PredictionMarketBase is
     }
 
     /// @dev Restricts access to the authorized router vault.
-    modifier onlyRouterVault() {
-        if (msg.sender != routerVault) {
-            revert PredictionMarket__OnlyRouterVault();
+    modifier onlyRouterVaultAndFactory(address _trader) {
+        if (msg.sender == routerVault) {
+            _;
+           
+        }else if (msg.sender == address(marketFactory)) {
+                /// @notice Factory-only arbitrage buy execution path.
+    /// @dev Allows MarketFactory to execute a corrective LMSR buy directly when reports
+            // Factory is also allowed to call router entrypoints to support factory-led maintenance operations (for example, rebasing in response to extreme market conditions).
+  if (_trader != address(marketFactory)) {
+            revert PredictionMarket__InvalidArbTrader();
         }
-        _;
+            _;
+         } else {
+            revert PredictionMarket__OnlyRouterVaultAndFactory();
+        }
+       
     }
 
     /// @dev Converts module band id into local enum.

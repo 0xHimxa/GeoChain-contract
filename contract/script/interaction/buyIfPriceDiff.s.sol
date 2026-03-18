@@ -9,15 +9,9 @@ import {PredictionMarketBase} from "../../src/predictionMarket/PredictionMarketB
 
 /// @notice Runs factory arbitrage only when market price deviation is Unsafe.
 contract BuyIfPriceDiff is Script {
-    uint256 internal constant DEFAULT_MAX_SPEND_COLLATERAL = 200_000_000; // 200 USDC (6 decimals)
-    uint256 internal constant DEFAULT_MIN_IMPROVEMENT_BPS = 10; // 0.10%
-
     function run() external {
-        uint256 privateKey = vm.envUint("PRIVATE_KEY");
         address factoryAddress = vm.envAddress("MARKET_FACTORY");
         uint256 marketId = vm.envUint("MARKET_ID");
-        uint256 maxSpendCollateral = vm.envOr("ARB_MAX_SPEND_COLLATERAL", DEFAULT_MAX_SPEND_COLLATERAL);
-        uint256 minDeviationImprovementBps = vm.envOr("ARB_MIN_DEVIATION_IMPROVEMENT_BPS", DEFAULT_MIN_IMPROVEMENT_BPS);
 
         MarketFactory factory = MarketFactory(factoryAddress);
         address marketAddress = factory.marketById(marketId);
@@ -46,10 +40,6 @@ contract BuyIfPriceDiff is Script {
             return;
         }
 
-        vm.startBroadcast(privateKey);
-        factory.arbitrateUnsafeMarket(marketId, maxSpendCollateral, minDeviationImprovementBps);
-        vm.stopBroadcast();
-
-        console2.log("Arbitrage tx sent for marketId:", marketId);
+        console2.log("Unsafe market detected. Submit CRE priceCorrection report with LMSR payload.");
     }
 }

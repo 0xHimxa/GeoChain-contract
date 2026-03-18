@@ -168,8 +168,9 @@ library CanonicalPricingModule {
         } else if (bandId == BAND_CIRCUIT_BREAKER) {
             effectiveFeeBps +=
                 uint256(p.stressExtraFeeBps) * CIRCUIT_BREAKER_FEE_MULTIPLIER;
-            allowYesForNo = false;
-            allowNoForYes = false;
+                
+               allowYesForNo = localYesPriceE6Value > p.canonicalYesPriceE6;
+            allowNoForYes = localYesPriceE6Value < p.canonicalYesPriceE6;
             maxOutBps = _reducedMaxOutBps(
                 p.unsafeMaxOutBps,
                 CIRCUIT_BREAKER_MAX_OUT_DIVISOR

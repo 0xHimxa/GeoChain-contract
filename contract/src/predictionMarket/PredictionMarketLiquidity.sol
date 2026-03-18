@@ -108,7 +108,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 effectiveFeeBps = _resolveLMSRTradeControls(
             outcomeIndex,
             true,
-            costDelta
+            costDelta,
+            trader
         );
         // Extract fee from inclusive amount (CRE sends cost with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
@@ -214,7 +215,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 effectiveFeeBps = _resolveLMSRTradeControls(
             outcomeIndex,
             false,
-            refundDelta
+            refundDelta,
+            trader
         );
      if(!isRiskExempt[trader]){
             userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
@@ -275,7 +277,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     function _resolveLMSRTradeControls(
         uint8 outcomeIndex,
         bool isBuy,
-        uint256 tradeNotional
+        uint256 tradeNotional,
+        address trader
     ) internal view returns (uint256 effectiveFeeBps) {
         effectiveFeeBps = MarketConstants.LMSR_TRADE_FEE_BPS;
 
@@ -308,7 +311,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 maxOut;
         (, effectiveFeeBps, maxOut, ) = CanonicalPricingModule.swapControls(p);
 
-        if (tradeNotional > maxOut) {
+        if (trader != address(marketFactory) && tradeNotional > maxOut) {
             revert PredictionMarket__TradeSizeExceedsBandLimit();
         }
     }
@@ -421,7 +424,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 newYesPriceE6,
         uint256 newNoPriceE6,
         uint64 nonce
-    ) external onlyRouterVault nonReentrant {
+    ) external onlyRouterVaultAndFactory(trader) nonReentrant {
         _executeLMSRBuy(
             trader,
             outcomeIndex,
@@ -433,6 +436,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         );
     }
 
+
     /// @notice External entry point for executing LMSR sell trades via router vault.
     /// @dev Only callable by the authorized router vault. Validates CRE report data and executes trade.
     function executeSell(
@@ -443,7 +447,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         uint256 newYesPriceE6,
         uint256 newNoPriceE6,
         uint64 nonce
-    ) external onlyRouterVault nonReentrant {
+    ) external onlyRouterVaultAndFactory(trader) nonReentrant {
         _executeLMSRSell(
             trader,
             outcomeIndex,

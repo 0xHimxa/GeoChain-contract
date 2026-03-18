@@ -87,11 +87,36 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
         } else if (actionTypeHash == hashed_PriceCorrection) {
             (
                 uint256 marketId,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 costDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce,
                 uint256 maxSpendCollateral,
                 uint256 minDeviationImprovementBps
-            ) = abi.decode(payload, (uint256, uint256, uint256));
+            ) = abi.decode(
+                    payload,
+                    (
+                        uint256,
+                        uint8,
+                        uint256,
+                        uint256,
+                        uint256,
+                        uint256,
+                        uint64,
+                        uint256,
+                        uint256
+                    )
+                );
             _arbitrateUnsafeMarket(
                 marketId,
+                outcomeIndex,
+                sharesDelta,
+                costDelta,
+                newYesPriceE6,
+                newNoPriceE6,
+                nonce,
                 maxSpendCollateral,
                 minDeviationImprovementBps
             );
@@ -125,42 +150,30 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
     {
         return collateral.balanceOf(address(this));
     }
-
-    /// @notice Owner entrypoint for corrective arbitrage when a market is in unsafe deviation.
-    /// @dev Delegates to `_arbitrateUnsafeMarket`, which enforces that:
-    /// 1) market exists,
-    /// 2) market is currently in unsafe band,
-    /// 3) there is at least one allowed correction direction,
-    /// 4) deviation strictly improves by at least `minDeviationImprovementBps`.
-    function arbitrateUnsafeMarket(
-        uint256 marketId,
-        uint256 maxSpendCollateral,
-        uint256 minDeviationImprovementBps
-    ) external onlyOwner {
-        return
-            _arbitrateUnsafeMarket(
-                marketId,
-                maxSpendCollateral,
-                minDeviationImprovementBps
-            );
-    }
-
-    /// @dev Checks if a market is in unsafe deviation and logs for CRE-based correction.
-    /// In LMSR mode, arbitrage (including price-before and trade sizing) is handled off-chain
-    /// by the CRE arbitrage handler. This function only validates the market is in unsafe band
-    /// and emits an event. The CRE handler will then compute and submit the appropriate LMSR trade.
+    /// @dev Executes a factory-routed LMSR arbitrage buy using CRE-provided trade quote data.
+    /// The factory is the trade account and is intentionally exempt from maxOutBps limits in market checks.
     function _arbitrateUnsafeMarket(
         uint256 marketId,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 costDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce,
         uint256 maxSpendCollateral,
         uint256 minDeviationImprovementBps
     ) internal {
+        if (maxSpendCollateral == 0 || sharesDelta == 0 || costDelta == 0)
+            revert MarketFactory__ArbZeroAmount();
+        if (costDelta > maxSpendCollateral)
+            revert MarketFactory__ArbCostExceedsMax();
+
         UnsafeArbContext memory ctx;
         ctx.marketAddress = marketById[marketId];
         if (ctx.marketAddress == address(0))
             revert MarketFactory__MarketNotFound();
-        if (maxSpendCollateral == 0) revert MarketFactory__ArbZeroAmount();
-
         ctx.market = PredictionMarket(ctx.marketAddress);
+
         PredictionMarketBase.DeviationBand band;
         bool allowYesForNo;
         bool allowNoForYes;
@@ -173,56 +186,47 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
             allowNoForYes
         ) = ctx.market.getDeviationStatus();
 
-        if (uint8(band) != 2) revert MarketFactory__ArbNotUnsafe();
+        if (uint8(band) != 2 && uint8(band) != 3)
+            revert MarketFactory__ArbNotUnsafe();
         if (!allowYesForNo && !allowNoForYes)
             revert MarketFactory__ArbNoDirection();
 
-        // In LMSR mode, actual arbitrage trades are submitted by CRE as LMSRBuy/LMSRSell reports.
-        // Here we just validate the market needs correction and emit the event for monitoring.
-        ctx.yesForNo = allowYesForNo;
+        // Buy NO (outcomeIndex=1) means YES->NO corrective direction.
+        // Buy YES (outcomeIndex=0) means NO->YES corrective direction.
+        bool yesForNo = outcomeIndex == 1;
+        if ((yesForNo && !allowYesForNo) || (!yesForNo && !allowNoForYes))
+            revert MarketFactory__ArbNoDirection();
+
+        _ensureAllowance(collateral, ctx.marketAddress, costDelta);
+        ctx.market.executeBuy(
+            address(this),
+            outcomeIndex,
+            sharesDelta,
+            costDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
+        );
+
+        uint256 deviationAfter;
+        (, deviationAfter, , , , ) = ctx.market.getDeviationStatus();
+        if (
+            deviationAfter >= ctx.deviationBefore ||
+            ctx.deviationBefore - deviationAfter < minDeviationImprovementBps
+        ) {
+            revert MarketFactory__ArbImprovementTooLow();
+        }
 
         emit UnsafeArbitrageExecuted(
             ctx.marketAddress,
-            ctx.yesForNo,
-            maxSpendCollateral,
+            yesForNo,
+            costDelta,
             ctx.deviationBefore,
-            0
+            deviationAfter
         );
     }
 
-    /// @dev Executes the swap leg of the correction after complete-set minting.
-    /// NOTE: In LMSR mode, swap-based arbitrage is handled off-chain by CRE.
-    /// This function is kept as a no-op stub for interface compatibility.
-    function _executeUnsafeArbSwap(
-        PredictionMarket,
-        address,
-        bool,
-        uint256
-    ) internal pure {
-        // In LMSR mode, arbitrage trades are submitted via CRE LMSRBuy/LMSRSell reports.
-        // This function is intentionally empty.
-    }
 
-    /// @dev Converts collateral spend into actual tradable outcome tokens after mint fee.
-    function _netOutcomeFromCollateral(
-        uint256 collateralAmount
-    ) internal pure returns (uint256) {
-        uint256 fee = (collateralAmount *
-            MarketConstants.MINT_COMPLETE_SETS_FEE_BPS) /
-            MarketConstants.FEE_PRECISION_BPS;
-        return collateralAmount - fee;
-    }
-
-    /// @dev In LMSR mode, there are no LP shares. Binary search is kept for potential future use.
-    function _capSpendForMaxOut(
-        uint256 maxSpend,
-        uint256,
-        uint256,
-        uint256,
-        uint256
-    ) internal pure returns (uint256) {
-        return maxSpend;
-    }
 
     /// @dev Makes sure allowance is sufficient without resetting every call.
     function _ensureAllowance(

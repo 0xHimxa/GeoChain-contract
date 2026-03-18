@@ -248,6 +248,8 @@ abstract contract MarketFactoryBase is
     error MarketFactory__ArbNotUnsafe();
     error MarketFactory__ArbZeroAmount();
     error MarketFactory__ArbNoDirection();
+    error MarketFactory__ArbCostExceedsMax();
+    error MarketFactory__ArbImprovementTooLow();
     error MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove();
     error MarketFactory__NotSpokeFactory();
     error MarketFactory__InvalidMaxBatch();
@@ -469,7 +471,7 @@ abstract contract MarketFactoryBase is
             m.setRiskExempt(predictionMarketRouter, true);
             m.setRouterVault(predictionMarketRouter);
         }
-
+    m.setRiskExempt(address(this), true);
         m.transferOwnership(owner());
 
         emit MarketCreated(marketCount, address(m), initialLiquidity);

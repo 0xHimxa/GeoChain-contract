@@ -206,7 +206,7 @@ contract MarketFactoryTest is Test {
         market.onReport("", report);
     }
 
-    function testArbitrateUnsafeMarketImprovesDeviation() external {
+    function testArbitrateUnsafeMarketRequiresReportPath() external {
         vm.startPrank(marketOwner);
         address created = market.createMarket("arb market", block.timestamp + 1000, block.timestamp + 20000, initialLiquidity);
         vm.stopPrank();
@@ -214,11 +214,8 @@ contract MarketFactoryTest is Test {
         vm.prank(address(market));
         PredictionMarket(created).syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 2);
 
-        vm.prank(marketOwner);
-        market.arbitrateUnsafeMarket(1, 1000e6, 1);
-
         (, uint256 deviationAfter,,,,) = PredictionMarket(created).getDeviationStatus();
-        // LMSR mode: arbitrage is off-chain; on-chain call only emits and does not change deviation.
+        // Arbitrage execution now goes through factory onReport(priceCorrection) payload.
         assertEq(deviationAfter, 400);
     }
 
