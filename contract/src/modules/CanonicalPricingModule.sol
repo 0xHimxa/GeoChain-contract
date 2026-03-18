@@ -12,6 +12,10 @@ library CanonicalPricingModule {
     uint8 internal constant BAND_STRESS = 1;
     uint8 internal constant BAND_UNSAFE = 2;
     uint8 internal constant BAND_CIRCUIT_BREAKER = 3;
+    uint256 internal constant UNSAFE_FEE_MULTIPLIER = 2;
+    uint256 internal constant CIRCUIT_BREAKER_FEE_MULTIPLIER = 5;
+    uint256 internal constant UNSAFE_MAX_OUT_DIVISOR = 1;
+    uint256 internal constant CIRCUIT_BREAKER_MAX_OUT_DIVISOR = 2;
 
     struct SwapControlsParams {
         bool yesForNo;
@@ -85,13 +89,24 @@ library CanonicalPricingModule {
             effectiveFeeBps += p.stressExtraFeeBps;
             maxOut = (p.reserveOut * p.stressMaxOutBps) / p.feePrecisionBps;
         } else if (bandId == BAND_UNSAFE) {
-            effectiveFeeBps += p.stressExtraFeeBps;
-            maxOut = (p.reserveOut * p.unsafeMaxOutBps) / p.feePrecisionBps;
+            effectiveFeeBps += uint256(p.stressExtraFeeBps) * UNSAFE_FEE_MULTIPLIER;
+            uint256 reducedUnsafeMaxOutBps = _reducedMaxOutBps(
+                p.unsafeMaxOutBps,
+                UNSAFE_MAX_OUT_DIVISOR
+            );
+            maxOut = (p.reserveOut * reducedUnsafeMaxOutBps) / p.feePrecisionBps;
 
             bool allowYesForNo = localYesPriceE6Value > p.canonicalYesPriceE6;
             bool allowNoForYes = localYesPriceE6Value < p.canonicalYesPriceE6;
             allowDirection = (p.yesForNo && allowYesForNo) || (!p.yesForNo && allowNoForYes);
         } else if (bandId == BAND_CIRCUIT_BREAKER) {
+            effectiveFeeBps +=
+                uint256(p.stressExtraFeeBps) * CIRCUIT_BREAKER_FEE_MULTIPLIER;
+            uint256 reducedCircuitMaxOutBps = _reducedMaxOutBps(
+                p.unsafeMaxOutBps,
+                CIRCUIT_BREAKER_MAX_OUT_DIVISOR
+            );
+            maxOut = (p.reserveOut * reducedCircuitMaxOutBps) / p.feePrecisionBps;
             allowDirection = false;
         }
     }
@@ -143,14 +158,32 @@ library CanonicalPricingModule {
             effectiveFeeBps += p.stressExtraFeeBps;
             maxOutBps = p.stressMaxOutBps;
         } else if (bandId == BAND_UNSAFE) {
-            effectiveFeeBps += p.stressExtraFeeBps;
-            maxOutBps = p.unsafeMaxOutBps;
+            effectiveFeeBps += uint256(p.stressExtraFeeBps) * UNSAFE_FEE_MULTIPLIER;
+            maxOutBps = _reducedMaxOutBps(
+                p.unsafeMaxOutBps,
+                UNSAFE_MAX_OUT_DIVISOR
+            );
             allowYesForNo = localYesPriceE6Value > p.canonicalYesPriceE6;
             allowNoForYes = localYesPriceE6Value < p.canonicalYesPriceE6;
         } else if (bandId == BAND_CIRCUIT_BREAKER) {
+            effectiveFeeBps +=
+                uint256(p.stressExtraFeeBps) * CIRCUIT_BREAKER_FEE_MULTIPLIER;
             allowYesForNo = false;
             allowNoForYes = false;
-            maxOutBps = 0;
+            maxOutBps = _reducedMaxOutBps(
+                p.unsafeMaxOutBps,
+                CIRCUIT_BREAKER_MAX_OUT_DIVISOR
+            );
+        }
+    }
+
+    function _reducedMaxOutBps(
+        uint256 maxOutBps,
+        uint256 divisor
+    ) private pure returns (uint256 reducedMaxOutBps) {
+        reducedMaxOutBps = maxOutBps / divisor;
+        if (reducedMaxOutBps == 0) {
+            reducedMaxOutBps = 1;
         }
     }
 }

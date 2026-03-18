@@ -117,6 +117,23 @@ const erc20BalanceOfAbi = [
   },
 ] as const;
 
+const getDeviationStatusAbi = [
+  {
+    type: "function",
+    name: "getDeviationStatus",
+    inputs: [],
+    outputs: [
+      { name: "band", type: "uint8" },
+      { name: "deviationBps", type: "uint256" },
+      { name: "effectiveFeeBps", type: "uint256" },
+      { name: "maxOutBps", type: "uint256" },
+      { name: "allowYesForNo", type: "bool" },
+      { name: "allowNoForYes", type: "bool" },
+    ],
+    stateMutability: "view",
+  },
+] as const;
+
 type LMSRState = readonly [bigint, bigint, bigint, bigint, bigint, bigint];
 
 // ─── BigInt Fixed-Point Math ─────────────────────────────────────────────────
@@ -471,6 +488,41 @@ export const lmsrTradeHttpHandler = async (
     return fail(requestId, "market not initialized (b=0)");
   }
 
+  // ── Canonical band controls (spoke safety rails) ────────────────
+  let effectiveTradeFeeBps = LMSR_TRADE_FEE_BPS;
+  try {
+    const deviationCallData = encodeFunctionData({
+      abi: getDeviationStatusAbi,
+      functionName: "getDeviationStatus",
+      args: [],
+    });
+
+    const deviationResult = evmClient
+      .callContract(runtime, {
+        call: encodeCallMsg({
+          from: req.trader as `0x${string}`,
+          to: req.market as `0x${string}`,
+          data: deviationCallData as `0x${string}`,
+        }),
+      })
+      .result();
+
+    const decoded = decodeFunctionResult({
+      abi: getDeviationStatusAbi,
+      functionName: "getDeviationStatus",
+      data: bytesToHex(deviationResult.data),
+    }) as readonly [number, bigint, bigint, bigint, boolean, boolean];
+
+    const [, , reportedFeeBps] = decoded;
+
+    effectiveTradeFeeBps = reportedFeeBps;
+  } catch (error) {
+    return fail(
+      requestId,
+      `failed to read deviation status: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
   // ── For sells, verify trader balance early to avoid on-chain revert ──
   if (req.action === "lmsrSell") {
     try {
@@ -553,10 +605,13 @@ export const lmsrTradeHttpHandler = async (
     if (rawCost <= 0n) {
       return fail(requestId, "computed cost is non-positive (unexpected)");
     }
-    // Apply fee: grossCost = rawCost * FEE_PRECISION_BPS / (FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS)
+    // Apply fee: grossCost = rawCost * FEE_PRECISION_BPS / (FEE_PRECISION_BPS - effectiveTradeFeeBps)
     // Integer ceiling: (a * b + c - 1) / c
     const numerator = rawCost * FEE_PRECISION_BPS;
-    const denominator = FEE_PRECISION_BPS - LMSR_TRADE_FEE_BPS;
+    const denominator = FEE_PRECISION_BPS - effectiveTradeFeeBps;
+    if (denominator <= 0n) {
+      return fail(requestId, "effective fee is too high for buy pricing");
+    }
     // Ceiling division for buy (trader pays at least the true cost)
     costOrRefund = (numerator + denominator - 1n) / denominator;
   } else {
@@ -595,7 +650,8 @@ export const lmsrTradeHttpHandler = async (
 
   runtime.log(
     `[LMSR_TRADE] ${req.action} outcomeIndex=${req.outcomeIndex} sharesDelta=${sharesDelta} ` +
-      `costOrRefund=${costOrRefund} newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${expectedNonce}`
+      `costOrRefund=${costOrRefund} effectiveFeeBps=${effectiveTradeFeeBps} ` +
+      `newPrices=(${finalYesPriceE6},${finalNoPriceE6}) nonce=${expectedNonce}`
   );
 
   // ── Encode & Submit Report ───────────────────────────────────────

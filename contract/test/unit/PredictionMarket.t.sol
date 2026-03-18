@@ -3,6 +3,8 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {PredictionMarket} from "../../src/predictionMarket/PredictionMarket.sol";
+import {PredictionMarketBase} from
+    "../../src/predictionMarket/PredictionMarketBase.sol";
 import {MarketDeployer} from "../../src/marketFactory/event-deployer/MarketDeployer.sol";
 import {OutcomeToken} from "../../src/token/OutcomeToken.sol";
 import {LMSRLib} from "../../src/libraries/LMSRLib.sol";
@@ -712,6 +714,65 @@ market.setRouterVault(alice);
         assertEq(market.stressExtraFeeBps(), 80);
         assertEq(market.stressMaxOutBps(), 300);
         assertEq(market.unsafeMaxOutBps(), 100);
+    }
+
+    function testDeviationStatusUnsafeAndCircuitUseEscalatedFeeAndReducedCaps()
+        external
+    {
+        market.setCrossChainController(address(this));
+
+        // Unsafe band: local YES=500000 vs canonical YES=460000 (400 bps deviation)
+        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+        (
+            PredictionMarketBase.DeviationBand unsafeBand,
+            ,
+            uint256 unsafeEffectiveFeeBps,
+            uint256 unsafeMaxOutBps,
+            bool unsafeAllowYesForNo,
+            bool unsafeAllowNoForYes
+        ) = market.getDeviationStatus();
+        assertEq(uint8(unsafeBand), uint8(PredictionMarketBase.DeviationBand.Unsafe));
+        assertEq(unsafeEffectiveFeeBps, 600); // 400 + (2 * 100 stress extra)
+        assertEq(unsafeMaxOutBps, 25); // reduced from default unsafeMaxOutBps=50
+        assertEq(unsafeAllowYesForNo, true);
+        assertEq(unsafeAllowNoForYes, false);
+
+        // Circuit breaker: local YES=500000 vs canonical YES=430000 (700 bps deviation)
+        market.syncCanonicalPriceFromHub(430_000, 570_000, block.timestamp + 1 days, 2);
+        (
+            PredictionMarketBase.DeviationBand breakerBand,
+            ,
+            uint256 breakerEffectiveFeeBps,
+            uint256 breakerMaxOutBps,
+            bool breakerAllowYesForNo,
+            bool breakerAllowNoForYes
+        ) = market.getDeviationStatus();
+        assertEq(
+            uint8(breakerBand),
+            uint8(PredictionMarketBase.DeviationBand.CircuitBreaker)
+        );
+        assertEq(breakerEffectiveFeeBps, 900); // 400 + (5 * 100 stress extra)
+        assertEq(breakerMaxOutBps, 10); // reduced from default unsafeMaxOutBps=50
+        assertEq(breakerAllowYesForNo, false);
+        assertEq(breakerAllowNoForYes, false);
+    }
+
+    function testLmsrBuyOnSpokeUnsafeUsesEscalatedFeeWithoutDirectionBlock()
+        external
+    {
+        uint256 costDelta = 50e6;
+        uint256 sharesDelta = 50e6;
+        _fundAndApproveCollateral(alice, costDelta * 2);
+
+        market.setCrossChainController(address(this));
+        market.syncCanonicalPriceFromHub(460_000, 540_000, block.timestamp + 1 days, 1);
+
+        // local YES > canonical YES; both directions remain user-tradable.
+        _reportLmsrBuy(alice, 0, sharesDelta, costDelta, 505_000, 495_000, 0);
+        _reportLmsrBuy(alice, 1, sharesDelta, costDelta, 495_000, 505_000, 1);
+
+        uint256 fee = (costDelta * 600) / MarketConstants.FEE_PRECISION_BPS;
+        assertEq(market.protocolCollateralFees(), fee * 2);
     }
 
     function testCheckResolutionTime() external {

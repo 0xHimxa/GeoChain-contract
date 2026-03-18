@@ -191,6 +191,8 @@ abstract contract PredictionMarketBase is
     error PredictionMarket__OnlyRouterVault();
     error PredictionMarket__RouterVaultAlreadySet();
     error PredictionMarket__RouterVaultZeroAddress();
+    error PredictionMarket__TradeDirectionNotAllowedInCurrentBand();
+    error PredictionMarket__TradeSizeExceedsBandLimit();
 
     enum DeviationBand {
         Normal,

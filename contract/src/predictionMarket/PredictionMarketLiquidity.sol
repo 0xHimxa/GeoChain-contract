@@ -14,6 +14,7 @@ import {
 } from "../libraries/MarketTypes.sol";
 import {LMSRLib} from "../libraries/LMSRLib.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
+import {CanonicalPricingModule} from "../modules/CanonicalPricingModule.sol";
 import {OutcomeToken} from "../token/OutcomeToken.sol";
 import {PredictionMarketBase} from "./PredictionMarketBase.sol";
 
@@ -104,10 +105,15 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
+        uint256 effectiveFeeBps = _resolveLMSRTradeControls(
+            outcomeIndex,
+            true,
+            costDelta
+        );
         // Extract fee from inclusive amount (CRE sends cost with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
             costDelta,
-            MarketConstants.LMSR_TRADE_FEE_BPS,
+            effectiveFeeBps,
             MarketConstants.FEE_PRECISION_BPS
         );
         uint256 actualCost = costDelta - fee; // costDelta is already inclusive (CRE subtracted fee)
@@ -205,6 +211,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             revert MarketErrors.LMSR__InvalidPriceSum();
         if (!LMSRLib.validateTradeNonce(tradeNonce, nonce))
             revert MarketErrors.LMSR__StaleTradeNonce();
+        uint256 effectiveFeeBps = _resolveLMSRTradeControls(
+            outcomeIndex,
+            false,
+            refundDelta
+        );
      if(!isRiskExempt[trader]){
             userRiskExposure[trader] = userRiskExposure[trader] > refundDelta
             ? userRiskExposure[trader] - refundDelta
@@ -241,7 +252,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         // Extract fee from inclusive refund (CRE sends refund with fee already subtracted)
         uint256 fee = FeeLib.calculateFee(
             refundDelta,
-            MarketConstants.LMSR_TRADE_FEE_BPS,
+            effectiveFeeBps,
             MarketConstants.FEE_PRECISION_BPS
         );
         uint256 netRefund = refundDelta - fee; // refundDelta is already inclusive (CRE subtracted fee)
@@ -259,6 +270,47 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             newNoPriceE6,
             nonce
         );
+    }
+
+    function _resolveLMSRTradeControls(
+        uint8 outcomeIndex,
+        bool isBuy,
+        uint256 tradeNotional
+    ) internal view returns (uint256 effectiveFeeBps) {
+        effectiveFeeBps = MarketConstants.LMSR_TRADE_FEE_BPS;
+
+        if (!_isCanonicalPricingMode()) {
+            return effectiveFeeBps;
+        }
+
+        _ensureCanonicalPriceFresh();
+        _validateCanonicalPrices();
+
+        bool yesForNo = isBuy ? outcomeIndex == 1 : outcomeIndex == 0;
+        uint256 collateralReserve = i_collateral.balanceOf(address(this));
+
+        CanonicalPricingModule.SwapControlsParams
+            memory p = CanonicalPricingModule.SwapControlsParams({
+                yesForNo: yesForNo,
+                reserveOut: collateralReserve,
+                localYesPriceE6: lastYesPriceE6,
+                pricePrecision: MarketConstants.PRICE_PRECISION,
+                canonicalYesPriceE6: canonicalYesPriceE6,
+                softDeviationBps: softDeviationBps,
+                stressDeviationBps: stressDeviationBps,
+                hardDeviationBps: hardDeviationBps,
+                stressExtraFeeBps: stressExtraFeeBps,
+                stressMaxOutBps: stressMaxOutBps,
+                unsafeMaxOutBps: unsafeMaxOutBps,
+                swapFeeBps: MarketConstants.LMSR_TRADE_FEE_BPS,
+                feePrecisionBps: MarketConstants.FEE_PRECISION_BPS
+            });
+        uint256 maxOut;
+        (, effectiveFeeBps, maxOut, ) = CanonicalPricingModule.swapControls(p);
+
+        if (tradeNotional > maxOut) {
+            revert PredictionMarket__TradeSizeExceedsBandLimit();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════

@@ -138,10 +138,7 @@ contract PredictionMarket is PredictionMarketResolution {
             revert MarketErrors.LMSR__NotInitialized();
         }
 
-        if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            return canonicalYesPriceE6;
-        }
+        
 
         return lastYesPriceE6;
     }
@@ -152,10 +149,7 @@ contract PredictionMarket is PredictionMarketResolution {
             revert MarketErrors.LMSR__NotInitialized();
         }
 
-        if (_isCanonicalPricingMode()) {
-            _ensureCanonicalPriceFresh();
-            return canonicalNoPriceE6;
-        }
+      
 
         return lastNoPriceE6;
     }
