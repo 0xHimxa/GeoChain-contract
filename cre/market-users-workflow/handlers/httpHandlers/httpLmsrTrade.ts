@@ -30,7 +30,7 @@ type LmsrTradeRequest = {
   chainId?: number;
   outcomeIndex?: number;
   amount?: string;
-  action?: "buy" | "sell";
+  action?: "lmsrBuy" | "lmsrSell";
   trader?: string;
   creDecision?: {
     approvalId?: string;
@@ -317,7 +317,7 @@ const normalizeRequest = (req: LmsrTradeRequest): LmsrTradeRequest => {
     approvalId,
     market: (req.market || "").trim(),
     trader: (req.trader || "").trim(),
-    action: (req.action || "").trim().toLowerCase() as "buy" | "sell",
+    action: (req.action || "").trim().toLowerCase() as "lmsrBuy" | "lmsrSell",
   };
 };
 
@@ -386,8 +386,8 @@ export const lmsrTradeHttpHandler = async (
     return fail(requestId, "outcomeIndex must be 0 (YES) or 1 (NO)");
   }
 
-  if (req.action !== "buy" && req.action !== "sell") {
-    return fail(requestId, "action must be 'buy' or 'sell'");
+  if (req.action !== "lmsrBuy" && req.action !== "lmsrSell") {
+    return fail(requestId, "action not supported ");
   }
 
   let sharesDelta: bigint;
@@ -401,7 +401,7 @@ export const lmsrTradeHttpHandler = async (
   }
 
   // ── Consume Approval ─────────────────────────────────────────────
-  const actionType = req.action === "buy" ? "LMSRBuy" : "LMSRSell";
+  const actionType = req.action === "lmsrBuy" ? "LMSRBuy" : "LMSRSell";
 
   const firestoreToken = getFirestoreIdToken(runtime);
   const approvalConsumption = consumeApprovalRecord(runtime, firestoreToken, {
@@ -472,7 +472,7 @@ export const lmsrTradeHttpHandler = async (
   }
 
   // ── For sells, verify trader balance early to avoid on-chain revert ──
-  if (req.action === "sell") {
+  if (req.action === "lmsrSell") {
     try {
       const tokenCallData = encodeFunctionData({
         abi: req.outcomeIndex === 0 ? getYesTokenAbi : getNoTokenAbi,
@@ -536,7 +536,7 @@ export const lmsrTradeHttpHandler = async (
   const costBefore: bigint = lmsrCostBigInt(sharesBefore, b);
 
   const sharesAfter: bigint[] = [...sharesBefore];
-  if (req.action === "buy") {
+  if (req.action === "lmsrBuy") {
     sharesAfter[req.outcomeIndex] += sharesDelta;
   } else {
     if (sharesAfter[req.outcomeIndex] < sharesDelta) {
@@ -548,7 +548,7 @@ export const lmsrTradeHttpHandler = async (
   const costAfter: bigint = lmsrCostBigInt(sharesAfter, b);
 
   let costOrRefund: bigint;
-  if (req.action === "buy") {
+  if (req.action === "lmsrBuy") {
     const rawCost = costAfter - costBefore;
     if (rawCost <= 0n) {
       return fail(requestId, "computed cost is non-positive (unexpected)");
