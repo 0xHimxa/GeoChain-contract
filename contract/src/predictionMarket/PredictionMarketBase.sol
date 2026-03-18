@@ -292,23 +292,11 @@ abstract contract PredictionMarketBase is
         _;
     }
 
-    /// @dev Ensures LMSR initialization has been completed.
-    modifier initializedOnly() {
-        _initializedOnly();
-        _;
-    }
 
-    /// @dev Rejects zero-valued user inputs before executing stateful logic.
-    modifier zeroAmountCheck(uint256 amount) {
-        _zeroAmountCheck(amount);
-        _;
-    }
 
-    /// @dev Restricts access to the hub/factory controller that owns spoke sync authority.
-    modifier onlyCrossChainController() {
-        _onlyCrossChainController();
-        _;
-    }
+ 
+ 
+
 
     /// @notice Sets whether an account bypasses risk exposure cap in `mintCompleteSets`.
     /// @dev Intended for trusted automation (for example factory-controlled maintenance paths)
@@ -352,21 +340,22 @@ abstract contract PredictionMarketBase is
 
         if (paused()) revert MarketErrors.PredictionMarket__IsPaused();
     }
-
+    
+    /// @dev Ensures LMSR initialization has been completed.
     /// @dev Enforces that LMSR has been initialized before pool operations.
     function _initializedOnly() internal view {
         if (!initialized) {
             revert MarketErrors.LMSR__NotInitialized();
         }
     }
-
+/// @dev Rejects zero-valued user inputs before executing stateful logic.
     /// @dev Reverts when amount is zero.
     function _zeroAmountCheck(uint256 amount) internal pure {
         if (amount == 0) {
             revert MarketErrors.PredictionMarket__AmountCantBeZero();
         }
     }
-
+   /// @dev Restricts access to the hub/factory controller that owns spoke sync authority.
     /// @dev Enforces cross-chain controller caller for hub-sync entrypoints.
     function _onlyCrossChainController() internal view {
         if (msg.sender != crossChainController) {

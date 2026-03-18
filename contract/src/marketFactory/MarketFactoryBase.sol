@@ -74,7 +74,8 @@ abstract contract MarketFactoryBase is
     bool public isHubFactory;
     /// @notice Monotonic nonce for outbound sync messages.
     uint64 public ccipNonce;
-
+    ///@notice marketFactory pre-sell window
+   uint256 internal constant PRE_CLOSE_SELL_WINDOW = 2 minutes;
     /// @dev Spoke selectors that currently have trusted remotes configured.
     uint64[] internal s_spokeSelectors;
     /// @dev True if selector already exists in `s_spokeSelectors`.
@@ -271,24 +272,7 @@ abstract contract MarketFactoryBase is
         marketDeployer = MarketDeployer(_marketDeployer);
         Amount_Funding_Factory = 100000e6;
 
-        hashed_BroadCastPrice = keccak256(abi.encode("broadCastPrice"));
-        hashed_SyncSpokeCanonicalPrice = keccak256(
-            abi.encode("syncSpokeCanonicalPrice")
-        );
-        hashed_BroadCastResolution = keccak256(
-            abi.encode("broadCastResolution")
-        );
-        hashed_CreateMarket = keccak256(abi.encode("createMarket"));
-        hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
-        hashed_AddLiquidityToFactory = keccak256(
-            abi.encode("addLiquidityToFactory")
-        );
-        hashed_WithCollatralAndFee = keccak256(
-            abi.encode("WithCollatralAndFee")
-        );
-        hashed_ProcessPendingWithdrawals = keccak256(
-            abi.encode("processPendingWithdrawals")
-        );
+       
         initailEventLiquidity = 30000e6;
 
         s_supportedChainSelector[10344971235874465080] = true;
@@ -297,9 +281,7 @@ abstract contract MarketFactoryBase is
         s_supportedChainSelector[80002] = true;
         s_supportedChainSelector[84532] = true;
 
-        hashed_SyncSpokeCanonicalPrice = keccak256(
-            abi.encode("syncSpokeCanonicalPrice")
-        );
+    
         initialCanonicalPriceWindow = 5 minutes;
         initialCanonicalPriceE6 = 500_000;
     }

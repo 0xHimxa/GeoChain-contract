@@ -30,15 +30,8 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
             (string, bytes)
         );
         bytes32 actionTypeHash = keccak256(abi.encode(actionType));
-        bytes32 syncSpokeActionHash = hashed_SyncSpokeCanonicalPrice;
-        bytes32 mintCollateralToActionHash = keccak256(
-            abi.encode("mintCollateralTo")
-        );
-        if (syncSpokeActionHash == bytes32(0)) {
-            syncSpokeActionHash = keccak256(
-                abi.encode("syncSpokeCanonicalPrice")
-            );
-        }
+       
+        
 
         if (actionTypeHash == ActionTypeHashed.hashed_BroadCastPrice) {
             (
@@ -53,7 +46,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 noPriceE6,
                 validUntil
             );
-        } else if (actionTypeHash == ActionTypeHashed.syncSpokeActionHash) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_SyncSpokeCanonicalPrice) {
             (
                 uint256 marketId,
                 uint256 yesPriceE6,

@@ -334,9 +334,11 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         virtual
         nonReentrant
         marketOpen
-        initializedOnly
-        zeroAmountCheck(amount)
+       
+       
     {
+        _initializedOnly();
+        _zeroAmountCheck(amount);
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__MintingCompleteSet__AmountLessThanMinimum();
         }
@@ -383,7 +385,8 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
     /// charges redeem fee, and transfers net collateral back to caller.
     function redeemCompleteSets(
         uint256 amount
-    ) public virtual nonReentrant marketOpen zeroAmountCheck(amount) {
+    ) public virtual nonReentrant marketOpen {
+        _zeroAmountCheck(amount);
         if (amount < MarketConstants.MINIMUM_AMOUNT) {
             revert MarketErrors.PredictionMarket__RedeemCompleteSetLessThanMinAllowed();
         }

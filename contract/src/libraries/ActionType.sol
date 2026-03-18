@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.33
+pragma solidity 0.8.33;
 
 
 /// The library assumes reserves and token units share the same decimals.
@@ -22,27 +22,42 @@ library ActionTypeHashed {
 
 //Market factory and maintenance action type hashes for off-chain CRE reports, used in PredictionMarket.
 
-            /// @dev Action hash for broadcast-price report.
-    bytes32 internal hashed_BroadCastPrice;
-    /// @dev Action hash for direct spoke canonical-price sync report.
-    bytes32 internal hashed_SyncSpokeCanonicalPrice;
-    /// @dev Action hash for broadcast-resolution report.
-    bytes32 internal hashed_BroadCastResolution;
-    /// @dev Action hash for create-market report.
-    bytes32 internal hashed_CreateMarket;
-    /// @dev Action hash for unsafe-price-correction report.
-    bytes32 internal hashed_PriceCorrection;
-    /// @dev Action hash for add-liquidity-to-factory report.
-    bytes32 internal hashed_AddLiquidityToFactory;
-    /// @dev Action hash for combined withdraw report.
-    bytes32 internal hashed_WithCollatralAndFee;
-    /// @dev Action hash for pending-withdraw processing report.
-    bytes32 internal hashed_ProcessPendingWithdrawals;
 
+
+    /// @dev Action hash for broadcast-price report.
+ bytes32 internal constant hashed_BroadCastPrice = keccak256(abi.encode("broadCastPrice"));
+
+  /// @dev Action hash for direct spoke canonical-price sync report.
+        bytes32 internal constant hashed_SyncSpokeCanonicalPrice = keccak256(
+            abi.encode("syncSpokeCanonicalPrice")
+        );
+         /// @dev Action hash for broadcast-resolution report.
+        bytes32 internal constant hashed_BroadCastResolution = keccak256(
+            abi.encode("broadCastResolution")
+        );
+         /// @dev Action hash for create-market report.
+        bytes32 internal constant hashed_CreateMarket = keccak256(abi.encode("createMarket"));
+         /// @dev Action hash for unsafe-price-correction report.
+        bytes32 internal constant hashed_PriceCorrection = keccak256(abi.encode("priceCorrection"));
+            /// @dev Action hash for add-liquidity-to-factory report.
+        bytes32 internal constant hashed_AddLiquidityToFactory = keccak256(
+            abi.encode("addLiquidityToFactory")
+        );
+            /// @dev Action hash for combined withdraw report.
+        bytes32 internal constant hashed_WithCollatralAndFee = keccak256(
+            abi.encode("WithCollatralAndFee")
+        );
+                /// @dev Action hash for pending-withdraw processing report.
+        bytes32 internal constant hashed_ProcessPendingWithdrawals = keccak256(
+            abi.encode("processPendingWithdrawals")
+        );
+         bytes32 internal constant mintCollateralToActionHash = keccak256(
+            abi.encode("mintCollateralTo")
+        );
 
 
         bytes32 internal constant HASHED_PRE_CLOSE_LMSR_SELL = keccak256(abi.encode("preCloseLmsrSell"));
-    uint256 internal constant PRE_CLOSE_SELL_WINDOW = 2 minutes;
+ 
 
 
 

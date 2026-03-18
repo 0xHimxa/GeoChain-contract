@@ -208,7 +208,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     /// If market is not resolved, redemption is blocked.
     function redeem(
         uint256 amount
-    ) external nonReentrant whenNotPaused zeroAmountCheck(amount) {
+    ) external nonReentrant whenNotPaused{
+        _zeroAmountCheck(amount);
         if (state != State.Resolved) {
             revert MarketErrors.PredictionMarket__NotResolved();
         }
@@ -288,7 +289,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
     function resolveFromHub(
         Resolution _outcome,
         string calldata proofUrl
-    ) external onlyCrossChainController {
+    ) external  {
+        _onlyCrossChainController();
         if (bytes(proofUrl).length == 0) {
             revert MarketErrors.PredictionMarket__ProofUrlCannotBeEmpty();
         }
@@ -315,7 +317,8 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         uint256 noPriceE6,
         uint256 validUntil,
         uint64 nonce
-    ) external onlyCrossChainController {
+    ) external{
+        _onlyCrossChainController();
         if (yesPriceE6 + noPriceE6 != MarketConstants.PRICE_PRECISION) {
             revert PredictionMarket__InvalidCanonicalPrice();
         }
