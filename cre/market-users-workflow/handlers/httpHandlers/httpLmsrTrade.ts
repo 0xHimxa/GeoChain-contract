@@ -315,6 +315,10 @@ const parseRequest = (payload: HTTPPayload): LmsrTradeRequest => {
   return parseJsonPayload<LmsrTradeRequest>(payload);
 };
 
+/**
+ * Normalizes historical payload variants into one canonical request shape.
+ * Keeps backward compatibility with older field names produced by upstream agents.
+ */
 const normalizeRequest = (req: LmsrTradeRequest): LmsrTradeRequest => {
   const nested = req.creDecision || {};
   const approvalId = String(
@@ -420,6 +424,7 @@ export const lmsrTradeHttpHandler = async (
   // ── Consume Approval ─────────────────────────────────────────────
   const actionType = req.action === "lmsrBuy" ? "LMSRBuy" : "LMSRSell";
 
+  // Sponsorship approvals are single-use intents; consume now to prevent replay.
   const firestoreToken = getFirestoreIdToken(runtime);
   const approvalConsumption = consumeApprovalRecord(runtime, firestoreToken, {
     approvalId: req.approvalId,
@@ -450,6 +455,7 @@ export const lmsrTradeHttpHandler = async (
   const evmClient = new EVMClient(network.chainSelector.selector);
 
   // ── Read On-Chain LMSR State ─────────────────────────────────────
+  // Use selector directly to minimize encoding overhead in hot path reads.
   const stateCallData = "0xc1e80882"; // keccak256("getLMSRState()")[:4]
 
   let lmsrState: LMSRState;
@@ -655,6 +661,7 @@ export const lmsrTradeHttpHandler = async (
   );
 
   // ── Encode & Submit Report ───────────────────────────────────────
+  // Payload order must match PredictionMarketResolution._processReport ABI decoding.
   const tradePayload = encodeAbiParameters(
     parseAbiParameters("address, uint8, uint256, uint256, uint256, uint256, uint64"),
     [

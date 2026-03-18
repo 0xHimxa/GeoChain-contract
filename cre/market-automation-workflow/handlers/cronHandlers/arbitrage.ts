@@ -24,6 +24,7 @@ import { createEvmClient } from "../utils/evmUtils";
 const WAD = 1_000_000_000_000_000_000n;
 const PRICE_PRECISION = 1_000_000n;
 const FEE_PRECISION_BPS = 10_000n;
+// Mirrors market contract lower-bound guard for minimum LMSR trade granularity.
 const MINIMUM_LMSR_TRADE_AMOUNT = 1_000_000n;
 
 type LmsrState = readonly [bigint, bigint, bigint, bigint, bigint, bigint];
@@ -56,8 +57,10 @@ const canonicalYesPriceAbi = [
   },
 ] as const;
 
+/** Branchless absolute value helper for bigint deltas used in convergence checks. */
 const absBigInt = (x: bigint): bigint => (x < 0n ? -x : x);
 
+/** WAD fixed-point exponent with range-reduction to keep Taylor expansion numerically stable. */
 function wadExp(x: bigint): bigint {
   if (x === 0n) return WAD;
   const MAX_INPUT = 135n * WAD;
@@ -88,6 +91,7 @@ function wadExp(x: bigint): bigint {
   return (result * scale) / WAD;
 }
 
+/** WAD fixed-point natural log via Halley's method (fast cubic convergence). */
 function wadLn(x: bigint): bigint {
   if (x <= 0n) throw new Error(`wadLn domain error: x=${x}`);
   if (x === WAD) return 0n;
@@ -115,6 +119,10 @@ function wadLn(x: bigint): bigint {
   return y;
 }
 
+/**
+ * LMSR cost function using log-sum-exp normalization for overflow-safe bigint math.
+ * Returns cost in raw collateral units (not WAD).
+ */
 function lmsrCostBigInt(shares: bigint[], b: bigint): bigint {
   if (b === 0n) throw new Error("lmsrCost: b must be non-zero");
   const scaled = shares.map((q) => (q * WAD) / b);
@@ -123,6 +131,7 @@ function lmsrCostBigInt(shares: bigint[], b: bigint): bigint {
   return (b * (maxScaled + wadLn(sumExp))) / WAD;
 }
 
+/** Softmax price for one outcome in WAD scale (1e18 = 1.0). */
 function lmsrPriceBigInt(shares: bigint[], b: bigint, i: number): bigint {
   if (b === 0n) throw new Error("lmsrPrice: b must be non-zero");
   const scaled = shares.map((q) => (q * WAD) / b);
@@ -132,6 +141,10 @@ function lmsrPriceBigInt(shares: bigint[], b: bigint, i: number): bigint {
   return (exps[i] * WAD) / sumExp;
 }
 
+/**
+ * Converts net LMSR cost into gross buy amount by applying effective fee.
+ * Uses ceiling division so funding sent is never below required execution amount.
+ */
 function buyCostWithFee(rawCost: bigint, feeBps: bigint): bigint {
   const denominator = FEE_PRECISION_BPS - feeBps;
   if (denominator <= 0n) {
@@ -140,6 +153,10 @@ function buyCostWithFee(rawCost: bigint, feeBps: bigint): bigint {
   return (rawCost * FEE_PRECISION_BPS + denominator - 1n) / denominator;
 }
 
+/**
+ * Builds a deterministic quote for one hypothetical LMSR buy.
+ * This is used off-chain for report payload sizing before on-chain execution.
+ */
 function buildBuyQuote(
   yesShares: bigint,
   noShares: bigint,
@@ -219,6 +236,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
   let correctedMarkets = 0;
 
   for (const evmConfig of runtime.config.evms) {
+    // Process each configured chain independently; a single chain failure must not stop the sweep.
     const evmClient = createEvmClient(runtime, evmConfig);
 
     let activeMarketList: `0x${string}`[] = [];
@@ -276,6 +294,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
         continue;
       }
 
+      // Only unsafe bands are candidates for corrective arbitrage trades.
       const [band, deviationBeforeBps, effectiveFeeBps, , allowYesForNo, allowNoForYes] = deviationStatus;
       if (Number(band) !== 2 && Number(band) !== 3) continue;
       if (!allowYesForNo && !allowNoForYes) {
@@ -284,6 +303,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
       }
       unsafeMarkets += 1;
 
+      // Resolve immutable market id from address; reports are keyed by marketId in factory logic.
       let marketId: bigint;
       try {
         const marketIdCallResult = evmClient
@@ -314,6 +334,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
         continue;
       }
 
+      // Snapshot local LMSR state and canonical reference price used to measure deviation.
       let lmsrState: LmsrState;
       try {
         const callResult = evmClient
@@ -375,12 +396,16 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
       // allowNoForYes => NO overpriced => buy YES (outcomeIndex 0)
       let outcomeIndex: 0 | 1 = allowYesForNo ? 1 : 0;
       if (allowYesForNo && allowNoForYes) {
+        // If both directions are technically allowed, bias toward the side that moves toward canonical price.
         const yesDistance = localYesPriceE6 >= canonicalYesPriceE6
           ? localYesPriceE6 - canonicalYesPriceE6
           : canonicalYesPriceE6 - localYesPriceE6;
         outcomeIndex = localYesPriceE6 >= canonicalYesPriceE6 || yesDistance === 0n ? 1 : 0;
       }
 
+      // Two-phase sizing:
+      // 1) Exponential expansion to find an upper bound near budget.
+      // 2) Binary search for max shares that still fit ARB_MAX_SPEND_COLLATERAL.
       let lo = MINIMUM_LMSR_TRADE_AMOUNT;
       let hi = MINIMUM_LMSR_TRADE_AMOUNT;
       let bestDelta = 0n;
@@ -456,6 +481,7 @@ export const arbitrateUnsafeMarketHandler = (runtime: Runtime<Config>): string =
         continue;
       }
 
+      // Payload schema must match MarketFactory.priceCorrection decoding order exactly.
       const correctionPayload = encodeAbiParameters(
         parseAbiParameters(
           "uint256 marketId, uint8 outcomeIndex, uint256 sharesDelta, uint256 costDelta, uint256 newYesPriceE6, uint256 newNoPriceE6, uint64 nonce, uint256 maxSpendCollateral, uint256 minDeviationImprovementBps"
