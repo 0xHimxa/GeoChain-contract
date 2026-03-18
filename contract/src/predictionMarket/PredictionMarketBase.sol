@@ -166,16 +166,7 @@ abstract contract PredictionMarketBase is
     /// @notice Max output cap in unsafe band (bps of reserve out).
     uint16 public unsafeMaxOutBps;
 
-    bytes32 internal constant HASHED_RESOLVE_MARKET =
-        keccak256(abi.encodePacked("ResolveMarket"));
-    bytes32 internal constant HASHED_FINALIZE_RESOLUTION_AFTER_DISPUTE_WINDOW =
-        keccak256(abi.encodePacked("FinalizeResolutionAfterDisputeWindow"));
-    bytes32 internal constant HASHED_ADJUDICATE_DISPUTED_RESOLUTION =
-        keccak256(abi.encodePacked("AdjudicateDisputedResolution"));
-    bytes32 internal constant HASHED_LMSR_BUY =
-        keccak256(abi.encodePacked("LMSRBuy"));
-    bytes32 internal constant HASHED_LMSR_SELL =
-        keccak256(abi.encodePacked("LMSRSell"));
+
 
     error PredictionMarket__OnlyCrossChainController();
     error PredictionMarket__InvalidCanonicalPrice();

@@ -12,6 +12,7 @@ import {
     MarketErrors,
     State
 } from "../libraries/MarketTypes.sol";
+import {ActionTypeHashed} from "../libraries/ActionType.sol";
 import {FeeLib} from "../libraries/FeeLib.sol";
 import {PredictionMarketLiquidity} from "./PredictionMarketLiquidity.sol";
 
@@ -350,7 +351,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         );
         bytes32 actionTypeHash = keccak256(abi.encodePacked(actionType));
 
-        if (actionTypeHash == HASHED_RESOLVE_MARKET) {
+        if (actionTypeHash == ActionTypeHashed.HASHED_RESOLVE_MARKET) {
             (Resolution _outcome, string memory _proofUrl) = abi.decode(
                 payload,
                 (Resolution, string)
@@ -359,12 +360,12 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             return;
         }
 
-        if (actionTypeHash == HASHED_FINALIZE_RESOLUTION_AFTER_DISPUTE_WINDOW) {
+        if (actionTypeHash == ActionTypeHashed.HASHED_FINALIZE_RESOLUTION_AFTER_DISPUTE_WINDOW) {
             _finalizeResolutionAfterDisputeWindow();
             return;
         }
 
-        if (actionTypeHash == HASHED_ADJUDICATE_DISPUTED_RESOLUTION) {
+        if (actionTypeHash == ActionTypeHashed.HASHED_ADJUDICATE_DISPUTED_RESOLUTION) {
             (Resolution adjudicatedOutcome, string memory proofUrl) = abi
                 .decode(payload, (Resolution, string));
             _adjudicateDisputedResolution(adjudicatedOutcome, proofUrl);
@@ -372,7 +373,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
         }
 
         // ── LMSR Trade Reports (CRE-computed) ────────────────────────
-        if (actionTypeHash == HASHED_LMSR_BUY) {
+        if (actionTypeHash == ActionTypeHashed.HASHED_LMSR_BUY) {
             (
                 address trader,
                 uint8 outcomeIndex,
@@ -397,7 +398,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             return;
         }
 
-        if (actionTypeHash == HASHED_LMSR_SELL) {
+        if (actionTypeHash == ActionTypeHashed.HASHED_LMSR_SELL) {
             (
                 address trader,
                 uint8 outcomeIndex,

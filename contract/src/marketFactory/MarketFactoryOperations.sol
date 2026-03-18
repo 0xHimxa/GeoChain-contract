@@ -12,13 +12,11 @@ import {
 } from "../predictionMarket/PredictionMarketBase.sol";
 
 import {MarketFactoryCcip} from "./MarketFactoryCcip.sol";
-
+import {ActionTypeHashed} from "../libraries/ActionType.sol";
 /// @title MarketFactoryOperations
 /// @notice Report-driven and owner-driven operational actions on registered markets.
 abstract contract MarketFactoryOperations is MarketFactoryCcip {
     using SafeERC20 for IERC20;
-    bytes32 internal constant HASHED_PRE_CLOSE_LMSR_SELL = keccak256(abi.encode("preCloseLmsrSell"));
-    uint256 internal constant PRE_CLOSE_SELL_WINDOW = 2 minutes;
 
     /// @dev Central dispatcher for workflow reports delivered through the receiver path.
     /// The payload is expected to be `(string actionType, bytes payload)`.
@@ -42,7 +40,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
             );
         }
 
-        if (actionTypeHash == hashed_BroadCastPrice) {
+        if (actionTypeHash == ActionTypeHashed.hashed_BroadCastPrice) {
             (
                 uint256 marketId,
                 uint256 yesPriceE6,
@@ -55,7 +53,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 noPriceE6,
                 validUntil
             );
-        } else if (actionTypeHash == syncSpokeActionHash) {
+        } else if (actionTypeHash == ActionTypeHashed.syncSpokeActionHash) {
             (
                 uint256 marketId,
                 uint256 yesPriceE6,
@@ -68,12 +66,12 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 noPriceE6,
                 validUntil
             );
-        } else if (actionTypeHash == hashed_BroadCastResolution) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_BroadCastResolution) {
             (uint256 marketId, Resolution outcome, string memory proofUrl) = abi
                 .decode(payload, (uint256, Resolution, string));
 
             _broadcastResolution(marketId, outcome, proofUrl);
-        } else if (actionTypeHash == hashed_CreateMarket) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_CreateMarket) {
             (
                 string memory question,
                 uint256 closeTime,
@@ -86,7 +84,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 resolutionTime,
                 initailEventLiquidity
             );
-        } else if (actionTypeHash == hashed_PriceCorrection) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_PriceCorrection) {
             (
                 uint256 marketId,
                 uint8 outcomeIndex,
@@ -122,7 +120,7 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 maxSpendCollateral,
                 minDeviationImprovementBps
             );
-        } else if (actionTypeHash == HASHED_PRE_CLOSE_LMSR_SELL) {
+        } else if (actionTypeHash == ActionTypeHashed.HASHED_PRE_CLOSE_LMSR_SELL) {
             (
                 uint256 marketId,
                 uint8 outcomeIndex,
@@ -144,19 +142,19 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 newNoPriceE6,
                 nonce
             );
-        } else if (actionTypeHash == hashed_AddLiquidityToFactory) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_AddLiquidityToFactory) {
             _addLiquidityToFactory();
-        } else if (actionTypeHash == mintCollateralToActionHash) {
+        } else if (actionTypeHash == ActionTypeHashed.mintCollateralToActionHash) {
             (address receiver, uint256 amount) = abi.decode(
                 payload,
                 (address, uint256)
             );
             _mintCollateralTo(receiver, amount);
-        } else if (actionTypeHash == hashed_WithCollatralAndFee) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_WithCollatralAndFee) {
             uint256 marketId = abi.decode(payload, (uint256));
             _withdrawCollateralFromEvents(marketId);
             _withdrawEventFeeWhenResolved(marketId);
-        } else if (actionTypeHash == hashed_ProcessPendingWithdrawals) {
+        } else if (actionTypeHash == ActionTypeHashed.hashed_ProcessPendingWithdrawals) {
             uint256 maxItems = abi.decode(payload, (uint256));
             _processPendingWithdrawals(maxItems);
         } else {

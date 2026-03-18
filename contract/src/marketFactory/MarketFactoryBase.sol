@@ -26,7 +26,7 @@ import {OutcomeToken} from "../token/OutcomeToken.sol";
 import {Client} from "../ccip/Client.sol";
 import {IRouterClient} from "../ccip/IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "../ccip/IAny2EVMMessageReceiver.sol";
-
+import {ActionTypeHashed} from "../libraries/ActionType.sol";
 interface IPredictionMarketBridgeMapper {
     function setMarketIdMapping(uint256 marketId, address market) external;
 }
@@ -95,22 +95,6 @@ abstract contract MarketFactoryBase is
     /// @notice Local nonce tracker for direct spoke price sync calls.
     mapping(uint256 => uint64) public directPriceSyncNonceByMarketId;
 
-    /// @dev Action hash for broadcast-price report.
-    bytes32 internal hashed_BroadCastPrice;
-    /// @dev Action hash for direct spoke canonical-price sync report.
-    bytes32 internal hashed_SyncSpokeCanonicalPrice;
-    /// @dev Action hash for broadcast-resolution report.
-    bytes32 internal hashed_BroadCastResolution;
-    /// @dev Action hash for create-market report.
-    bytes32 internal hashed_CreateMarket;
-    /// @dev Action hash for unsafe-price-correction report.
-    bytes32 internal hashed_PriceCorrection;
-    /// @dev Action hash for add-liquidity-to-factory report.
-    bytes32 internal hashed_AddLiquidityToFactory;
-    /// @dev Action hash for combined withdraw report.
-    bytes32 internal hashed_WithCollatralAndFee;
-    /// @dev Action hash for pending-withdraw processing report.
-    bytes32 internal hashed_ProcessPendingWithdrawals;
 
     /// @dev Default liquidity amount used for report-driven market creation.
     uint256 internal initailEventLiquidity;
