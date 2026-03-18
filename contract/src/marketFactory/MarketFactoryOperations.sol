@@ -17,6 +17,8 @@ import {MarketFactoryCcip} from "./MarketFactoryCcip.sol";
 /// @notice Report-driven and owner-driven operational actions on registered markets.
 abstract contract MarketFactoryOperations is MarketFactoryCcip {
     using SafeERC20 for IERC20;
+    bytes32 internal constant HASHED_PRE_CLOSE_LMSR_SELL = keccak256(abi.encode("preCloseLmsrSell"));
+    uint256 internal constant PRE_CLOSE_SELL_WINDOW = 2 minutes;
 
     /// @dev Central dispatcher for workflow reports delivered through the receiver path.
     /// The payload is expected to be `(string actionType, bytes payload)`.
@@ -119,6 +121,28 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
                 nonce,
                 maxSpendCollateral,
                 minDeviationImprovementBps
+            );
+        } else if (actionTypeHash == HASHED_PRE_CLOSE_LMSR_SELL) {
+            (
+                uint256 marketId,
+                uint8 outcomeIndex,
+                uint256 sharesDelta,
+                uint256 refundDelta,
+                uint256 newYesPriceE6,
+                uint256 newNoPriceE6,
+                uint64 nonce
+            ) = abi.decode(
+                    payload,
+                    (uint256, uint8, uint256, uint256, uint256, uint256, uint64)
+                );
+            _preCloseLmsrSell(
+                marketId,
+                outcomeIndex,
+                sharesDelta,
+                refundDelta,
+                newYesPriceE6,
+                newNoPriceE6,
+                nonce
             );
         } else if (actionTypeHash == hashed_AddLiquidityToFactory) {
             _addLiquidityToFactory();
@@ -223,6 +247,53 @@ abstract contract MarketFactoryOperations is MarketFactoryCcip {
             costDelta,
             ctx.deviationBefore,
             deviationAfter
+        );
+    }
+
+    /// @dev Executes a factory-routed LMSR sell close to market close to unwind factory-held outcome shares.
+    /// Expects a CRE-computed quote payload using the same schema/semantics as market `LMSRSell`.
+    function _preCloseLmsrSell(
+        uint256 marketId,
+        uint8 outcomeIndex,
+        uint256 sharesDelta,
+        uint256 refundDelta,
+        uint256 newYesPriceE6,
+        uint256 newNoPriceE6,
+        uint64 nonce
+    ) internal {
+        if (sharesDelta == 0 || refundDelta == 0) {
+            revert MarketFactory__PreCloseSellInvalidAmount();
+        }
+
+        address marketAddress = marketById[marketId];
+        if (marketAddress == address(0)) {
+            revert MarketFactory__MarketNotFound();
+        }
+
+        PredictionMarket market = PredictionMarket(marketAddress);
+        uint256 marketCloseTime = market.closeTime();
+        if (
+            block.timestamp >= marketCloseTime ||
+            block.timestamp + PRE_CLOSE_SELL_WINDOW < marketCloseTime
+        ) {
+            revert MarketFactory__PreCloseSellWindowNotOpen();
+        }
+
+        address token = outcomeIndex == 0
+            ? address(market.yesToken())
+            : address(market.noToken());
+        if (IERC20(token).balanceOf(address(this)) < sharesDelta) {
+            revert MarketFactory__PreCloseSellInsufficientShares();
+        }
+
+        market.executeSell(
+            address(this),
+            outcomeIndex,
+            sharesDelta,
+            refundDelta,
+            newYesPriceE6,
+            newNoPriceE6,
+            nonce
         );
     }
 

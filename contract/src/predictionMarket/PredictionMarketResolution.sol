@@ -88,7 +88,7 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
 
     /// @notice Disputes an active provisional resolution while challenge period is open.
     /// @dev Each account can submit at most one dispute for the market.
-    function disputeProposedResolution(address _disputer,Resolution proposedOutcome) external onlyRouterVault {
+    function disputeProposedResolution(address _disputer,Resolution proposedOutcome) external onlyRouterVaultAndFactory(_disputer) {
        if (_disputer == address(0)) {
             revert MarketErrors.PredictionMarket__DisputerCannotBeZero();
         }

@@ -254,6 +254,9 @@ abstract contract MarketFactoryBase is
     error MarketFactory__NotSpokeFactory();
     error MarketFactory__InvalidMaxBatch();
     error MarketFactory__InvalidMintAmount();
+    error MarketFactory__PreCloseSellWindowNotOpen();
+    error MarketFactory__PreCloseSellInvalidAmount();
+    error MarketFactory__PreCloseSellInsufficientShares();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {

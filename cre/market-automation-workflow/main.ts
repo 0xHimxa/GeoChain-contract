@@ -8,6 +8,7 @@ import { syncManualReviewMarketsToFirebase } from "./handlers/cronHandlers/manua
 import { authWorkflow, createEventHelper, createPredictionMarketEvent } from "./handlers/cronHandlers/marketCreation";
 import { type Config } from "./Constant-variable/config";
 import { processPendingWithdrawalsHandler } from "./handlers/cronHandlers/marketWithdrawal";
+import { preCloseLmsrSellHandler } from "./handlers/cronHandlers/preCloseLmsrSell";
 
 /**
  * Creates the market cron workflow graph from runtime config.
@@ -25,6 +26,7 @@ handler(cron.trigger({ schedule: config.schedule }), marketFactoryBalanceTopUp),
     handler(cron.trigger({ schedule: config.schedule }), createPredictionMarketEvent),
     
      handler(cron.trigger({ schedule: config.schedule }), processPendingWithdrawalsHandler),
+    handler(cron.trigger({ schedule: config.schedule }), preCloseLmsrSellHandler),
     handler(cron.trigger({ schedule: config.schedule }), syncCanonicalPrice),
     handler(cron.trigger({ schedule: config.schedule }), arbitrateUnsafeMarketHandler),
      handler(cron.trigger({ schedule: config.schedule }), adjudicateExpiredDisputeWindows),
@@ -54,4 +56,5 @@ export {
   marketFactoryBalanceTopUp,
   resoloveEvent,
   processPendingWithdrawalsHandler,
+  preCloseLmsrSellHandler,
 };
