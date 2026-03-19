@@ -1,5 +1,7 @@
     if user have buy same amoutn of yes and no
 
+update readme take about wost case like if spoke goes days without sysc do fee increased
+
 check the way u transfer token from users hope i user before and after to determine how much the user received 
 deposit collateral not using above
 
