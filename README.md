@@ -1,182 +1,221 @@
-<p align="center">
-  <h1 align="center">🌐 GeoChain — Autonomous Prediction Markets</h1>
-  <p align="center">
-    <strong>AI-Powered · Cross-Chain · Agent-Native Prediction Markets built on Chainlink CRE</strong>
-  </p>
-  <p align="center">
-    <a href="#tl-dr">TL;DR</a> ·
-    <a href="#demo">Demo</a> ·
-    <a href="#chainlink-services-used">Chainlink Usage</a> ·
-    <a href="#architecture">Architecture</a> ·
-    <a href="#getting-started">Getting Started</a> ·
-    <a href="#deployed-contracts">Contracts</a>
-  </p>
-</p>
+# GeoChain — Autonomous Cross-Chain Prediction Markets
 
-> Built for [Convergence: A Chainlink Hackathon](https://chain.link/hackathon) (2026)
->
-> Tracks: **Prediction Markets · DeFi · AI Agents**
+GeoChain is a prediction market protocol that replaces manual market operations with autonomous on-chain workflows powered by Chainlink CRE, synchronizes market state across chains via dual-path price propagation (CCIP and CRE direct writes), and introduces a bounded agent delegation model that lets AI agents trade on behalf of users without custodial risk. The protocol uses LMSR (Logarithmic Market Scoring Rule) as its pricing engine — with heavy fixed-point arithmetic computed off-chain in CRE and validated on-chain — enabling theoretically sound pricing for prediction markets that constant-product AMMs cannot provide.
 
 ---
 
-## TL;DR
+## Technical Highlights
 
-GeoChain is a prediction market protocol that uses **Chainlink CRE** to automate market creation, resolution, dispute handling, liquidity operations, and gasless user execution. It uses **Chainlink CCIP** to keep hub-spoke markets synchronized across chains and to bridge resolved outcome claims. The result is a market stack that is autonomous, cross-chain, and safe for agent-delegated trading without giving agents custody of user funds.
+- **On-chain LMSR pricing engine with off-chain fixed-point arithmetic** — `exp()` and `ln()` have no native EVM opcodes; the CRE handler implements WAD-scaled (1e18) Taylor series expansion with range reduction for `exp()` and Halley's method (cubic-order iteration) for `ln()`, then the contract validates CRE-reported prices sum to 1.0 within tolerance before executing
+- **Dual-path cross-chain price synchronization** — canonical prices propagate from hub to spokes via both Chainlink CCIP messages and CRE direct `writeReport` calls, providing redundancy and lower latency for spoke markets
+- **4-band canonical deviation policy engine** — `CanonicalPricingModule` classifies hub/spoke price divergence into Normal → Stress → Unsafe → CircuitBreaker bands, progressively applying fee surcharges, output caps, direction restrictions, and full trading halts
+- **6-layer agent delegation security model** — defense-in-depth from HTTP key gates through EIP-712 session signatures, one-time Firestore approvals with nonce replay protection, execute policy allowlists, on-chain `_authorizeAgent()` permission/expiry/action-mask/amount-cap checks, and router balance guards
+- **Three independently deployed CRE workflows** — operational automation, user operations, and agent trading are isolated by trigger type, authorized key set, and policy scope with independent failure domains
+- **AI-powered resolution via Gemini with adversarial resistance** — CRE cron workflows call Google Gemini with search grounding for market resolution, engineered to handle edge cases (cancellation, postponement, contradictory sources) and fall back to manual review rather than force binary outcomes
+- **UUPS-upgradeable modular contract architecture** — PredictionMarket, MarketFactory, and RouterVault each use diamond-style module inheritance behind UUPS proxies with OpenZeppelin's ReentrancyGuard and Pausable
+- **Cross-chain position bridge** — `PredictionMarketBridge` enables lock/mint/burn/unlock of outcome token claims across chains via CCIP with replay protection and trusted-remote validation
 
-### What makes GeoChain different
+---
 
-- **Autonomous market lifecycle**: markets can be created, monitored, resolved, disputed, and maintained by CRE workflows
-- **Cross-chain consistency**: canonical prices and resolutions propagate through CCIP between hub and spoke factories
-- **Agent-native execution**: users can grant bounded on-chain permissions to trading agents instead of handing over keys
-- **Gasless UX**: signed user actions are validated in CRE and submitted on-chain through sponsored flows
+## LMSR Migration: From CPMM to Logarithmic Market Scoring Rule
 
-## Demo
+GeoChain migrated from a Constant Product Market Maker (CPMM) to the Logarithmic Market Scoring Rule (LMSR). The CPMM branch is preserved in the repository history. This section explains why LMSR is the correct mechanism for prediction markets and the engineering challenges of implementing it on the EVM.
 
-| Item | Link |
-|---|---|
-| Video walkthrough | https://youtu.be/usd_6u_leKE?si=2_bofLCQuyVJtOHE |
-| Repo | [GeoChain source code](./) |
-| User UI | [`frontend/minimal-sponsor-ui`](./frontend/minimal-sponsor-ui) |
-| Agent UI | [`frontend/minimal-sponsor-ui/src/AgentApp.tsx`](./frontend/minimal-sponsor-ui/src/AgentApp.tsx) |
-| Contracts | [Deployed contract addresses](#deployed-contracts) |
+### Why LMSR Over CPMM
 
-### Judge Walkthrough
-
-1. Open the user UI and inspect market creation, deposits, swaps, and withdrawals.
-2. Open the agent UI and set bounded permissions for an agent session.
-3. Review the CRE workflow entrypoints for automation, user operations, and agents.
-4. Review the CCIP contracts for hub-spoke synchronization and claim bridging.
-
-## Chainlink Services Used
-
-| Chainlink Service | What it does in GeoChain | Code links |
+| Dimension | CPMM (x · y = k) | LMSR (C = b · ln(Σ exp(qᵢ/b))) |
 |---|---|---|
-| **CRE Runtime Environment** | Runs cron, HTTP, and log-triggered workflows for market automation, user operations, and agent execution | [`cre/market-automation-workflow/main.ts`](./cre/market-automation-workflow/main.ts), [`cre/market-users-workflow/main.ts`](./cre/market-users-workflow/main.ts), [`cre/agents-workflow/main.ts`](./cre/agents-workflow/main.ts) |
-| **CRE Cron triggers** | Resolves markets, creates new markets, tops up balances, syncs prices, adjudicates disputes, and processes withdrawals | [`cre/market-automation-workflow/main.ts`](./cre/market-automation-workflow/main.ts), [`cre/market-automation-workflow/handlers/cronHandlers/resolve.ts`](./cre/market-automation-workflow/handlers/cronHandlers/resolve.ts), [`cre/market-automation-workflow/handlers/cronHandlers/syncPrice.ts`](./cre/market-automation-workflow/handlers/cronHandlers/syncPrice.ts) |
-| **CRE HTTP triggers** | Powers sponsor/execute/revoke flows for gasless user actions and dedicated agent trade flows | [`cre/market-users-workflow/handlers/httpHandlers/httpSponsorPolicy.ts`](./cre/market-users-workflow/handlers/httpHandlers/httpSponsorPolicy.ts), [`cre/market-users-workflow/handlers/httpHandlers/httpExecuteReport.ts`](./cre/market-users-workflow/handlers/httpHandlers/httpExecuteReport.ts), [`cre/agents-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts`](./cre/agents-workflow/handlers/httpHandlers/httpAgentPlanTrade.ts), [`cre/agents-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts`](./cre/agents-workflow/handlers/httpHandlers/httpAgentExecuteTrade.ts) |
-| **CRE EVM Log triggers** | Credits router balances from observed on-chain deposits | [`cre/market-users-workflow/handlers/eventsHandler/ethCreditFromLogs.ts`](./cre/market-users-workflow/handlers/eventsHandler/ethCreditFromLogs.ts) |
-| **Chainlink CCIP** | Synchronizes canonical prices and resolution data between hub and spoke factories and bridges winning claims cross-chain | [`contract/src/marketFactory/MarketFactoryCcip.sol`](./contract/src/marketFactory/MarketFactoryCcip.sol), [`contract/src/Bridge/PredictionMarketBridge.sol`](./contract/src/Bridge/PredictionMarketBridge.sol) |
-| **Chainlink ReceiverTemplateUpgradeable** | Verifies and receives CRE-delivered reports on-chain in core contracts | [`contract/script/interfaces/ReceiverTemplateUpgradeable.sol`](./contract/script/interfaces/ReceiverTemplateUpgradeable.sol), [`contract/src/marketFactory/MarketFactoryBase.sol`](./contract/src/marketFactory/MarketFactoryBase.sol), [`contract/src/predictionMarket/PredictionMarketBase.sol`](./contract/src/predictionMarket/PredictionMarketBase.sol), [`contract/src/router/PredictionMarketRouterVaultBase.sol`](./contract/src/router/PredictionMarketRouterVaultBase.sol) |
+| **Pricing model** | Price derived from reserve ratio; no concept of probabilities | Price directly represents calibrated probability via softmax |
+| **Slippage behavior** | Slippage grows superlinearly with trade size relative to reserves | Slippage controlled by liquidity parameter `b`; predictable for any trade size |
+| **Multi-outcome support** | Limited to 2-outcome (YES/NO) pairs per pool | Naturally extends to N outcomes in a single cost function |
+| **LP risk** | LPs face impermanent loss; must actively manage positions | Market maker subsidy is bounded: max loss = `b × ln(N)`, known at creation |
+| **Suitability for prediction markets** | Prices don't directly map to probabilities; requires external interpretation | Prices are probabilities by construction; theoretically grounded in proper scoring rules |
+| **Liquidity bootstrapping** | Requires initial reserve deposits in both tokens | Single collateral deposit funds the market maker; subsidy computed deterministically |
 
-## Why Now
+### The LMSR Cost Function
 
-Prediction markets still rely on manual operators, single-chain liquidity, and fragile resolution paths. GeoChain combines autonomous workflows, cross-chain messaging, and bounded agent permissions so markets can run with less operational trust and better multi-chain access.
+The core LMSR cost function for a market with outcome share vectors **q** and liquidity parameter **b**:
 
-## The Problem
+```
+C(q) = b × ln( Σᵢ exp(qᵢ / b) )
+```
 
-Prediction markets promise the "wisdom of crowds" — but today's platforms are broken in ways that prevent them from reaching their potential.
+The price (probability) of outcome *i* is the partial derivative:
 
-### 1. Centralized Resolution & Oracle Manipulation
+```
+pᵢ = ∂C/∂qᵢ = exp(qᵢ / b) / Σⱼ exp(qⱼ / b)
+```
 
-Polymarket — the largest prediction market by volume — relies on **UMA's optimistic oracle** for resolution. In late 2025, whale investors exploited the oracle bonding mechanism to force a false market resolution, profiting from an outcome that contradicted reality. In early 2026, the platform was forced into **centralized intervention** on a market, contradicting the very immutability promises of smart contracts.
+This is identical to the softmax function — prices are always positive and always sum to 1.0.
 
-The root problem: resolution depends on a single oracle path with weak dispute incentives, creating a single point of failure that deep-pocketed actors can exploit.
+The cost of buying `Δ` shares of outcome *i* is:
 
-### 2. Single-Chain Liquidity Silos
+```
+cost = C(q + Δeᵢ) − C(q)
+```
 
-Every major prediction market (Polymarket on Polygon, Augur on Ethereum, Azuro on Gnosis) locks liquidity on a single chain. Users on other chains must bridge, swap, and manage gas across ecosystems just to participate. The result:
+The maximum subsidy loss (market maker's worst case) for a binary market:
 
-- **Fragmented liquidity** across chains
-- **High friction** prevents casual participation
-- **No canonical pricing** — the same event can trade at different prices on different deployments with no mechanism to sync them
+```
+maxLoss = b × ln(2)
+```
 
-### 3. Manual Market Operations at Every Step
+This is computed on-chain via `LMSRLib.maxSubsidyLoss()` and locked as collateral at market creation.
 
-Creating markets, seeding liquidity, monitoring positions, resolving outcomes, syncing prices, topping up factory balances — every operational step requires a human operator watching dashboards and sending transactions manually. This doesn't scale, and it introduces delays that harm market efficiency.
+### EVM Implementation Challenge
 
-### 4. No Agent-Native Infrastructure
+The LMSR cost function requires `exp()` and `ln()` — transcendental functions that have **no native EVM opcodes**. Computing them on-chain with Solidity's integer arithmetic would be gas-prohibitive and precision-dangerous (overflow risk with large share quantities in uint256).
 
-The rise of AI trading agents creates a new class of market participant, but no prediction market platform today provides **native, on-chain infrastructure** for agent delegation. Users who want an AI agent to trade on their behalf must hand over private keys or trust custodial services — neither is acceptable.
+GeoChain solves this with a **hybrid architecture**:
 
-### 5. No Cross-Chain Position Portability
+- **Off-chain (CRE handler — `httpLmsrTrade.ts`)**: Implements `exp()` via a 20-term Taylor series with range reduction (`exp(x) = 2^k × exp(r)` where `r ∈ [0, ln2)`) and `ln()` via Halley's method (third-order iteration, ≤8 steps). All arithmetic uses BigInt at WAD scale (1e18) — no floating-point anywhere in the math path. The log-sum-exp trick prevents overflow by shifting exponents before summing.
+- **On-chain (Solidity — `LMSRLib.sol`)**: Validates that CRE-reported prices sum to `1e6 ± 0.1%` tolerance, enforces monotonic trade nonces to prevent replay, and executes token transfers. The contract never computes `exp()` or `ln()` itself.
 
-Once you hold outcome tokens (YES/NO) on one chain, they're stuck there. There is no standardized way to bridge prediction market claims cross-chain, meaning users can't move their positions to chains with better liquidity, lower fees, or different DeFi composability.
+This gives mathematically correct LMSR pricing with EVM-safe execution — the hard math runs in CRE's runtime where BigInt is native, while the contract enforces invariants that make the system trustworthy.
 
 ---
 
-## How It Was Done Before
+## Protocol Architecture
 
-| Aspect | Polymarket | Augur v2 | Azuro |
-|---|---|---|---|
-| **Resolution** | UMA optimistic oracle — single-path, bond-based disputes | Decentralized reporting + dispute rounds, but extremely slow (days to weeks) | Centralized data provider oracles |
-| **Chains** | Polygon only | Ethereum mainnet only | Gnosis Chain only |
-| **Market Creation** | Centralized team curates and creates markets manually | Permissionless but required substantial ETH bonds | Protocol-controlled, bookmaker model |
-| **Automation** | None on-chain; backend servers handle indexing | Keepers for finalization, but no lifecycle automation | Centralized backend |
-| **Agent Support** | None — users trade directly or via API wrappers with full key access | None | None |
-| **Cross-Chain Claims** | None | None | None |
-| **Price Consistency** | Single deployment — not applicable | Single deployment | Single deployment |
-| **Dispute Mechanism** | Bond escalation (exploitable by whales) | Multi-round fork mechanism (complex, slow) | None (trust the oracle) |
+### Smart Contracts
 
-**The common pattern**: every platform treats prediction markets as static, single-chain, human-operated contracts with no automation layer and no agent infrastructure.
+```
+contract/src/
+├── predictionMarket/
+│   ├── PredictionMarket.sol              # Main entry — inherits all modules
+│   ├── PredictionMarketBase.sol          # State, modifiers, LMSR initialization, canonical pricing controls
+│   ├── PredictionMarketLiquidity.sol     # LMSR buy/sell execution, complete-set mint/redeem, risk exposure caps
+│   └── PredictionMarketResolution.sol    # Resolution, disputes, CRE report processing, cross-chain resolution sync
+├── marketFactory/
+│   ├── MarketFactory.sol                 # UUPS proxy entry point
+│   ├── MarketFactoryBase.sol             # Market registry, collateral management, queued withdrawals
+│   ├── MarketFactoryCcip.sol             # CCIP send/receive for hub-spoke price and resolution sync
+│   └── MarketFactoryOperations.sol       # CRE _processReport dispatcher — routes 10+ action types
+├── router/
+│   ├── PredictionMarketRouterVault.sol   # Proxy entry
+│   ├── PredictionMarketRouterVaultBase.sol  # User collateral credits, agent permissions, session management
+│   └── PredictionMarketRouterVaultOperations.sol  # All user & agent-delegated actions (mint, redeem, swap, dispute)
+├── Bridge/
+│   ├── PredictionMarketBridge.sol        # Cross-chain claim lock/mint/burn/unlock via CCIP
+│   └── BridgeWrappedClaimToken.sol       # ERC-20 wrapped claim tokens for bridged positions
+├── libraries/
+│   ├── LMSRLib.sol                       # LMSR validation: price sum check, nonce ordering, max subsidy computation
+│   ├── AMMLib.sol                        # Legacy CPMM math (retained on CPMM branch)
+│   ├── ActionType.sol                    # Precomputed keccak256 hashes for all CRE report action types
+│   ├── FeeLib.sol                        # Standardized fee deduction (buy/sell/mint/redeem)
+│   └── MarketTypes.sol                   # Shared enums (State, Resolution), constants, events, errors
+├── modules/
+│   └── CanonicalPricingModule.sol        # 4-band deviation policy engine for cross-chain price consistency
+└── token/
+    └── OutcomeToken.sol                  # ERC-20 YES/NO tokens (mint/burn controlled by market contract)
+```
+
+### CRE Workflows
+
+```
+cre/
+├── market-automation-workflow/           # Cron-triggered operational automation
+│   ├── main.ts                           # 9 cron handlers: resolve, create, topUp, syncPrice, 
+│   │                                     #   arbitrage, disputes, withdrawals, manualReviewSync, preCloseLmsrSell
+│   ├── handlers/cronHandlers/
+│   │   ├── resolve.ts                    # AI resolution via Gemini with search grounding
+│   │   ├── syncPrice.ts                  # Hub→spoke canonical price sync via CRE direct writeReport
+│   │   ├── arbitrage.ts                  # Automated unsafe-band price correction trades
+│   │   ├── preCloseLmsrSell.ts           # Pre-close factory share unwinding via LMSR sell
+│   │   └── ...                           # marketCreation, topUp, disputeResolution, withdrawals
+│   ├── gemini/                           # Gemini AI integration: resolve, uniqueEvent, adjudicate
+│   └── firebase/                         # Firestore read/write for state & audit trail
+│
+├── market-users-workflow/                # HTTP + EVM-log triggered user operations
+│   ├── main.ts                           # Handlers: sponsor, execute, revoke, fiatCredit, lmsrTrade, ethCredit
+│   ├── handlers/
+│   │   ├── httpHandlers/
+│   │   │   ├── httpSponsorPolicy.ts      # EIP-712 session signature validation, approval creation
+│   │   │   ├── httpExecuteReport.ts      # Approval consumption, ABI encoding, on-chain report delivery
+│   │   │   ├── httpLmsrTrade.ts          # Full LMSR math engine: BigInt exp/ln, cost/price computation
+│   │   │   └── ...                       # revokeSession, fiatCredit
+│   │   └── eventsHandler/
+│   │       └── ethCreditFromLogs.ts      # EVM log → router balance credit for ETH deposits
+│   └── firebase/                         # Session/approval storage with replay protection
+│
+└── agents-workflow/                      # Dedicated agent trading engine
+    ├── main.ts                           # HTTP triggers: plan, sponsor, execute, revoke
+    └── handlers/httpHandlers/            # Agent-specific validation, policy enforcement, execution
+```
 
 ---
 
-## How GeoChain Changes Everything
+## Chainlink Integration
 
-GeoChain is a **full-stack autonomous prediction market protocol** that rethinks every layer — from who creates markets to how they resolve, how prices stay consistent across chains, and how AI agents participate safely.
+### CRE (Compute Runtime Environment)
 
-### ✦ AI-Powered Resolution via Chainlink CRE + Gemini
+CRE is the core automation engine. All market lifecycle operations — from creation through resolution — run as autonomous CRE workflows.
 
-Instead of relying on a single oracle with weak dispute bonds, GeoChain uses **Chainlink Runtime Environment (CRE)** workflows that call **Google Gemini AI** with Google Search grounding to determine event outcomes:
+| Trigger Type | Handler | What It Does |
+|---|---|---|
+| **Cron** | `resolveEvent` | Detects markets past resolution time → calls Gemini AI with search grounding → delivers resolution report on-chain |
+| **Cron** | `createPredictionMarketEvent` | Gemini generates unique event ideas → deploys new markets on-chain with LMSR initialization |
+| **Cron** | `syncCanonicalPrice` | Reads hub market prices → writes `syncSpokeCanonicalPrice` reports directly to each spoke factory |
+| **Cron** | `arbitrateUnsafeMarketHandler` | Detects spoke markets in Unsafe/CircuitBreaker bands → executes corrective LMSR trades |
+| **Cron** | `preCloseLmsrSellHandler` | Unwinds factory-held outcome shares before market close via LMSR sell reports |
+| **Cron** | `adjudicateExpiredDisputeWindows` | Auto-finalizes undisputed resolutions after dispute window expiry |
+| **Cron** | `processPendingWithdrawalsHandler` | Batch-processes queued LP withdrawal requests |
+| **Cron** | `marketFactoryBalanceTopUp` | Monitors factory collateral balance → auto-replenishes when low |
+| **HTTP** | `sponsorUserOpPolicyHandler` | Validates EIP-712 signatures → creates one-time Firestore approvals for gasless user actions |
+| **HTTP** | `executeReportHttpHandler` | Consumes approvals → ABI-encodes payload → submits on-chain report |
+| **HTTP** | `lmsrTradeHttpHandler` | Full LMSR trade pipeline: read on-chain state → compute cost/prices off-chain → submit trade report |
+| **HTTP** | `agentPlanTrade` / `agentExecuteTrade` | Agent-specific trade validation and execution through dedicated policy |
+| **EVM Log** | `ethCreditFromLogsHandler` | Detects ETH deposit events → credits user's router balance in collateral equivalent |
 
-- Gemini AI acts as a **deterministic, adversarial-resistant resolution engine** — it's prompt-engineered to resist manipulation, handle edge cases (event cancellation, postponement, contradictory sources), and require source URLs for every determination
-- The CRE workflow runs on Chainlink's decentralized infrastructure, ensuring the AI call and on-chain report delivery are **verifiable and tamper-proof**
-- Results are stored in **Firebase Firestore** for a complete audit trail
-- If evidence is inconclusive, the market enters a `Review` state for **manual adjudication** — never a forced binary outcome
+### CCIP (Cross-Chain Interoperability Protocol)
 
-```
-Event ends → CRE cron detects resolution time → Gemini AI evaluates with search grounding
-→ Signed report delivered on-chain → Dispute window opens → Resolution finalizes
-```
+Hub-spoke canonical price sync, resolution broadcast, and cross-chain claim bridge messaging.
 
-### ✦ Full Lifecycle Automation (Not Just Resolution)
+**Dual-path price propagation**: Prices reach spoke factories through two independent paths:
+1. **CCIP messages** — `MarketFactoryCcip.sol` sends/receives structured CCIP messages between hub and spoke factories
+2. **CRE direct reports** — `syncPrice.ts` reads hub state and writes `syncSpokeCanonicalPrice` reports directly to spoke factories via `writeReport`
 
-GeoChain doesn't just automate resolution — it automates the **entire market lifecycle** through CRE workflows:
+This redundancy ensures spoke markets stay synchronized even if one path experiences latency.
 
-| Automated Action | Workflow | Handler | Trigger |
-|---|---|---|---|
-| **Market Creation** | `market-automation-workflow` | `createPredictionMarketEvent` | Cron — Gemini generates unique event ideas, deploys on-chain |
-| **Market Resolution** | `market-automation-workflow` | `resolveEvent` | Cron — detects markets past resolution time, calls Gemini |
-| **Liquidity Top-Up** | `market-automation-workflow` | `marketFactoryBalanceTopUp` | Cron — monitors factory balance, auto-replenishes |
-| **Price Sync** | `market-automation-workflow` | `syncCanonicalPrice` | Cron — CRE reads hub prices and writes canonical sync reports directly to spoke factories |
-| **Unsafe Market Arbitrage** | `market-automation-workflow` | `arbitrateUnsafeMarketHandler` | Cron — corrects price deviations across chains |
-| **Dispute Adjudication** | `market-automation-workflow` | `adjudicateExpiredDisputeWindows` | Cron — auto-finalizes undisputed resolutions |
-| **Withdrawal Processing** | `market-automation-workflow` | `processPendingWithdrawalsHandler` | Cron — batch-processes queued LP withdrawals |
-| **Gasless User Operations** | `market-users-workflow` | `sponsorUserOpPolicyHandler` + `executeReportHttpHandler` | HTTP — validates signatures, creates approvals, and submits user actions |
-| **Fiat Credit Onboarding** | `market-users-workflow` | `fiatCreditHttpHandler` | HTTP — credits user balances from off-chain payments |
-| **ETH Deposit Credit** | `market-users-workflow` | `ethCreditFromLogsHandler` | EVM Log — detects ETH deposits, credits router balances |
+### ReceiverTemplateUpgradeable
 
-Every operation previously requiring a human operator is now an autonomous CRE workflow.
+All three core contracts (`MarketFactory`, `PredictionMarket`, `RouterVault`) inherit `ReceiverTemplateUpgradeable` to securely receive and verify CRE-delivered reports via `_processReport()`.
 
-### ✦ Hub-Spoke Cross-Chain Architecture via CCIP
+---
 
-GeoChain deploys as a **hub-spoke topology** across multiple chains:
+## Hub-Spoke Cross-Chain Architecture
 
 ```
                     ┌──────────────────┐
                     │   Hub Factory    │
                     │ (Arbitrum Sepolia)│
                     └────────┬─────────┘
-                 CCIP CanonicalPriceSync
-                 CCIP ResolutionSync
-              ┌──────────┴──────────┐
-    ┌─────────┴─────────┐ ┌────────┴──────────┐
-    │  Spoke Factory    │ │  Spoke Factory     │
-    │  (Base Sepolia)   │ │  (Future Chains)   │
-    └───────────────────┘ └────────────────────┘
+             CCIP CanonicalPriceSync
+             CRE  syncSpokeCanonicalPrice
+             CCIP ResolutionBroadcast
+          ┌──────────┴──────────┐
+┌─────────┴─────────┐ ┌────────┴──────────┐
+│  Spoke Factory    │ │  Spoke Factory     │
+│  (Base Sepolia)   │ │  (Future Chains)   │
+└───────────────────┘ └────────────────────┘
 ```
 
-- **Hub factories** are the source of truth — they broadcast canonical prices and resolution outcomes via Chainlink CCIP
-- **Spoke factories** accept CCIP messages from trusted remotes and enforce canonical pricing on local AMMs
-- **Deviation bands** (`softDeviationBps`, `stressDeviationBps`, `hardDeviationBps`) protect spoke markets — when local AMM prices deviate too far from hub canonical prices, the system progressively applies:
-  - Direction restrictions (only allow price-correcting trades)
-  - Extra swap fees
-  - Max output caps
-  - Full **circuit breaker** halt at extreme deviation
+**Deviation bands** protect spoke markets from trading at stale prices. When the local LMSR YES price diverges from the hub canonical YES price:
 
-### ✦ Agent-Native Trading Infrastructure (6-Layer Security)
+| Band | Deviation | Effect |
+|---|---|---|
+| **Normal** | ≤ `softDeviationBps` | Base fee, unlimited output, both directions |
+| **Stress** | ≤ `stressDeviationBps` | Extra fee + capped output |
+| **Unsafe** | ≤ `hardDeviationBps` | 2× extra fee + tighter cap + only price-corrective direction allowed |
+| **CircuitBreaker** | > `hardDeviationBps` | 5× extra fee + minimal cap + **all trading halted** |
 
-GeoChain is the first prediction market with **native on-chain agent delegation**. Users can authorize an AI agent to trade on their behalf without surrendering custody:
+The `arbitrateUnsafeMarketHandler` CRE cron automatically executes corrective trades to bring spoke prices back into the Normal band.
+
+---
+
+## Agent Delegation Security Model
+
+GeoChain implements native on-chain agent delegation with 6 independent security layers. Users authorize AI agents to trade on their behalf without surrendering custody — funds remain in the RouterVault at all times.
 
 ```
 User ──setAgentPermission()──► Router ──_authorizeAgent()──► Execute
@@ -185,35 +224,34 @@ User ──setAgentPermission()──► Router ──_authorizeAgent()──►
          expiresAt)                      amount within cap?)
 ```
 
-**The 6 security layers (defense-in-depth):**
+### Defense-in-Depth Layers
 
-| Layer | Protection | Where |
+| Layer | Protection | Enforcement Point |
 |---|---|---|
-| 1 | HTTP authorized keys | CRE trigger gate |
-| 2 | Sponsor policy + EIP-712 session signatures | CRE handler |
-| 3 | Firestore one-time approval + nonce replay protection | CRE state |
-| 4 | Execute policy action allowlist | CRE handler |
-| 5 | On-chain `_authorizeAgent()` — permission, expiry, action mask, amount cap | Smart contract |
-| 6 | Router market/risk balance checks | Smart contract |
+| 1 | HTTP authorized key gate | CRE trigger configuration |
+| 2 | EIP-712 session signature + sponsor policy validation | CRE HTTP handler |
+| 3 | One-time Firestore approval with nonce replay protection | CRE state layer |
+| 4 | Execute policy action allowlist | CRE execution handler |
+| 5 | On-chain `_authorizeAgent()` — permission bitmap, expiry, action mask, per-action amount cap | Smart contract |
+| 6 | Router collateral/token credit balance checks | Smart contract |
 
-Key design principle: **funds never leave the router**. The agent is an executor with scoped permission, not a custodian. Even if all off-chain layers are compromised, on-chain `_authorizeAgent()` still blocks unauthorized actions.
+**Key design principle**: Funds never leave the RouterVault. The agent is a scoped executor, not a custodian. Even if all off-chain layers are compromised, on-chain `_authorizeAgent()` blocks unauthorized actions.
 
-The agent API flow:
-```
-POST /agent/plan     →  Validate intent, normalize parameters
-POST /agent/sponsor  →  Session signature verification, approval creation
-POST /agent/execute  →  Consume approval, encode payload, submit on-chain
-POST /agent/revoke   →  Terminate agent session
-```
-
-### ✦ Three Dedicated CRE Workflows
-
-GeoChain now runs **three independently deployed CRE workflows** so operational automation, human user operations, and AI agent trading are isolated by trigger type, key set, and policy scope:
+### Agent API Flow
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 CRE WORKFLOW DEPLOYMENTS                                 │
-├────────────────────────────┬────────────────────────────┬────────────────────────────────┤
+POST /agent/plan     →  Validate intent against agentPolicy (allowed actions, max amount, supported chains)
+POST /agent/sponsor  →  Session signature verification + one-time approval creation
+POST /agent/execute  →  Consume approval → encode routerAgent payload → submit on-chain report
+POST /agent/revoke   →  Terminate agent session (single revocation path for both agent and non-agent)
+```
+
+---
+
+## Three Isolated CRE Workflow Deployments
+
+```
+┌────────────────────────────┬────────────────────────────┬────────────────────────────────┐
 │ market-automation-workflow │   market-users-workflow    │        agents-workflow         │
 │  (Operational Automation)  │   (User Ops + Credits)     │     (Agent Trading Engine)     │
 ├────────────────────────────┼────────────────────────────┼────────────────────────────────┤
@@ -221,142 +259,25 @@ GeoChain now runs **three independently deployed CRE workflows** so operational 
 │ • Cron: resolution via AI  │ • HTTP: executeReport      │ • HTTP: agentSponsorTrade      │
 │ • Cron: liquidity top-up   │ • HTTP: revokeSession      │ • HTTP: agentExecuteTrade      │
 │ • Cron: price sync         │ • HTTP: fiatCredit         │ • HTTP: agentRevoke            │
-│ • Cron: arbitrage          │ • Log: ethCreditFromLogs   │                                │
-│ • Cron: dispute adjudicate │                            │                                │
+│ • Cron: arbitrage          │ • HTTP: lmsrTrade          │                                │
+│ • Cron: dispute adjudicate │ • Log: ethCreditFromLogs   │                                │
 │ • Cron: withdrawal process │                            │                                │
+│ • Cron: pre-close LMSR sell│                            │                                │
 │ • Cron: manual review sync │                            │                                │
 └────────────────────────────┴────────────────────────────┴────────────────────────────────┘
 ```
 
-**Why three workflows?** These responsibilities now have materially different risk profiles and trigger surfaces:
+**Why three workflows?**
 - Independent deployment and upgrade cycles
 - Different authorized key sets — automation keys, user-op keys, and agent keys are scoped separately
-- Isolated failure domains — an HTTP/signature issue can't break cron-based market automation
-- Clearer policy separation (`sponsorPolicy`, `executePolicy`, `fiatCreditPolicy`, `ethCreditPolicy`, `agentPolicy`)
-
-#### The 4 Agent Handlers
-
-| Handler | Purpose | What It Does |
-|---|---|---|
-| **`agentPlanTrade`** | Intent validation | Validates action, chain, addresses, amount against `agentPolicy` (allowed actions, max amount, max slippage, supported chains). Produces a deterministic plan object. Rejects ambiguous or out-of-policy requests before any state is created. |
-| **`agentSponsorTrade`** | Authorization bridge | Converts the agent plan into the standard sponsor format and routes it through `sponsorUserOpPolicyHandler` — reusing the same session-signature, nonce replay, and approval creation logic used by human-initiated trades. No second security path. |
-| **`agentExecuteTrade`** | Payload encoding + submission | Maps the agent action to its `routerAgent...` action type, ABI-encodes the payload via `buildAgentPayloadHex`, and delegates to `executeReportHttpHandler` which consumes the one-time approval and submits the on-chain report. |
-| **`agentRevoke`** | Session termination | Delegates to the canonical session-revoke handler, ensuring a single revocation validation path that prevents policy drift between agent and non-agent revocation. |
-
-#### Agent Frontend (`AgentApp.tsx`)
-
-The frontend provides a complete UI for the agent trading flow:
-- **Wallet setup**: browser-local session key generation for gasless operation
-- **Permission management**: UI to set `actionMask` (bitfield checkboxes for each action), `maxAmountPerAction`, and `expiresAt` by calling `setAgentPermission()` on-chain
-- **Trade execution**: step-through UI for Plan → Sponsor → Execute with live status
-- **Session revocation**: one-click agent permission revocation
-
-### ✦ Cross-Chain Position Bridge
-
-GeoChain introduces a **PredictionMarketBridge** contract that enables cross-chain portability of outcome token claims:
-
-- **Lock & Bridge**: Lock YES/NO outcome tokens on the source chain → CCIP message → mint wrapped claim tokens on the destination chain
-- **Burn & Unlock**: Burn wrapped claims on the destination chain → CCIP message → unlock original tokens on the source chain
-- **Collateral Buyback**: Sell wrapped claim tokens directly for collateral on the destination chain (with configurable buyback ratio)
-- Replay protection, trusted-remote checks, and winning-side validation are enforced in both directions
-
-### ✦ Gasless Participation via Sponsored Operations
-
-The Router Vault contract + CRE HTTP handlers enable a **fully gasless user experience**:
-
-- Users sign EIP-712 typed data off-chain (no gas)
-- CRE validates the signature, creates an approval, and submits the transaction on-chain
-- Session-based authorization with per-request nonce replay protection
-- Supports: minting, swapping, redeeming, adding/removing liquidity, disputes — all gasless
+- Isolated failure domains — an HTTP/signature issue cannot break cron-based market automation
+- Clear policy separation (`sponsorPolicy`, `executePolicy`, `lmsrTradePolicy`, `agentPolicy`, `ethCreditPolicy`, `fiatCreditPolicy`)
 
 ---
 
-## Architecture
+## Live Deployments
 
-### Smart Contracts
-
-```
-contract/src/
-├── predictionMarket/
-│   ├── PredictionMarket.sol          # Main entry — inherits all modules
-│   ├── PredictionMarketBase.sol      # State, modifiers, canonical pricing controls
-│   ├── PredictionMarketLiquidity.sol # AMM swaps, LP accounting, complete sets
-│   └── PredictionMarketResolution.sol# Resolution, disputes, CRE report processing
-├── marketFactory/
-│   ├── MarketFactory.sol             # UUPS proxy entry point
-│   ├── MarketFactoryBase.sol         # Market registry, collateral management
-│   ├── MarketFactoryCcip.sol         # CCIP send/receive for hub-spoke sync
-│   └── MarketFactoryOperations.sol   # CRE _processReport dispatcher
-├── router/
-│   ├── PredictionMarketRouterVault.sol          # Proxy entry
-│   ├── PredictionMarketRouterVaultBase.sol      # User credits, agent permissions
-│   └── PredictionMarketRouterVaultOperations.sol# All user & agent-delegated actions
-├── Bridge/
-│   ├── PredictionMarketBridge.sol    # Cross-chain claim lock/mint/burn/unlock
-│   └── BridgeWrappedClaimToken.sol   # ERC-20 wrapped claim tokens
-├── libraries/
-│   ├── AMMLib.sol                    # Constant-product AMM math
-│   ├── FeeLib.sol                    # Standardized fee calculations
-│   └── MarketTypes.sol               # Shared enums, errors, constants
-├── modules/
-│   └── CanonicalPricingModule.sol    # Deviation band logic & swap controls
-└── token/
-    └── OutcomeToken.sol              # ERC-20 YES/NO tokens (mint/burn by market)
-```
-
-### CRE Workflows
-
-```
-cre/
-├── market-automation-workflow/       # Cron automation workflow
-│   ├── main.ts                       # Workflow graph: market lifecycle cron triggers
-│   ├── handlers/
-│   │   └── cronHandlers/             # resolve, create, topUp, syncPrice, arbitrage, disputes
-│   ├── gemini/                       # AI integration: resolveEvent, uniqueEvent, adjudicate
-│   ├── firebase/                     # Firestore read/write for state & audit
-│   └── payload/                      # ABI encoding for on-chain report payloads
-│
-├── market-users-workflow/            # User HTTP + deposit-credit workflow
-│   ├── main.ts                       # Workflow graph: sponsor, execute, revoke, fiat, log credit
-│   ├── handlers/
-│   │   ├── httpHandlers/             # sponsor, execute, revokeSession, fiatCredit
-│   │   └── eventsHandler/            # ETH deposit log → credit
-│   ├── firebase/                     # Firestore auth and approval/session storage
-│   └── payload/                      # JSON payloads for CRE simulation
-│
-└── agents-workflow/                  # Dedicated agent trading workflow
-    ├── main.ts                       # HTTP triggers: plan, sponsor, execute, revoke
-    └── handlers/httpHandlers/        # Agent-specific request validation & execution
-```
-
-### Frontend
-
-```
-frontend/minimal-sponsor-ui/
-├── src/
-│   ├── App.tsx         # User-facing UI: view markets, trade, deposit, redeem
-│   ├── AgentApp.tsx    # Agent delegation UI: set permissions, plan/sponsor/execute trades
-│   ├── chain.ts        # Multi-chain config, contract ABIs, market snapshot loading
-│   ├── api.ts          # CRE HTTP endpoint wrappers (sponsor, execute, fiatCredit)
-│   ├── api-agent.ts    # Agent-specific API calls (plan, sponsor, execute, revoke)
-│   └── keyVault.ts     # Browser-local session key generation and management
-```
-
----
-
-## Chainlink Integration Summary
-
-| Chainlink Service | How GeoChain Uses It |
-|---|---|
-| **CRE (Runtime Environment)** | Core automation engine — runs all cron, HTTP, and log-triggered workflows for market lifecycle management, agent execution, and AI resolution |
-| **CCIP (Cross-Chain Interoperability)** | Hub-spoke canonical price sync, resolution broadcast, and cross-chain claim bridge messaging |
-| **ReceiverTemplateUpgradeable** | On-chain report verification — both `MarketFactory` and `PredictionMarket` implement `_processReport` to consume CRE-delivered reports securely |
-
----
-
-## Deployed Contracts
-
-### Arbitrum Sepolia
+### Arbitrum Sepolia (Hub)
 
 | Contract | Address |
 |---|---|
@@ -365,7 +286,7 @@ frontend/minimal-sponsor-ui/
 | Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
 | Collateral (USDC) | `0xe34742D957708d2c91CA8827F758b3843d681b3e` |
 
-### Base Sepolia
+### Base Sepolia (Spoke)
 
 | Contract | Address |
 |---|---|
@@ -376,19 +297,7 @@ frontend/minimal-sponsor-ui/
 
 ---
 
-
-
 ## Getting Started
-
-### Quick Start
-
-If you want to review the project quickly:
-
-1. Read the [Chainlink Services Used](#chainlink-services-used) section for direct code references.
-2. Review the deployed addresses in [Deployed Contracts](#deployed-contracts).
-3. Run the contracts and frontend locally using the steps below.
-
-### Complete Setup & Run Guide
 
 ### Prerequisites
 
@@ -398,92 +307,8 @@ If you want to review the project quickly:
 | **Bun** | ≥ 1.0 | [bun.sh](https://bun.sh) |
 | **Node.js** | ≥ 18 | [nodejs.org](https://nodejs.org) |
 | **Chainlink CRE CLI** | Latest | [docs.chain.link/cre](https://docs.chain.link/cre) |
-| **Git** | Latest | System package manager |
 
-### Environment Variables & Secret Keys
-
-GeoChain requires several secret keys depending on which part of the stack you're running:
-
-#### Smart Contracts (Foundry)
-
-For deploying to live testnets (not needed for local Anvil):
-
-```bash
-# Create a .env in the contract/ directory
-PRIVATE_KEY=<your-deployer-wallet-private-key>
-RPC_URL=<arbitrum-sepolia-or-base-sepolia-rpc-url>
-ETHERSCAN_API_KEY=<optional-for-verification>
-```
-
-> **Note**: The deployment scripts (`deployMarketFactory.s.sol`, `deployRouterVault.s.sol`) use hardcoded Anvil accounts by default for local testing. For testnet deployment, update the `initialOwner` and `forwarder` addresses in the scripts to your own addresses.
-
-#### CRE Workflows (Chainlink Runtime Environment)
-
-CRE workflows use `runtime.getSecret()` to access secrets configured in the CRE platform. The following secrets must be registered:
-
-| Secret ID | Description | Where to Get It |
-|---|---|---|
-| `AI_KEY` | Google Gemini API key for AI resolution, market creation, and dispute adjudication | [Google AI Studio](https://aistudio.google.com/apikey) |
-| `FIREBASE_API_KEY` | Firebase Web API key for Firestore authentication | Firebase Console → Project Settings → General |
-| `FIREBASE_PROJECT_ID` | Firebase project ID for Firestore read/write | Firebase Console → Project Settings → General |
-
-These are registered via the CRE CLI when deploying workflows:
-```bash
-cre secrets set AI_KEY <your-gemini-api-key>
-cre secrets set FIREBASE_API_KEY <your-firebase-api-key>
-cre secrets set FIREBASE_PROJECT_ID <your-firebase-project-id>
-```
-
-#### CRE Workflow Configuration
-
-Each workflow has a `config.staging.json` that defines:
-
-| Config Key | Purpose |
-|---|---|
-| `schedule` | Cron schedule for automated handlers (default: `*/30 * * * * *` = every 30 seconds) |
-| `httpTriggerAuthorizedKeys` | ECDSA public keys authorized to call sponsor/revoke HTTP endpoints |
-| `httpExecutionAuthorizedKeys` | ECDSA public keys authorized to call execute HTTP endpoints |
-| `httpFiatCreditAuthorizedKeys` | ECDSA public keys authorized to call fiat credit endpoints |
-| `httpAgentAuthorizedKeys` | (agents-workflow only) ECDSA public keys for agent trading endpoints |
-| `sponsorPolicy` | Controls allowed actions, max amounts, slippage, session duration for sponsored operations |
-| `executePolicy` | Whitelist of allowed action types for on-chain report execution |
-| `agentPolicy` | Agent-specific policy: allowed actions, max amount, slippage defaults |
-| `ethCreditPolicy` | Controls which chains support ETH deposit → USDC credit conversion |
-| `fiatCreditPolicy` | Controls allowed fiat payment providers and supported chains |
-| `evms[]` | Per-chain config: `marketFactoryAddress`, `routerReceiverAddress`, `collateralTokenAddress`, `chainName`, `reportGasLimit` |
-
-To customize, edit `cre/market-automation-workflow/config.staging.json`, `cre/market-users-workflow/config.staging.json`, and `cre/agents-workflow/config.staging.json` with your deployed contract addresses and authorized keys.
-
-#### Firebase Setup
-
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
-2. Enable **Firestore Database** (start in test mode for development)
-3. Enable **Anonymous Authentication** (used by CRE workflows for Firestore access)
-4. Copy your **Web API Key** and **Project ID** from Project Settings
-
-#### Frontend
-
-The frontend uses a `VITE_API_BASE_URL` environment variable (defaults to `http://localhost:5173`):
-
-```bash
-# Optional: create frontend/minimal-sponsor-ui/.env
-VITE_API_BASE_URL=http://localhost:5173
-```
-
-Contract addresses are hardcoded in `frontend/minimal-sponsor-ui/src/chain.ts` — update these if you deploy your own contracts.
-
----
-
-### Step-by-Step: Build & Run Locally
-
-#### 1. Clone the Repository
-
-```bash
-git clone https://github.com/0xHimxa/GeoChain-contrat.git
-cd GeoChain-contrat
-```
-
-#### 2. Build & Test Smart Contracts
+### Build & Test Smart Contracts
 
 ```bash
 cd contract
@@ -491,7 +316,7 @@ cd contract
 # Install Foundry dependencies (OpenZeppelin, forge-std)
 forge install
 
-# Build contracts (uses via_ir + optimizer with 200 runs)
+# Build contracts (via_ir + optimizer with 200 runs)
 forge build
 
 # Run the full test suite
@@ -503,259 +328,131 @@ forge test --gas-report # with gas profiling
 forge coverage
 ```
 
-#### 3. Deploy Smart Contracts (Local Anvil)
+### Deploy Contracts (Local Anvil)
 
 ```bash
-# Terminal 1: Start a local Anvil chain
+# Terminal 1: Start local chain
 anvil
 
-# Terminal 2: Deploy MarketFactory (creates mock USDC, deploys factory behind UUPS proxy)
+# Terminal 2: Deploy MarketFactory (creates mock USDC, deploys behind UUPS proxy)
 forge script script/deployMarketFactory.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
-# Deploy RouterVault (update addresses in script to match your deployment)
+# Deploy RouterVault
 forge script script/deployRouterVault.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
-# Deploy Bridge (update addresses in script to match your deployment)
+# Deploy Bridge
 forge script script/deployBridge.sol --rpc-url http://127.0.0.1:8545 --broadcast
 ```
 
-> **Important**: The deploy scripts use hardcoded Anvil default accounts:
-> - Account #0 (`0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`) = factory owner
-> - Account #1 (`0x70997970C51812dc3A010C7d01b50e0d17dc79C8`) = workflow forwarder placeholder
->
-> For testnet deployment, update these addresses and use `--private-key` or `--account` flags.
-
-#### 4. Deploy Smart Contracts (Testnet)
+### Deploy Contracts (Testnet)
 
 ```bash
-# Deploy to Arbitrum Sepolia
+# Arbitrum Sepolia
 forge script script/deployMarketFactory.s.sol \
   --rpc-url https://sepolia-rollup.arbitrum.io/rpc \
   --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify
+  --broadcast --verify
 
-# Deploy to Base Sepolia
+# Base Sepolia
 forge script script/deployMarketFactory.s.sol \
   --rpc-url https://sepolia.base.org \
   --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify
+  --broadcast --verify
 ```
 
-#### 5. Set Up & Deploy CRE Market Automation Workflow
+### Environment Variables
+
+#### Smart Contracts (Foundry)
 
 ```bash
-cd cre/market-automation-workflow
+# contract/.env (for testnet deploys only)
+PRIVATE_KEY=<your-deployer-wallet-private-key>
+RPC_URL=<arbitrum-sepolia-or-base-sepolia-rpc-url>
+ETHERSCAN_API_KEY=<optional-for-verification>
+```
 
-# Install dependencies (runs cre-setup postinstall hook automatically)
-bun install
+#### CRE Workflow Secrets
 
-# Edit config.staging.json with your deployed contract addresses
-# Update: marketFactoryAddress, routerReceiverAddress, collateralTokenAddress per chain
-# Update: httpTriggerAuthorizedKeys with your ECDSA public key
+| Secret ID | Description | Source |
+|---|---|---|
+| `AI_KEY` | Google Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `FIREBASE_API_KEY` | Firebase Web API key | Firebase Console → Project Settings |
+| `FIREBASE_PROJECT_ID` | Firebase project ID | Firebase Console → Project Settings |
 
-# Register secrets with CRE
+```bash
 cre secrets set AI_KEY <your-gemini-api-key>
 cre secrets set FIREBASE_API_KEY <your-firebase-api-key>
 cre secrets set FIREBASE_PROJECT_ID <your-firebase-project-id>
-
-# Simulate workflow locally (test specific trigger by index)
-cre workflow simulate ./  --target staging-settings --non-interactive --broadcast
-
-# Simulate sponsor HTTP handler (trigger index 1)
-cre workflow simulate ./ \
-  --target staging-settings \
-  --non-interactive \
-  --trigger-index 1 \
-  --http-payload "$(cat payload/sponsor.json)" \
-  --broadcast
-
-# Simulate execute HTTP handler (trigger index 3)
-cre workflow simulate ./ \
-  --target staging-settings \
-  --non-interactive \
-  --trigger-index 3 \
-  --http-payload "$(cat payload/execute.json)" \
-  --broadcast
-
-# Deploy to CRE staging
-cre workflow deploy --target staging-settings
 ```
 
-#### 6. Set Up & Deploy CRE User Workflow
+### Deploy CRE Workflows
 
 ```bash
-cd cre/market-users-workflow
-
-# Install dependencies
+# Market automation workflow
+cd cre/market-automation-workflow
 bun install
-
 # Edit config.staging.json with your deployed contract addresses
-# Update: httpTriggerAuthorizedKeys, httpExecutionAuthorizedKeys, and httpFiatCreditAuthorizedKeys
-
-# Simulate sponsor HTTP handler
-cre workflow simulate ./ \
-  --target staging-settings \
-  --non-interactive \
-  --trigger-index 0 \
-  --http-payload "$(cat payload/sponsor.json)" \
-  --broadcast
-
-# Deploy to CRE staging
 cre workflow deploy --target staging-settings
-```
 
-#### 7. Set Up & Deploy CRE Agents Workflow
+# User operations workflow
+cd cre/market-users-workflow
+bun install
+cre workflow deploy --target staging-settings
 
-```bash
+# Agent trading workflow
 cd cre/agents-workflow
-
-# Install dependencies
 bun install
-
-# Edit config.staging.json with your addresses
-# Make sure httpAgentAuthorizedKeys is set for agent HTTP endpoints
-
-# Deploy to CRE staging
 cre workflow deploy --target staging-settings
 ```
 
-#### 8. Run the Frontend (User Trading UI)
-
-```bash
-cd frontend/minimal-sponsor-ui
-
-# Install dependencies
-bun install
-
-# Terminal 1: Start the backend server (mock API on port 5173)
-bun run dev
-
-# Terminal 2: Start the Vite frontend dev server (port 5174)
-bun run frontend:dev
-
-# Open http://localhost:5174 in your browser
-```
-
-#### 9. Run the Frontend (Agent Trading UI)
-
-```bash
-cd frontend/minimal-sponsor-ui
-
-# Terminal 1: Start the agent backend server
-bun run dev:agent
-
-# Terminal 2: Start the Vite frontend for agent UI
-bun run frontend:dev:agent
-
-# Opens http://localhost:5174/agent.html automatically
-```
-
 ---
 
-### Deployed Contract Addresses
-
-#### Arbitrum Sepolia (Hub)
-
-| Contract | Address |
-|---|---|
-| MarketFactory | `0xA33Ac22e58d34712928d1D1E4CD5201349DCD023` |
-| RouterVault | `0xEeD3dc1B401ebd6C22E00641Cc6663FfC20f40b5` |
-| Bridge | `0xcb55019591457b2Ea6fbCd779cAF087a6890a06A` |
-| Collateral (USDC) | `0xe34742D957708d2c91CA8827F758b3843d681b3e` |
-
-#### Base Sepolia (Spoke)
-
-| Contract | Address |
-|---|---|
-| MarketFactory | `0xf04E1047F34507C7Cf60fDc811116Bc7b0E923f3` |
-| RouterVault | `0xef21B5c764186B9D3faD4D610564816fA7e461d4` |
-| Bridge | `0x915E3Ee1A09b08038e216B0eCbe736164a246aA3` |
-| Collateral (USDC) | `0x57e91c594f77Fca0cb6760267586772E3A3f054F` |
-
----
-
-### Tech Stack Summary
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Smart Contracts | Solidity 0.8.33, OpenZeppelin (UUPS, ReentrancyGuard, Pausable, ERC-20) |
 | Development | Foundry (Forge, Anvil, Cast) |
 | Cross-Chain | Chainlink CCIP |
-| Automation | Chainlink CRE (Cron, HTTP, Log triggers) |
+| Automation | Chainlink CRE (Cron, HTTP, EVM Log triggers) |
 | AI Resolution | Google Gemini 2.5 Flash with Search Grounding |
 | State & Audit | Firebase Firestore |
-| Frontend | React + TypeScript + ethers.js + Vite |
-| Styling | TailwindCSS 3 |
-| Deployment | Arbitrum Sepolia (hub), Base Sepolia (spoke) |
+| Off-chain Math | TypeScript BigInt (WAD = 1e18 fixed-point) |
 | Runtime | Bun |
+| Deployment | Arbitrum Sepolia (hub), Base Sepolia (spoke) |
 
 ---
 
-### Project Structure
+## Test Suite
 
 ```
-GeoChain-contrat/
-├── contract/                          # Smart contracts (Foundry)
-│   ├── src/
-│   │   ├── predictionMarket/          # Market modules (Base, Liquidity, Resolution)
-│   │   ├── marketFactory/             # Factory modules (Base, CCIP, Operations)
-│   │   ├── router/                    # RouterVault (user credits, agent permissions)
-│   │   ├── Bridge/                    # CCIP cross-chain claim bridge
-│   │   ├── libraries/                 # AMMLib, FeeLib, MarketTypes
-│   │   ├── modules/                   # CanonicalPricingModule
-│   │   └── token/                     # OutcomeToken (ERC-20 YES/NO)
-│   ├── script/                        # Foundry deployment scripts
-│   ├── test/                          # unit/, statelessFuzz/, statefullFuzz/
-│   └── foundry.toml                   # Foundry config (via_ir, optimizer, remappings)
-├── cre/
-│   ├── market-automation-workflow/    # Cron automation CRE workflow
-│   │   ├── main.ts                    # Workflow graph entry point
-│   │   ├── handlers/cronHandlers/     # resolve, create, topUp, sync, arbitrage, disputes
-│   │   ├── gemini/                    # AI: resolveEvent, uniqueEvent, adjudicate
-│   │   ├── firebase/                  # Firestore: auth, read/write, review sync
-│   │   ├── payload/                   # JSON payloads for CRE simulation
-│   │   ├── config.staging.json        # Staging config (addresses, policies, keys)
-│   │   └── Constant-variable/config.ts # TypeScript config types
-│   ├── market-users-workflow/         # User HTTP/log CRE workflow
-│   │   ├── main.ts                    # Sponsor, execute, revoke, fiat, ETH-credit graph
-│   │   ├── handlers/
-│   │   │   ├── httpHandlers/          # sponsor, execute, revoke, fiatCredit
-│   │   │   └── eventsHandler/         # ETH deposit log → credit
-│   │   ├── firebase/                  # Firestore: auth and approvals/session store
-│   │   └── config.staging.json        # User workflow config
-│   └── agents-workflow/               # Dedicated agent trading CRE workflow
-│       ├── main.ts                    # HTTP triggers: plan, sponsor, execute, revoke
-│       ├── handlers/httpHandlers/     # Agent request handlers
-│       ├── firebase/                  # Agent session/approval store
-│       └── config.staging.json        # Agent workflow config
-├── frontend/
-│   └── minimal-sponsor-ui/
-│       ├── src/
-│       │   ├── App.tsx                # User trading UI
-│       │   ├── AgentApp.tsx           # Agent delegation UI
-│       │   ├── chain.ts              # Multi-chain config, ABIs, market loading
-│       │   ├── api.ts                # CRE HTTP endpoint wrappers
-│       │   ├── api-agent.ts          # Agent API calls
-│       │   └── keyVault.ts           # Browser-local session key management
-│       ├── server.ts                  # Backend API server (Bun)
-│       ├── server-agent.ts           # Agent backend server (Bun)
-│       ├── vite.config.ts            # Vite config (port 5174)
-│       └── vite.agent.config.ts      # Vite config for agent UI
-├── demo-site/                         # Static demo landing page
-└── README.md                          # Hackathon and technical overview
+contract/test/
+├── unit/
+│   ├── PredictionMarket.t.sol              # Market lifecycle, LMSR execution, resolution
+│   ├── MarketFactory.t.sol                 # Factory operations, market registry, CRE report dispatch
+│   ├── PredictionMarketRouterVault.t.sol   # Router vault, agent delegation, credit accounting
+│   └── PredictionMarketBridge.t.sol        # Cross-chain bridge lock/mint/burn/unlock
+├── statelessFuzz/                          # Property-based fuzz testing
+├── statefullFuzz/                          # Invariant/stateful fuzz testing
+└── utils/                                  # Shared test utilities
 ```
 
+---
+
+## Skills Demonstrated
+
+| Domain | Implementation in This Codebase |
+|---|---|
+| **Smart Contract Engineering** | UUPS-upgradeable modular architecture across 3 proxy contracts; `_processReport` dispatcher routing 10+ action types via precomputed `keccak256` hashes; storage-layout-safe migration from CPMM to LMSR with deprecated slot preservation |
+| **DeFi Protocol Design** | LMSR pricing engine with bounded market-maker subsidy (`b × ln(N)`); complete-set mint/redeem with fee accounting; queued withdrawal system for LP exits |
+| **Cross-Chain Architecture** | Hub-spoke topology with dual-path price sync (CCIP + CRE direct); 4-band deviation policy engine with progressive circuit breakers; cross-chain claim bridge with replay protection |
+| **Automated Systems** | 3 independently deployed CRE workflows with 15+ handlers across cron, HTTP, and EVM-log triggers; fully autonomous market lifecycle from creation through resolution |
+| **Mathematical Finance** | Off-chain LMSR cost function via log-sum-exp trick in BigInt; `exp()` via 20-term Taylor series with range reduction; `ln()` via Halley's method; WAD-scaled (1e18) fixed-point arithmetic with no floating-point contamination |
+| **Security Design** | 6-layer agent delegation model; EIP-712 typed-data session signatures; one-time approval consumption with nonce replay protection; per-user risk exposure caps (5% of total liquidity); on-chain action-mask bitfield authorization |
+| **Testing** | Unit tests for all core contracts; stateless fuzz testing with randomized inputs; stateful invariant testing; Foundry gas profiling and coverage reporting |
 
 ---
 
-## Team
+## Contact
 
-Built for **Convergence: A Chainlink Hackathon** (2026)
-
----
-
-<p align="center">
-  <sub>GeoChain — Making prediction markets autonomous, cross-chain, and agent-native.</sub>
-</p>
+Built by **[Your Name]** — open to smart contract and protocol engineering roles. Reach out via **[your preferred contact]**.
