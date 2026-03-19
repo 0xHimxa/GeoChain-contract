@@ -54,5 +54,5 @@ An LMSR-based prediction market protocol with CRE-driven lifecycle automation, c
 
 ## Contact
 
-Reach out via **[your email or Telegram]**.
+Reach out via **himxa0x@gmail.com**.
 Interested in protocol roles, mechanism design problems, and cross-chain infrastructure challenges.

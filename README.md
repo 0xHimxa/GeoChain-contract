@@ -455,4 +455,4 @@ contract/test/
 
 ## Contact
 
-Built by **[Your Name]** — open to smart contract and protocol engineering roles. Reach out via **[your preferred contact]**.
+Built by **Himxa** — open to smart contract and protocol engineering roles. Reach out via **himxa0x@gmail.com**.
