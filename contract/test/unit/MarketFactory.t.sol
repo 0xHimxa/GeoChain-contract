@@ -11,6 +11,7 @@ import {DeployMarketFactory} from "../../script/deployMarketFactory.s.sol";
 import {MarketErrors, Resolution} from "../../src/libraries/MarketTypes.sol";
 import {Client} from "../../src/ccip/Client.sol";
 import {IRouterClient} from "../../src/ccip/IRouterClient.sol";
+import {IAny2EVMMessageReceiver} from "../../src/ccip/IAny2EVMMessageReceiver.sol";
 
 contract MockRouter is IRouterClient {
     uint256 public fee;
@@ -52,6 +53,18 @@ contract MockPredictionRouter {
     }
 }
 
+contract MockPredictionBridge {
+    uint256 public lastMarketId;
+    address public lastMarket;
+    uint256 public setCalls;
+
+    function setMarketIdMapping(uint256 marketId, address market) external {
+        lastMarketId = marketId;
+        lastMarket = market;
+        setCalls++;
+    }
+}
+
 struct CanonicalPriceSync {
     uint256 marketId;
     uint256 yesPriceE6;
@@ -82,6 +95,7 @@ contract MarketFactoryTest is Test {
     MarketFactory market;
     MockRouter router;
     MockPredictionRouter predictionRouter;
+    MockPredictionBridge predictionBridge;
     OutcomeToken feeToken;
     address forwarder = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address marketOwner = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
@@ -101,6 +115,7 @@ contract MarketFactoryTest is Test {
         market = MarketFactory(proxyAddress);
         router = new MockRouter();
         predictionRouter = new MockPredictionRouter();
+        predictionBridge = new MockPredictionBridge();
         feeToken = new OutcomeToken("FEE", "FEE", address(this));
     }
 
@@ -384,6 +399,13 @@ contract MarketFactoryTest is Test {
         assertEq(afterBalance - beforeBalance, 100000e6);
     }
 
+    function testOwnerMintCollateralWrapperPass() external {
+        address receiver = makeAddr("ownerMintReceiver");
+        vm.prank(marketOwner);
+        market.mintCollateralTo(receiver, 10e6);
+        assertEq(collateral.balanceOf(receiver), 10e6);
+    }
+
     function testSetMarketDeployerRevertZeroAddress() external {
         vm.prank(marketOwner);
         vm.expectRevert(MarketFactoryBase.MarketFactory__ZeroAddress.selector);
@@ -395,6 +417,22 @@ contract MarketFactoryTest is Test {
         MarketDeployer newDeployer = new MarketDeployer(address(implementation),address(this));
         vm.prank(marketOwner);
         market.setMarketDeployer(address(newDeployer));
+    }
+
+    function testUpgradeRevertsOnZeroImplementation() external {
+        vm.prank(marketOwner);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ZeroAddress.selector);
+        market.upgradeToAndCall(address(0), bytes(""));
+    }
+
+    function testSetNewMarketDeployerImplementationValidationAndPass() external {
+        vm.prank(marketOwner);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ZeroAddress.selector);
+        market.setNewMarketDeployerImplemntation(address(0));
+
+        PredictionMarket newImplementation = new PredictionMarket();
+        vm.prank(marketOwner);
+        market.setNewMarketDeployerImplemntation(address(newImplementation));
     }
 
     function testSetCcipConfigRevertZeroAddress() external {
@@ -431,6 +469,30 @@ contract MarketFactoryTest is Test {
 
         assertEq(market.marketById(99), mirroredMarket);
         assertEq(market.marketIdByAddress(mirroredMarket), 99);
+    }
+
+    function testSetPredictionBridgeAndRouterValidationAndCreateMarketHooks() external {
+        vm.startPrank(marketOwner);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ZeroAddress.selector);
+        market.setPredictionMarketBridge(address(0));
+
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ZeroAddress.selector);
+        market.setPredictionMarketRouter(address(0));
+
+        market.setPredictionMarketBridge(address(predictionBridge));
+        market.setPredictionMarketRouter(address(predictionRouter));
+        address created = market.createMarket("bridge-map", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);
+        vm.stopPrank();
+
+        assertEq(predictionBridge.lastMarketId(), 1);
+        assertEq(predictionBridge.lastMarket(), created);
+        assertEq(predictionBridge.setCalls(), 1);
+        assertEq(predictionRouter.allowedMarkets(created), true);
+    }
+
+    function testSupportsInterfaceReturnsExpectedValues() external view {
+        assertEq(market.supportsInterface(type(IAny2EVMMessageReceiver).interfaceId), true);
+        assertEq(market.supportsInterface(bytes4(0xffffffff)), false);
     }
 
     function testBroadcastCanonicalPriceRevertNotHubFactory() external {
@@ -779,5 +841,365 @@ contract MarketFactoryTest is Test {
         assertEq(uint8(prediction.resolution()), uint8(Resolution.Yes));
         assertEq(market.resolutionNonceByMarketId(1), 3);
         assertEq(market.processedCcipMessages(bytes32(uint256(11))), true);
+    }
+
+    function testOnReportAddLiquidityAndMintCollateralActions() external {
+        uint256 beforeFactoryBal = collateral.balanceOf(address(market));
+        bytes memory addLiquidityReport = abi.encode("addLiquidityToFactory", abi.encode(uint256(0)));
+        vm.prank(forwarder);
+        market.onReport("", addLiquidityReport);
+        assertGt(collateral.balanceOf(address(market)), beforeFactoryBal);
+
+        address receiver = makeAddr("mintReceiver");
+        uint256 mintAmount = 250e6;
+        bytes memory mintReport = abi.encode("mintCollateralTo", abi.encode(receiver, mintAmount));
+        vm.prank(forwarder);
+        market.onReport("", mintReport);
+        assertEq(collateral.balanceOf(receiver), mintAmount);
+    }
+
+    function testOnReportUnknownActionReverts() external {
+        bytes memory unknownReport = abi.encode("totallyUnknownAction", abi.encode(uint256(1)));
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ActionNotRecognized.selector);
+        market.onReport("", unknownReport);
+    }
+
+    function testWithdrawMarketFactoryCollateralAndFeeRevertsWhenMarketMissing() external {
+        vm.prank(marketOwner);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__MarketNotFound.selector);
+        market.withdrawMarketFactoryCollateralAndFee(999);
+    }
+
+    function testOnReportWithCollateralAndFeeRevertsWhenMarketMissing() external {
+        bytes memory report = abi.encode("WithCollatralAndFee", abi.encode(uint256(999)));
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__MarketNotFound.selector);
+        market.onReport("", report);
+    }
+
+    function testOnReportPriceCorrectionRevertsOnZeroAmounts() external {
+        vm.prank(marketOwner);
+        market.createMarket("unsafe", block.timestamp + 1 days, block.timestamp + 2 days, initialLiquidity);
+
+        bytes memory payload = abi.encode(
+            uint256(1), // marketId
+            uint8(0), // outcomeIndex
+            uint256(0), // sharesDelta
+            uint256(0), // costDelta
+            uint256(500_000), // newYesPriceE6
+            uint256(500_000), // newNoPriceE6
+            uint64(1), // nonce
+            uint256(0), // maxSpendCollateral
+            uint256(1) // minDeviationImprovementBps
+        );
+        bytes memory report = abi.encode("priceCorrection", payload);
+
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ArbZeroAmount.selector);
+        market.onReport("", report);
+    }
+
+    function testOnReportPriceCorrectionRevertsWhenCostExceedsMax() external {
+        vm.prank(marketOwner);
+        market.createMarket("unsafe-max", block.timestamp + 1 days, block.timestamp + 2 days, initialLiquidity);
+
+        bytes memory payload = abi.encode(
+            uint256(1),
+            uint8(1),
+            uint256(1e6),
+            uint256(2e6),
+            uint256(500_000),
+            uint256(500_000),
+            uint64(1),
+            uint256(1e6),
+            uint256(1)
+        );
+        bytes memory report = abi.encode("priceCorrection", payload);
+
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ArbCostExceedsMax.selector);
+        market.onReport("", report);
+    }
+
+    function testOnReportPriceCorrectionRevertsWhenMarketMissingAndNotUnsafe() external {
+        bytes memory missingPayload = abi.encode(
+            uint256(999),
+            uint8(1),
+            uint256(1e6),
+            uint256(1e6),
+            uint256(500_000),
+            uint256(500_000),
+            uint64(1),
+            uint256(2e6),
+            uint256(1)
+        );
+        bytes memory missingReport = abi.encode("priceCorrection", missingPayload);
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__MarketNotFound.selector);
+        market.onReport("", missingReport);
+
+        vm.prank(marketOwner);
+        market.createMarket("safe-band", block.timestamp + 1 days, block.timestamp + 2 days, initialLiquidity);
+        bytes memory notUnsafePayload = abi.encode(
+            uint256(1),
+            uint8(1),
+            uint256(1e6),
+            uint256(1e6),
+            uint256(500_000),
+            uint256(500_000),
+            uint64(0),
+            uint256(2e6),
+            uint256(1)
+        );
+        bytes memory notUnsafeReport = abi.encode("priceCorrection", notUnsafePayload);
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__ArbNotUnsafe.selector);
+        market.onReport("", notUnsafeReport);
+    }
+
+    function testOnReportPreCloseLmsrSellRevertsOnInvalidAmount() external {
+        vm.prank(marketOwner);
+        market.createMarket("pre-close", block.timestamp + 1 days, block.timestamp + 2 days, initialLiquidity);
+
+        bytes memory payload = abi.encode(
+            uint256(1), // marketId
+            uint8(0), // outcomeIndex
+            uint256(0), // sharesDelta
+            uint256(0), // refundDelta
+            uint256(500_000), // newYesPriceE6
+            uint256(500_000), // newNoPriceE6
+            uint64(1) // nonce
+        );
+        bytes memory report = abi.encode("preCloseLmsrSell", payload);
+
+        vm.prank(forwarder);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__PreCloseSellInvalidAmount.selector);
+        market.onReport("", report);
+    }
+
+    function testOnReportBroadcastDispatchAndPriceCorrectionThenPreCloseSellSuccess() external {
+        vm.startPrank(marketOwner);
+        address created = market.createMarket("ops-flow", block.timestamp + 2 hours, block.timestamp + 3 hours, initialLiquidity);
+        market.setCcipConfig(address(router), address(feeToken), true);
+        market.setTrustedRemote(sepoChainSelector, address(100));
+        market.addLiquidityToFactory();
+        vm.stopPrank();
+
+        bytes memory broadcastPrice = abi.encode(
+            "broadCastPrice", abi.encode(uint256(1), uint256(520_000), uint256(480_000), uint256(block.timestamp + 1 days))
+        );
+        vm.prank(forwarder);
+        market.onReport("", broadcastPrice);
+
+        bytes memory broadcastResolution = abi.encode(
+            "broadCastResolution", abi.encode(uint256(1), Resolution.Yes, "ipfs://proof")
+        );
+        vm.prank(forwarder);
+        market.onReport("", broadcastResolution);
+        assertEq(router.sentCount(), 2);
+
+        vm.prank(marketOwner);
+        market.setCcipConfig(address(router), address(feeToken), false);
+        bytes memory syncPayload = abi.encode(uint256(1), uint256(460_000), uint256(540_000), uint256(block.timestamp + 1 days));
+        bytes memory syncReport = abi.encode("syncSpokeCanonicalPrice", syncPayload);
+        vm.prank(forwarder);
+        market.onReport("", syncReport);
+
+        bytes memory correctionPayload = abi.encode(
+            uint256(1),
+            uint8(1),
+            uint256(2e6),
+            uint256(2e6),
+            uint256(460_000),
+            uint256(540_000),
+            uint64(0),
+            uint256(3e6),
+            uint256(1)
+        );
+        bytes memory correctionReport = abi.encode("priceCorrection", correctionPayload);
+        vm.prank(forwarder);
+        market.onReport("", correctionReport);
+        assertEq(PredictionMarket(created).tradeNonce(), 1);
+
+        vm.warp(PredictionMarket(created).closeTime() - 1);
+        bytes memory preClosePayload = abi.encode(
+            uint256(1),
+            uint8(1),
+            uint256(1e6),
+            uint256(1e6),
+            uint256(500_000),
+            uint256(500_000),
+            uint64(1)
+        );
+        bytes memory preCloseReport = abi.encode("preCloseLmsrSell", preClosePayload);
+        vm.prank(forwarder);
+        market.onReport("", preCloseReport);
+        assertEq(PredictionMarket(created).tradeNonce(), 2);
+    }
+
+    function testPendingWithdrawQueueLifecycleAndManualReviewList() external {
+        vm.startPrank(marketOwner);
+        address created = market.createMarket("queue", block.timestamp + 100, block.timestamp + 200, initialLiquidity);
+        market.enqueueWithdraw(1);
+        market.setCcipConfig(address(router), address(feeToken), true);
+        vm.stopPrank();
+
+        assertEq(market.getPendingWithdrawCount(), 1);
+        assertEq(market.getPendingWithdrawAt(0), 1);
+
+        bytes memory processReport = abi.encode("processPendingWithdrawals", abi.encode(uint256(1)));
+        vm.prank(forwarder);
+        market.onReport("", processReport);
+        assertEq(market.getPendingWithdrawCount(), 1);
+
+        vm.warp(block.timestamp + 201);
+        vm.prank(marketOwner);
+        PredictionMarket(created).resolve(Resolution.Inconclusive, "ipfs://manual-review");
+
+        address[] memory reviewMarkets = market.getManualReviewEventList();
+        assertEq(reviewMarkets.length, 1);
+        assertEq(reviewMarkets[0], created);
+        assertEq(market.getMarketFactoryCollateralBalance(), collateral.balanceOf(address(market)));
+    }
+
+    function testGetActiveEventListViewReturnsCreatedMarkets() external {
+        vm.startPrank(marketOwner);
+        address first = market.createMarket("active-1", block.timestamp + 1 hours, block.timestamp + 2 hours, initialLiquidity);
+        address second = market.createMarket("active-2", block.timestamp + 3 hours, block.timestamp + 4 hours, initialLiquidity);
+        vm.stopPrank();
+
+        address[] memory active = market.getActiveEventList();
+        assertEq(active.length, 2);
+        assertEq(active[0], first);
+        assertEq(active[1], second);
+    }
+
+    function testPendingWithdrawProcessingResolvedPathAndValidation() external {
+        vm.startPrank(marketOwner);
+        address created = market.createMarket("resolved-queue", block.timestamp + 100, block.timestamp + 200, initialLiquidity);
+        market.enqueueWithdraw(1);
+        market.enqueueWithdraw(1); // duplicate is ignored
+        market.setCcipConfig(address(router), address(feeToken), true);
+        vm.stopPrank();
+
+        vm.prank(marketOwner);
+        vm.expectRevert(MarketFactoryBase.MarketFactory__InvalidMaxBatch.selector);
+        market.processPendingWithdrawals(0);
+
+        vm.prank(marketOwner);
+        market.enqueueWithdraw(0); // zero id is ignored
+        assertEq(market.getPendingWithdrawCount(), 1);
+
+        vm.warp(block.timestamp + 201);
+        vm.prank(marketOwner);
+        PredictionMarket(created).resolve(Resolution.Yes, "ipfs://resolved");
+        vm.warp(block.timestamp + PredictionMarket(created).disputeWindow() + 1);
+        vm.prank(marketOwner);
+        PredictionMarket(created).finalizeResolutionAfterDisputeWindow();
+
+        vm.prank(marketOwner);
+        (uint256 attempted, uint256 succeeded, uint256 remaining) = market.processPendingWithdrawals(1);
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertEq(remaining, 0);
+        assertEq(market.getPendingWithdrawCount(), 0);
+
+        vm.expectRevert(MarketFactoryBase.MarketFactory__MarketNotFound.selector);
+        market.getPendingWithdrawAt(0);
+    }
+
+    function testProcessPendingWithdrawCompactsQueueAfterLargeHead() external {
+        vm.startPrank(marketOwner);
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        vm.stopPrank();
+
+        for (uint256 i = 1; i <= 52; i++) {
+            vm.prank(marketOwner);
+            address created = market.createMarket(
+                string.concat("compact-", vm.toString(i)),
+                block.timestamp + 1 days + i,
+                block.timestamp + 2 days + i,
+                initialLiquidity
+            );
+            vm.prank(address(market));
+            PredictionMarket(created).resolveFromHub(Resolution.Yes, "ipfs://hub-proof");
+            vm.prank(marketOwner);
+            market.enqueueWithdraw(i);
+        }
+
+        vm.prank(marketOwner);
+        (uint256 attempted, uint256 succeeded, uint256 remaining) = market.processPendingWithdrawals(52);
+        assertEq(attempted, 52);
+        assertEq(succeeded, 52);
+        assertEq(remaining, 0);
+        assertEq(market.getPendingWithdrawCount(), 0);
+    }
+
+    function testProcessPendingWithdrawCompactionRetainsTailItem() external {
+        vm.startPrank(marketOwner);
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        market.addLiquidityToFactory();
+        vm.stopPrank();
+
+        for (uint256 i = 1; i <= 52; i++) {
+            vm.prank(marketOwner);
+            address created = market.createMarket(
+                string.concat("compact-tail-", vm.toString(i)),
+                block.timestamp + 1 days + i,
+                block.timestamp + 2 days + i,
+                initialLiquidity
+            );
+            vm.prank(address(market));
+            PredictionMarket(created).resolveFromHub(Resolution.Yes, "ipfs://hub-proof");
+            vm.prank(marketOwner);
+            market.enqueueWithdraw(i);
+        }
+
+        vm.prank(marketOwner);
+        (uint256 attempted, uint256 succeeded, uint256 remaining) = market.processPendingWithdrawals(51);
+        assertEq(attempted, 51);
+        assertEq(succeeded, 51);
+        assertEq(remaining, 1);
+        assertEq(market.getPendingWithdrawAt(0), 52);
+    }
+
+    function testOnHubMarketResolvedAndManualReviewAccessPaths() external {
+        vm.prank(marketOwner);
+        address created = market.createMarket("hub-market", block.timestamp + 100, block.timestamp + 200, initialLiquidity);
+
+        vm.startPrank(marketOwner);
+        market.setCcipConfig(address(router), address(feeToken), true);
+        market.setTrustedRemote(sepoChainSelector, address(100));
+        vm.stopPrank();
+
+        vm.expectRevert(MarketFactoryBase.MarketFactory__OnlyRegisteredMarket.selector);
+        market.onHubMarketResolved(Resolution.Yes, "ipfs://proof");
+
+        vm.prank(created);
+        market.onHubMarketResolved(Resolution.Yes, "ipfs://proof");
+
+        vm.prank(makeAddr("intruder"));
+        vm.expectRevert(MarketFactoryBase.MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove.selector);
+        market.markMarketForManualReview(created);
+
+        vm.prank(marketOwner);
+        market.markMarketForManualReview(created);
+        vm.prank(marketOwner);
+        market.markMarketForManualReview(created); // duplicate no-op
+
+        vm.prank(makeAddr("intruder2"));
+        vm.expectRevert(MarketFactoryBase.MarketFactory__OnlyRegisteredMarket_Or_OwnerCanRemove.selector);
+        market.removeManualReviewMarket(created);
+
+        vm.prank(marketOwner);
+        market.removeManualReviewMarket(created);
+        vm.prank(marketOwner);
+        market.removeManualReviewMarket(created); // missing entry no-op
     }
 }

@@ -100,8 +100,12 @@ contract PredictionMarket is PredictionMarketResolution {
             );
         }
 
-        _ensureCanonicalPriceFresh();
-        _validateCanonicalPrices();
+        if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
+            revert PredictionMarket__CanonicalPriceStale();
+        }
+        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
 
         uint8 bandId;
 
@@ -155,14 +159,10 @@ contract PredictionMarket is PredictionMarketResolution {
     }
 
     /// @notice Pauses user actions guarded by `whenNotPaused` / `marketOpen`.
-    function pause() external onlyOwner {
-        _pause();
-    }
+    function pause() external onlyOwner { _pause(); }
 
     /// @notice Unpauses the market after pause event.
-    function unpause() external onlyOwner {
-        _unpause();
-    }
+    function unpause() external onlyOwner { _unpause(); }
 
     /// @notice Withdraws accumulated protocol fee collateral.
     /// @dev Only owner or cross-chain controller may call after market resolution.

@@ -286,8 +286,15 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             return effectiveFeeBps;
         }
 
-        _ensureCanonicalPriceFresh();
-        _validateCanonicalPrices();
+/// @dev Rejects canonical prices that are zero on either side.
+      if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
+            revert PredictionMarket__InvalidCanonicalPrice();
+        }
+         /// @dev Rejects missing or expired canonical price snapshots.
+         if (canonicalPriceNonce == 0 || block.timestamp > canonicalPriceValidUntil) {
+            revert PredictionMarket__CanonicalPriceStale();
+        }
+       
 
         bool yesForNo = isBuy ? outcomeIndex == 1 : outcomeIndex == 0;
         uint256 collateralReserve = i_collateral.balanceOf(address(this));

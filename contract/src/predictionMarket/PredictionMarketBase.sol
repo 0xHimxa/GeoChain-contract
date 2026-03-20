@@ -409,13 +409,6 @@ abstract contract PredictionMarketBase is
         return DeviationBand.CircuitBreaker;
     }
 
-    /// @dev Rejects canonical prices that are zero on either side.
-    function _validateCanonicalPrices() internal view {
-        if (canonicalNoPriceE6 == 0 || canonicalYesPriceE6 == 0) {
-            revert PredictionMarket__InvalidCanonicalPrice();
-        }
-    }
-
     /// @dev Blocks local resolution where hub-governed cross-chain resolution is required.
     function _revertIfLocalResolutionDisabled() internal view {
         if (

@@ -786,6 +786,102 @@ contract PredictionMarketRouterVaultTest is Test {
         assertEq(router.getUntrackedCollateral(), 100e6);
     }
 
+    function testGetRouterUntrackedValueAliasMatchesUntrackedCollateral() external {
+        assertEq(router.getRouterUntrackedValue(), 0);
+        collateral.mint(address(router), 33e6);
+        assertEq(router.getRouterUntrackedValue(), 33e6);
+        assertEq(router.getRouterUntrackedValue(), router.getUntrackedCollateral());
+    }
+
+    function testUpgradeRevertsOnZeroImplementation() external {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("Router__ZeroAddress()"));
+        router.upgradeToAndCall(address(0), bytes(""));
+    }
+
+    function testOnReportDispatchesDepositWithdrawMintAndRedeem() external {
+        collateral.mint(bob, 120e6);
+        vm.prank(bob);
+        collateral.approve(address(router), type(uint256).max);
+
+        bytes memory depositFor = abi.encode("routerDepositFor", abi.encode(alice, 100e6));
+        vm.prank(forwarder);
+        router.onReport("", depositFor);
+        assertEq(router.collateralCredits(alice), 100e6);
+
+        bytes memory withdrawFor = abi.encode("routerWithdrawCollateralFor", abi.encode(alice, 20e6));
+        vm.prank(forwarder);
+        router.onReport("", withdrawFor);
+        assertEq(router.collateralCredits(alice), 80e6);
+
+        bytes memory mintReport = abi.encode("routerMintCompleteSets", abi.encode(alice, address(market), 30e6));
+        vm.prank(forwarder);
+        router.onReport("", mintReport);
+
+        bytes memory redeemSets = abi.encode("routerRedeemCompleteSets", abi.encode(alice, address(market), 5e6));
+        vm.prank(forwarder);
+        router.onReport("", redeemSets);
+
+        vm.warp(block.timestamp + 3 days);
+        _resolveAndFinalize(Resolution.Yes, "ipfs://proof");
+
+        bytes memory redeemWinnings = abi.encode("routerRedeem", abi.encode(alice, address(market), 1e6));
+        vm.prank(forwarder);
+        router.onReport("", redeemWinnings);
+    }
+
+    function testOnReportDispatchesDisputeAction() external {
+        vm.prank(alice);
+        router.depositCollateral(20e6);
+
+        vm.warp(block.timestamp + 3 days);
+        market.resolve(Resolution.Yes, "ipfs://proof");
+        bytes memory dispute = abi.encode(
+            "routerDisputeProposedResolution", abi.encode(alice, address(market), uint8(Resolution.No))
+        );
+        vm.prank(forwarder);
+        router.onReport("", dispute);
+        assertEq(market.resolutionDisputed(), true);
+    }
+
+    function testAgentRuntimeAuthorizationRevertsForExpiredActionMaskAndAmount()
+        external
+    {
+        vm.prank(alice);
+        router.depositCollateral(100e6);
+
+        vm.prank(alice);
+        router.setAgentPermission(bob, uint32(1 << 4), 100e6, uint64(block.timestamp + 2));
+        vm.warp(block.timestamp + 3);
+
+        bytes memory expiredBuy = abi.encode(
+            "routerAgentBuy",
+            abi.encode(alice, bob, address(market), uint8(0), 2e6, 10e6, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentPermissionExpired()"));
+        router.onReport("", expiredBuy);
+
+        vm.prank(alice);
+        router.setAgentPermission(bob, uint32(1 << 4), 5e6, uint64(block.timestamp + 1 days));
+
+        bytes memory wrongAction = abi.encode(
+            "routerAgentRedeemCompleteSets",
+            abi.encode(alice, bob, address(market), 1e6)
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentActionNotAllowed()"));
+        router.onReport("", wrongAction);
+
+        bytes memory amountExceeded = abi.encode(
+            "routerAgentBuy",
+            abi.encode(alice, bob, address(market), uint8(0), 2e6, 6e6, 600_000, 400_000, uint64(0))
+        );
+        vm.prank(forwarder);
+        vm.expectRevert(abi.encodeWithSignature("Router__AgentAmountExceeded()"));
+        router.onReport("", amountExceeded);
+    }
+
     function testReceiveEthSuccess() external {
         uint256 ethAmount = 5 ether;
 

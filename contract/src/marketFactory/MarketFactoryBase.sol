@@ -320,7 +320,7 @@ abstract contract MarketFactoryBase is
     /// @dev Intended for environments where collateral is an owner-mintable token.
     /// The minted balance is later used for actions like market funding or arbitrage.
     function addLiquidityToFactory() external onlyOwner {
-        return _addLiquidityToFactory();
+        _addLiquidityToFactory();
     }
 
     /// @notice Mints collateral token to a target address.
