@@ -166,7 +166,7 @@ contract PredictionMarket is PredictionMarketResolution {
 
     /// @notice Withdraws accumulated protocol fee collateral.
     /// @dev Only owner or cross-chain controller may call after market resolution.
-    function withdrawProtocolFees() external {
+    function withdrawProtocolFees() external  {
         if (msg.sender != owner() && msg.sender != crossChainController) {
             revert MarketErrors.PredictionMarket__NotOwner_Or_CrossChainController();
         }
@@ -174,6 +174,8 @@ contract PredictionMarket is PredictionMarketResolution {
             revert MarketErrors.PredictionMarket__StateNeedsToBeResolvedToWithdrawLiquidity();
         }
         if (protocolCollateralFees == 0) return;
+        
+        protocolCollateralFees = 0;
 
         uint256 contractBalance = i_collateral.balanceOf(address(this));
 
@@ -183,7 +185,6 @@ contract PredictionMarket is PredictionMarketResolution {
 
         uint256 fees = protocolCollateralFees;
         i_collateral.safeTransfer(msg.sender, fees);
-        protocolCollateralFees = 0;
 
         emit MarketEvents.WithdrawProtocolFees(msg.sender, fees);
     }

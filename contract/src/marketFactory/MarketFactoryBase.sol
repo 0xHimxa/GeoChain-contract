@@ -11,7 +11,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     SafeERC20
 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {console} from "forge-std/console.sol";
 import {PredictionMarket} from "../predictionMarket/PredictionMarket.sol";
 import {MarketDeployer} from "./event-deployer/MarketDeployer.sol";
 import {
@@ -338,7 +337,6 @@ abstract contract MarketFactoryBase is
     function _mintCollateralTo(address to, uint256 amount) internal {
         if (to == address(0)) revert MarketFactory__ZeroAddress();
         if (amount == 0) revert MarketFactory__InvalidMintAmount();
-        console.log(OutcomeToken(address(collateral)).owner(), "Owner");
         OutcomeToken(address(collateral)).mint(to, amount);
         emit MarketFactory__LiquidityAdded(amount);
     }

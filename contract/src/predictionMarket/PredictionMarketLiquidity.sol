@@ -117,7 +117,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             effectiveFeeBps,
             MarketConstants.FEE_PRECISION_BPS
         );
-        uint256 actualCost = costDelta - fee; // costDelta is already inclusive (CRE subtracted fee)
+        uint256 actualCost = costDelta - fee; // costDelta is already added (CRE added  fee to the cost delta)
 
         if (!isRiskExempt[trader]) {
             // Check exactly what we track as exposure to avoid fee-mismatch drift.
@@ -129,25 +129,28 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         lastYesPriceE6 = newYesPriceE6;
         lastNoPriceE6 = newNoPriceE6;
 
-        protocolCollateralFees += fee;
         if (!isRiskExempt[trader]) {
             userRiskExposure[trader] += actualCost;
         }
 
+     // Transfer collateral (inclusive cost) from trader to market
+        i_collateral.safeTransferFrom(trader, address(this), costDelta);
+     protocolCollateralFees += fee;
     
         // Mint outcome tokens to trader and update outstanding shares
         if (outcomeIndex == 0) {
             yesSharesOutstanding += sharesDelta;
+   
+
           
             yesToken.mint(trader, sharesDelta);
         } else {
             noSharesOutstanding += sharesDelta;
             noToken.mint(trader, sharesDelta);
+            
         }
 
-            // Transfer collateral (inclusive cost) from trader to market
-        i_collateral.safeTransferFrom(trader, address(this), costDelta);
-
+       
 
         emit MarketEvents.LMSRBuyExecuted(
             trader,
@@ -251,7 +254,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
             noToken.burn(trader, sharesDelta);
         }
 
-        // Extract fee from inclusive refund (CRE sends refund with fee already subtracted)
+        // Extract fee  deduct (CRE sends refund with fee already added to the refundDelta)
         uint256 fee = FeeLib.calculateFee(
             refundDelta,
             effectiveFeeBps,
@@ -415,12 +418,13 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
                 ? userRiskExposure[msg.sender] - amount
                 : 0;
         }
+          yesSharesOutstanding -= amount;
+        noSharesOutstanding -=amount;
         yesToken.burn(msg.sender, amount);
         noToken.burn(msg.sender, amount);
-        yesSharesOutstanding = yesSharesOutstanding > amount ? yesSharesOutstanding - amount : 0;
-        noSharesOutstanding = noSharesOutstanding > amount ? noSharesOutstanding - amount : 0;
+      
         i_collateral.safeTransfer(msg.sender, netAmount);
-
+`
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);
     }
 

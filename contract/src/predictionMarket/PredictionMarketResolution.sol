@@ -214,19 +214,29 @@ abstract contract PredictionMarketResolution is PredictionMarketLiquidity {
             revert MarketErrors.PredictionMarket__NotResolved();
         }
 
+
+         if (resolution != Resolution.Yes && resolution != Resolution.No) {
+        revert MarketErrors.PredictionMarket__InvalidFinalOutcome();
+    }
+
+
         (uint256 netAmount, uint256 fee) = FeeLib.deductFee(
             amount,
             MarketConstants.REDEEM_COMPLETE_SETS_FEE_BPS,
             MarketConstants.FEE_PRECISION_BPS
         );
 
-        protocolCollateralFees += fee;
+      
 
         if (resolution == Resolution.Yes) {
             yesToken.burn(msg.sender, amount);
+              protocolCollateralFees += fee;
+
             i_collateral.safeTransfer(msg.sender, netAmount);
         } else if (resolution == Resolution.No) {
             noToken.burn(msg.sender, amount);
+              protocolCollateralFees += fee;
+
             i_collateral.safeTransfer(msg.sender, netAmount);
         }
 

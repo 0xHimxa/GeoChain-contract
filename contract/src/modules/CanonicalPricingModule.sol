@@ -107,7 +107,8 @@ library CanonicalPricingModule {
                 CIRCUIT_BREAKER_MAX_OUT_DIVISOR
             );
             maxOut = (p.reserveOut * reducedCircuitMaxOutBps) / p.feePrecisionBps;
-            allowDirection = false;
+               bool allowYesForNo = localYesPriceE6Value > p.canonicalYesPriceE6;
+            bool allowNoForYes = localYesPriceE6Value < p.canonicalYesPriceE6;
         }
     }
 
