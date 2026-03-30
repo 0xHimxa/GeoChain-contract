@@ -424,7 +424,7 @@ abstract contract PredictionMarketLiquidity is PredictionMarketBase {
         noToken.burn(msg.sender, amount);
       
         i_collateral.safeTransfer(msg.sender, netAmount);
-`
+
         emit MarketEvents.CompleteSetsRedeemed(msg.sender, netAmount);
     }
 
