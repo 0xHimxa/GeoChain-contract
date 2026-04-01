@@ -1,0 +1,31 @@
+
+╭-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------╮
+| Name                    | Type                        | Slot | Offset | Bytes | Contract                                                     |
++==============================================================================================================================================+
+| _owner                  | address                     | 0    | 0      | 20    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| ccipRouter              | address                     | 1    | 0      | 20    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| ccipFeeToken            | address                     | 2    | 0      | 20    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| outboundNonce           | uint64                      | 2    | 20     | 8     | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| wrappedClaimBuybackBps  | uint16                      | 2    | 28     | 2     | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| buybackUnlockReceiver   | address                     | 3    | 0      | 20    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| marketFactory           | address                     | 4    | 0      | 20    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| ccipGasLimit            | uint256                     | 5    | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| supportedChainSelector  | mapping(uint64 => bool)     | 6    | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| trustedRemoteBySelector | mapping(uint64 => bytes)    | 7    | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| processedCcipMessages   | mapping(bytes32 => bool)    | 8    | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| marketById              | mapping(uint256 => address) | 9    | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+|-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------|
+| wrappedClaimTokenByKey  | mapping(bytes32 => address) | 10   | 0      | 32    | src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge |
+╰-------------------------+-----------------------------+------+--------+-------+--------------------------------------------------------------╯
+
