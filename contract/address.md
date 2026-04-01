@@ -20,3 +20,6 @@ baseBridge: 0x9fBF4e8fc717aa2E39af897D8508ABB9f2DD4157
 
 basecollateral: 0x57e91c594f77Fca0cb6760267586772E3A3f054F
 
+
+
+ forge inspect --json src/Bridge/PredictionMarketBridge.sol:PredictionMarketBridge storageLayout > A_storage_lay.json
